@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+
+# build outputs
+dist/
+.vite/
+
+# env
+.env
+.env.*.local
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local/debug artifacts
+*.tmp
+*.swp
+*.swo
+auth_api_err.log
+auth_api_out.log
+hrm_err.log
+hrm_out.log
+build_errors.txt
+dev_output.txt
+errors.txt
+lint_errors.txt
+tsc_output.txt
+
+# codex/agent local folders
+.agent/
+temp_skills/
+
+# OS/IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

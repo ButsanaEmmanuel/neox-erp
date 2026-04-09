@@ -1,0 +1,117 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Mode (Default) */
+    --bg-app: 255 255 255;
+    /* white */
+    --bg-surface: 248 250 252;
+    /* slate-50 */
+    --bg-card: 255 255 255;
+    --bg-popover: 255 255 255;
+    --bg-sidebar: 255 255 255;
+    /* white */
+
+    --text-primary: 15 23 42;
+    /* slate-900 */
+    /* slate-900 */
+    --text-secondary: 71 85 105;
+    /* slate-600 */
+    --text-muted: 100 116 139;
+    /* slate-500 */
+
+    --border-base: 226 232 240;
+    /* slate-200 */
+    --border-strong: 203 213 225;
+    /* slate-300 */
+
+    --color-primary: 16 185 129;
+    /* emerald-500 */
+    --color-primary-fg: 255 255 255;
+
+    --ring: 16 185 129;
+    /* emerald-500 */
+  }
+
+  [data-mode="dark"] {
+    /* Dark Mode */
+    --bg-app: 13 17 23;
+    /* neox-obsidian */
+    --bg-surface: 22 27 34;
+    /* darker surface */
+    --bg-card: 17 24 39;
+    /* gray-900 */
+    --bg-popover: 17 24 39;
+
+    --text-primary: 226 232 240;
+    /* slate-200 */
+    --text-secondary: 148 163 184;
+    /* slate-400 */
+    --text-muted: 100 116 139;
+    /* slate-500 */
+
+    --border-base: 30 41 59;
+    /* slate-800 */
+    --border-strong: 51 65 85;
+    /* slate-700 */
+
+    --color-primary: 16 185 129;
+    /* emerald-500 */
+    --color-primary-fg: 255 255 255;
+
+    --ring: 16 185 129;
+  }
+
+  html,
+  body {
+    @apply overflow-hidden h-screen m-0 p-0;
+  }
+
+  body {
+    @apply bg-app text-primary font-inter antialiased transition-colors duration-300;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-card border border-border rounded-[10px] transition-all duration-300;
+  }
+
+  .glass-panel-hover {
+    @apply hover:border-input;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-input;
+  }
+
+  .custom-scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .custom-scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .custom-scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full hover:bg-input transition-colors;
+  }
+}

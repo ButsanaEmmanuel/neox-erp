@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: neox-db
+    restart: always
+    environment:
+      POSTGRES_USER: neox_admin
+      POSTGRES_PASSWORD: neox_password
+      POSTGRES_DB: neox_erp
+    ports:
+      - "5543:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

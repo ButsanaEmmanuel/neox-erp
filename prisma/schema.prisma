@@ -1,0 +1,1512 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          String          @id @default(cuid())
+  code        String          @unique
+  name        String
+  isActive    Boolean         @default(true)
+  isDeleted   Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+  users       User[]
+  projects    Project[]
+  members     ProjectMember[]
+  timesheets  TimesheetEntry[]
+  requests    PurchaseRequest[]
+  recruitments RecruitmentCandidate[]
+
+  @@index([isDeleted])
+}
+
+model User {
+  id               String            @id @default(cuid())
+  username         String?           @unique
+  name             String?
+  email            String?           @unique
+  jobTitle         String?
+  phoneNumber      String?
+  passwordHash     String?
+  forcePasswordChange Boolean        @default(false)
+  passwordChangedAt DateTime?
+  emailVerified    DateTime?
+  image            String?
+  departmentId     String?
+  supervisorId     String?
+  preferredLanguage String          @default("fr")
+  notifyCrm        Boolean           @default(true)
+  notifyProjects   Boolean           @default(true)
+  notifyFinance    Boolean           @default(true)
+  quickStatus      String            @default("online")
+  hasSystemAccess  Boolean           @default(true)
+  isActive         Boolean           @default(true)
+  isDeleted        Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+
+  department       Department?       @relation(fields: [departmentId], references: [id])
+  supervisor       User?             @relation("UserSupervisor", fields: [supervisorId], references: [id])
+  directReports    User[]            @relation("UserSupervisor")
+  managedProjects  Project[]         @relation("ProjectManager")
+  projectMemberships ProjectMember[]
+  roles            UserRole[]
+  timesheetEntries TimesheetEntry[]
+  purchaseRequests PurchaseRequest[] @relation("Requester")
+  auditLogs        AuditLog[]
+  hiredCandidates  RecruitmentCandidate[] @relation("CandidateHiredUser")
+  accessProvisionings AccessProvisioning[]
+  hrmCredentialProvisionings HrmCredentialProvisioning[]
+  salaryProfiles    EmployeeSalaryProfile[]
+  permissionSets    UserPermissionSet[]
+  stakeholderAccess ResourceStakeholder[]
+  hrmEmploymentProfile HrmEmploymentProfile? @relation("HrmProfileUser")
+  managedHrmProfiles HrmEmploymentProfile[] @relation("HrmProfileManager")
+  ownedCrmDeals      CrmDeal[]              @relation("CrmDealOwner")
+  ownedClientAccounts ClientAccount[]       @relation("CrmClientOwner")
+
+  @@index([departmentId])
+  @@index([supervisorId])
+  @@index([isDeleted])
+}
+
+model UserPermissionSet {
+  id          String   @id @default(cuid())
+  userId      String
+  module      String
+  resource    String
+  action      String
+  effect      String   @default("allow")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, module, resource, action])
+  @@index([userId, module, isActive])
+}
+
+model ResourceStakeholder {
+  id              String   @id @default(cuid())
+  module          String
+  resourceType    String
+  resourceId      String
+  userId          String
+  stakeholderRole String?
+  isActive        Boolean  @default(true)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id])
+
+  @@unique([module, resourceType, resourceId, userId])
+  @@index([userId, module, isActive])
+  @@index([module, resourceType, resourceId, isActive])
+}
+
+model HrmEmploymentProfile {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  employeeCode      String    @unique
+  employmentType    String    @default("employee")
+  statusCode        String    @default("active")
+  roleTitle         String
+  managerUserId     String?
+  startDate         DateTime
+  endDate           DateTime?
+  contractType      String    @default("CDI")
+  contractStatus    String    @default("active")
+  probationEndDate  DateTime?
+  confirmationDate  DateTime?
+  terminationReason String?
+  workLocation      String?
+  compensationAmount Decimal? @db.Decimal(18, 2)
+  compensationCurrency String? @default("USD")
+  compensationFrequency String? @default("monthly")
+  compensationType  String?   @default("base_salary")
+  compensationEffectiveDate DateTime?
+  compensationNotes String?
+  systemAccessStatus String   @default("pending_activation")
+  authorityLevel    String    @default("CONTRIBUTOR")
+  creationSource    String    @default("MANUAL")
+  requiresAdminReview Boolean @default(false)
+  reviewNotesJson   Json?
+  isDeleted         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  user              User      @relation("HrmProfileUser", fields: [userId], references: [id])
+  manager           User?     @relation("HrmProfileManager", fields: [managerUserId], references: [id])
+  credentialProvisionings HrmCredentialProvisioning[]
+
+  @@index([statusCode])
+  @@index([employmentType])
+  @@index([contractType])
+  @@index([systemAccessStatus])
+  @@index([managerUserId])
+  @@index([isDeleted])
+}
+
+model HrmCredentialProvisioning {
+  id                    String    @id @default(cuid())
+  userId                String
+  employmentProfileId   String
+  username              String
+  temporaryPassword     String
+  statusCode            String    @default("generated")
+  generatedByUserId     String?
+  generatedAt           DateTime  @default(now())
+  sentAt                DateTime?
+  revokedAt             DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user                  User                 @relation(fields: [userId], references: [id])
+  employmentProfile     HrmEmploymentProfile @relation(fields: [employmentProfileId], references: [id])
+
+  @@index([userId])
+  @@index([employmentProfileId])
+  @@index([statusCode])
+}
+
+model Role {
+  id           String           @id @default(cuid())
+  code         String           @unique
+  name         String
+  isActive     Boolean          @default(true)
+  isDeleted    Boolean          @default(false)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+  userRoles    UserRole[]
+  permissions  RolePermission[]
+
+  @@index([isDeleted])
+}
+
+model UserRole {
+  id         String    @id @default(cuid())
+  userId     String
+  roleId     String
+  validFrom  DateTime  @default(now())
+  validTo    DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id])
+  role       Role      @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, roleId, validFrom])
+  @@index([userId])
+  @@index([roleId])
+}
+
+model Permission {
+  id          String               @id @default(cuid())
+  module      String
+  resource    String
+  action      String
+  isActive    Boolean              @default(true)
+  createdAt   DateTime             @default(now())
+  roleLinks   RolePermission[]
+  transitions WorkflowTransition[]
+
+  @@unique([module, resource, action])
+}
+
+model RolePermission {
+  id            String      @id @default(cuid())
+  roleId         String
+  permissionId   String
+  scopeType      String?
+  scopeValue     String?
+  createdAt      DateTime    @default(now())
+
+  role           Role        @relation(fields: [roleId], references: [id])
+  permission     Permission  @relation(fields: [permissionId], references: [id])
+
+  @@unique([roleId, permissionId, scopeType, scopeValue])
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+model WorkflowStatus {
+  id                String               @id @default(cuid())
+  module            String
+  entity            String
+  code              String
+  label             String
+  sequence          Int
+  isTerminal        Boolean              @default(false)
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  fromTransitions   WorkflowTransition[] @relation("FromStatus")
+  toTransitions     WorkflowTransition[] @relation("ToStatus")
+
+  @@unique([module, entity, code])
+  @@index([module, entity])
+}
+
+model WorkflowTransition {
+  id                    String         @id @default(cuid())
+  module                String
+  entity                String
+  fromStatusId          String
+  toStatusId            String
+  requiredPermissionId  String?
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+
+  fromStatus            WorkflowStatus @relation("FromStatus", fields: [fromStatusId], references: [id])
+  toStatus              WorkflowStatus @relation("ToStatus", fields: [toStatusId], references: [id])
+  requiredPermission    Permission?    @relation(fields: [requiredPermissionId], references: [id])
+
+  @@unique([module, entity, fromStatusId, toStatusId])
+  @@index([module, entity])
+}
+
+
+model ClientAccount {
+  id                    String   @id @default(cuid())
+  name                  String
+  normalizedName        String   @unique
+  industry              String?
+  industryRefId         String?
+  contactPerson         String?
+  email                 String?
+  phone                 String?
+  billingAddress        String?
+  country               String?
+  taxRegistrationNumber String?
+  notes                 String?
+  ownerId               String?
+  ownerUserId           String?
+  tagsJson              Json?
+  profileStatus         String   @default("needs_completion")
+  isDeleted             Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  deletedAt             DateTime?
+
+  projects              Project[]
+  financeEntries        FinanceEntry[]
+  receivables           Receivable[]
+  customerInvoices      CustomerInvoice[]
+  deals                 CrmDeal[]
+  industryRef           CrmRefIndustry? @relation(fields: [industryRefId], references: [id])
+  ownerUser             User?           @relation("CrmClientOwner", fields: [ownerUserId], references: [id])
+
+  @@index([name])
+  @@index([email])
+  @@index([taxRegistrationNumber])
+  @@index([industryRefId])
+  @@index([ownerUserId])
+  @@index([isDeleted])
+}
+
+model CrmDeal {
+  id              String   @id @default(cuid())
+  clientAccountId String
+  name            String
+  stage           String   @default("Discovery")
+  stageRefId      String?
+  status          String   @default("open")
+  statusRefId     String?
+  sourceRefId     String?
+  valueAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  currencyCode    String   @default("USD")
+  ownerName       String?
+  ownerUserId     String?
+  closeDate       DateTime?
+  wonAt           DateTime?
+  notes           String?
+  isDeleted       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  clientAccount   ClientAccount @relation(fields: [clientAccountId], references: [id])
+  stageRef        CrmRefPipelineStage? @relation(fields: [stageRefId], references: [id])
+  statusRef       CrmRefStatus?        @relation(fields: [statusRefId], references: [id])
+  sourceRef       CrmRefSource?        @relation(fields: [sourceRefId], references: [id])
+  ownerUser       User?                @relation("CrmDealOwner", fields: [ownerUserId], references: [id])
+
+  @@index([clientAccountId])
+  @@index([status])
+  @@index([stageRefId])
+  @@index([statusRefId])
+  @@index([sourceRefId])
+  @@index([ownerUserId])
+  @@index([isDeleted])
+}
+
+model CrmRefIndustry {
+  id         String        @id @default(uuid())
+  label      String
+  value      String        @unique
+  isActive   Boolean       @default(true)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  clientAccounts ClientAccount[]
+
+  @@index([isActive, sortOrder])
+  @@map("crm_ref_industries")
+}
+
+model CrmRefPipelineStage {
+  id         String        @id @default(uuid())
+  label      String
+  value      String        @unique
+  isActive   Boolean       @default(true)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  deals      CrmDeal[]
+
+  @@index([isActive, sortOrder])
+  @@map("crm_ref_pipeline_stages")
+}
+
+model CrmRefSource {
+  id         String        @id @default(uuid())
+  label      String
+  value      String        @unique
+  isActive   Boolean       @default(true)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  deals      CrmDeal[]
+
+  @@index([isActive, sortOrder])
+  @@map("crm_ref_sources")
+}
+
+model CrmRefStatus {
+  id         String        @id @default(uuid())
+  label      String
+  value      String        @unique
+  isActive   Boolean       @default(true)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  deals      CrmDeal[]
+
+  @@index([isActive, sortOrder])
+  @@map("crm_ref_statuses")
+}
+
+model CrmRefActivityType {
+  id         String        @id @default(uuid())
+  label      String
+  value      String        @unique
+  isActive   Boolean       @default(true)
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("crm_ref_activity_types")
+}
+
+model Project {
+  id                String          @id @default(cuid())
+  name              String
+  clientName        String
+  clientAccountId   String?
+  status            String          @default("active")
+  projectMode       String          @default("standard")
+  isTelecomProject  Boolean         @default(false)
+  bulkImportRequired Boolean        @default(false)
+  purchaseOrder     String?
+  projectCategory   String?
+  managerId         String
+  ownerDepartmentId String?
+  startDate         DateTime
+  endDate           DateTime
+  description       String?
+  isDeleted         Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  manager           User            @relation("ProjectManager", fields: [managerId], references: [id])
+  ownerDepartment   Department?     @relation(fields: [ownerDepartmentId], references: [id])
+  clientAccount     ClientAccount?   @relation(fields: [clientAccountId], references: [id])
+  workItems         WorkItem[]
+  members           ProjectMember[]
+  importBatches     ProjectImportBatch[]
+
+  @@index([managerId])
+  @@index([clientAccountId])
+  @@index([ownerDepartmentId])
+  @@index([isDeleted])
+}
+
+model ProjectMember {
+  id            String      @id @default(cuid())
+  projectId     String
+  userId        String
+  departmentId  String
+  roleCode      String
+  isDeleted     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  deletedAt     DateTime?
+
+  project       Project     @relation(fields: [projectId], references: [id])
+  user          User        @relation(fields: [userId], references: [id])
+  department    Department  @relation(fields: [departmentId], references: [id])
+
+  @@unique([projectId, userId, roleCode])
+  @@index([projectId])
+  @@index([userId])
+  @@index([departmentId])
+}
+
+model WorkItem {
+  id               String   @id @default(cuid())
+  projectId        String
+  importBatchId    String?
+  title            String
+  type             String   @default("task")
+  status           String   @default("todo")
+  priority         String   @default("medium")
+  assignee         String?
+  plannedDate      DateTime?
+  actualDate       DateTime?
+  qaStatus         String?  @default("pending")
+  qaDate           DateTime?
+  acceptanceStatus String?  @default("pending")
+  acceptanceDate   DateTime?
+  manualCompletionStatus String? @default("pending")
+  financeSyncStatus String? @default("pending")
+  financeSyncAt    DateTime?
+  financeReferenceId String?
+  financeErrorMessage String?
+  isFinanciallyEligible Boolean @default(false)
+  financialEligibilityReason String?
+  poUnitPrice      Decimal? @db.Decimal(14, 2)
+  ticketNumber     Decimal? @db.Decimal(14, 2)
+  poUnitPriceCompleted Decimal? @db.Decimal(14, 2)
+  contractorPayableAmount Decimal? @db.Decimal(14, 2)
+  importedFieldsJson Json?
+  operationalManualFieldsJson Json?
+  acceptanceManualFieldsJson Json?
+  description      String?
+  isDeleted        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  project          Project  @relation(fields: [projectId], references: [id])
+  importBatch      ProjectImportBatch? @relation(fields: [importBatchId], references: [id])
+
+  @@index([projectId])
+  @@index([importBatchId])
+  @@index([financeSyncStatus])
+  @@index([isDeleted])
+}
+
+model ProjectImportBatch {
+  id            String    @id @default(cuid())
+  parentProjectId String
+  fileName      String
+  uploadedBy    String
+  uploadedAt    DateTime  @default(now())
+  totalRows     Int       @default(0)
+  successfulRows Int      @default(0)
+  failedRows    Int       @default(0)
+  status        String    @default("processing")
+  errorSummary  String?
+
+  parentProject Project   @relation(fields: [parentProjectId], references: [id])
+  workItems     WorkItem[]
+
+  @@index([parentProjectId, uploadedAt])
+  @@index([status])
+}
+
+model ProjectItemState {
+  id                         String   @id @default(cuid())
+  projectId                  String
+  workItemId                 String
+  poUnitPrice                Decimal? @db.Decimal(14, 2)
+  ticketNumber               Decimal? @db.Decimal(14, 2)
+  qaStatus                   String?  @default("pending")
+  acceptanceStatus           String?  @default("pending")
+  operationalManualFieldsJson Json?
+  acceptanceManualFieldsJson Json?
+  importedFieldsJson          Json?
+  planningAuditDate           DateTime?
+  planningAuditWeek           Int?
+  forecastDate                DateTime?
+  forecastWeek                Int?
+  actualAuditDate             DateTime?
+  actualAuditWeek             Int?
+  startVarianceDays           Int?
+  scheduleStatus              String?
+  isDelayed                   Boolean  @default(false)
+  poUnitPriceCompleted       Decimal? @db.Decimal(14, 2)
+  contractorPayableAmount    Decimal? @db.Decimal(14, 2)
+  isFinanciallyEligible      Boolean  @default(false)
+  financialEligibilityReason String?
+  financeSyncStatus          String?  @default("blocked")
+  financeSyncAt              DateTime?
+  financeReferenceId         String?
+  financeErrorMessage        String?
+  updatedByUserId            String?
+  updatedByName              String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([projectId, workItemId])
+  @@index([projectId, workItemId])
+}
+
+model ProjectItemActivity {
+  id               String   @id @default(cuid())
+  entityType       String   @default("project_item")
+  entityId         String
+  projectId        String
+  workItemId       String
+  actorUserId      String?
+  actorDisplayName String?
+  actionType       String
+  fieldName        String?
+  oldValueJson     Json?
+  newValueJson     Json?
+  message          String
+  eventSource      String
+  createdAt        DateTime @default(now())
+
+  @@index([projectId, workItemId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model ProjectItemFile {
+  id               String   @id @default(cuid())
+  projectId        String
+  workItemId       String
+  originalFileName String
+  storedFileName   String
+  mimeType         String
+  extension        String?
+  sizeBytes        Int
+  storageProvider  String
+  storagePath      String
+  uploadedByUserId String?
+  uploadedByName   String?
+  category         String?  @default("other")
+  visibility       String?  @default("private")
+  checksum         String?
+  createdAt        DateTime @default(now())
+  deletedAt        DateTime?
+
+  @@index([projectId, workItemId, createdAt])
+  @@index([deletedAt])
+}
+
+model FinanceEntry {
+  id                  String   @id @default(cuid())
+  referenceCode       String   @unique
+  entryType           String
+  direction           String
+  title               String
+  memo                String?
+  currencyCode        String   @default("USD")
+  amount              Decimal  @db.Decimal(14, 2)
+  sourceModule        String
+  sourceEntity        String
+  sourceEntityId      String
+  sourceEvent         String
+  sourceEventAt       DateTime @default(now())
+  projectId           String?
+  workItemId          String?
+  companyName         String?
+  clientAccountId      String?
+  accountCode         String?
+  categoryCode        String?
+  lifecycleStatus     String   @default("draft")
+  evidenceStatus      String   @default("required_missing")
+  approvalStatus      String   @default("pending")
+  settlementStatus    String   @default("open")
+  expectedAt          DateTime?
+  approvedAt          DateTime?
+  approvedByUserId    String?
+  settledAt           DateTime?
+  validationMessage   String?
+  metadataJson        Json?
+  isDeleted           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+  sourceLinks         FinanceEntrySourceLink[]
+  evidenceDocuments   FinanceEvidenceDocument[]
+  approvals           FinanceApproval[]
+  activities          FinanceActivity[]
+  receivable          Receivable?
+  payable             Payable?
+  clientAccount       ClientAccount? @relation(fields: [clientAccountId], references: [id])
+
+  @@index([sourceModule, sourceEntity, sourceEntityId])
+  @@index([projectId, workItemId])
+  @@index([clientAccountId])
+  @@index([lifecycleStatus])
+  @@index([approvalStatus])
+  @@index([evidenceStatus])
+  @@index([settlementStatus])
+  @@index([isDeleted])
+}
+
+model FinanceEntrySourceLink {
+  id              String   @id @default(cuid())
+  financeEntryId  String
+  sourceModule    String
+  sourceEntity    String
+  sourceEntityId  String
+  sourceEvent     String
+  sourceField     String?
+  sourceSnapshot  Json?
+  createdAt       DateTime @default(now())
+  financeEntry    FinanceEntry @relation(fields: [financeEntryId], references: [id])
+
+  @@unique([financeEntryId, sourceModule, sourceEntity, sourceEntityId, sourceEvent])
+  @@index([sourceModule, sourceEntity, sourceEntityId])
+}
+
+model FinanceEvidenceDocument {
+  id               String   @id @default(cuid())
+  financeEntryId   String
+  originalFileName String
+  storedFileName   String
+  mimeType         String
+  extension        String?
+  sizeBytes        Int
+  storageProvider  String
+  storagePath      String
+  uploadedByUserId String?
+  uploadedByName   String?
+  documentType     String   @default("supporting_document")
+  validationStatus String   @default("submitted")
+  checksum         String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  deletedAt        DateTime?
+  financeEntry     FinanceEntry @relation(fields: [financeEntryId], references: [id])
+
+  @@index([financeEntryId, createdAt])
+  @@index([validationStatus])
+  @@index([deletedAt])
+}
+
+model FinanceApproval {
+  id               String   @id @default(cuid())
+  financeEntryId   String
+  action           String
+  status           String
+  actorUserId      String?
+  actorDisplayName String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  financeEntry     FinanceEntry @relation(fields: [financeEntryId], references: [id])
+
+  @@index([financeEntryId, createdAt])
+  @@index([status])
+}
+
+model FinanceActivity {
+  id               String   @id @default(cuid())
+  financeEntryId   String
+  actorUserId      String?
+  actorDisplayName String?
+  actionType       String
+  fieldName        String?
+  oldValueJson     Json?
+  newValueJson     Json?
+  message          String
+  eventSource      String
+  createdAt        DateTime @default(now())
+  financeEntry     FinanceEntry @relation(fields: [financeEntryId], references: [id])
+
+  @@index([financeEntryId, createdAt])
+  @@index([eventSource])
+}
+
+
+model Receivable {
+  id                  String   @id @default(cuid())
+  financeEntryId      String   @unique
+  referenceCode       String   @unique
+  clientName          String?
+  clientAccountId     String?
+  projectId           String?
+  workItemId          String?
+  totalAmount         Decimal  @db.Decimal(14, 2)
+  outstandingAmount   Decimal  @db.Decimal(14, 2)
+  collectedAmount     Decimal  @default(0) @db.Decimal(14, 2)
+  dueDate             DateTime?
+  status              String   @default("open")
+  collectionStatus    String   @default("pending_collection")
+  isOverdue           Boolean  @default(false)
+  lastCollectedAt     DateTime?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  financeEntry        FinanceEntry @relation(fields: [financeEntryId], references: [id])
+  invoices            CustomerInvoice[]
+  receipts            ReceiptCollection[]
+  clientAccount       ClientAccount? @relation(fields: [clientAccountId], references: [id])
+
+  @@index([projectId, workItemId])
+  @@index([clientAccountId])
+  @@index([status])
+  @@index([collectionStatus])
+  @@index([isOverdue])
+}
+
+model Payable {
+  id                  String   @id @default(cuid())
+  financeEntryId      String   @unique
+  referenceCode       String   @unique
+  vendorName          String?
+  projectId           String?
+  workItemId          String?
+  totalAmount         Decimal  @db.Decimal(14, 2)
+  outstandingAmount   Decimal  @db.Decimal(14, 2)
+  paidAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  dueDate             DateTime?
+  status              String   @default("draft")
+  paymentStatus       String   @default("pending_payment")
+  requiresEvidence    Boolean  @default(true)
+  lastPaidAt          DateTime?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  financeEntry        FinanceEntry @relation(fields: [financeEntryId], references: [id])
+  bills               VendorBill[]
+  payments            PaymentDisbursement[]
+
+  @@index([projectId, workItemId])
+  @@index([status])
+  @@index([paymentStatus])
+}
+
+model CustomerInvoice {
+  id               String   @id @default(cuid())
+  receivableId     String
+  invoiceNumber    String   @unique
+  issueDate        DateTime
+  dueDate          DateTime
+  subtotalAmount   Decimal  @db.Decimal(14, 2)
+  taxAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal  @db.Decimal(14, 2)
+  currencyCode     String   @default("USD")
+  status           String   @default("sent")
+  clientAccountId  String?
+  notes            String?
+  createdByUserId  String?
+  createdByName    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  receivable       Receivable @relation(fields: [receivableId], references: [id])
+  clientAccount    ClientAccount? @relation(fields: [clientAccountId], references: [id])
+
+  @@index([receivableId, status])
+  @@index([clientAccountId])
+  @@index([dueDate])
+}
+
+model VendorBill {
+  id               String   @id @default(cuid())
+  payableId        String
+  billNumber       String   @unique
+  issueDate        DateTime
+  dueDate          DateTime
+  subtotalAmount   Decimal  @db.Decimal(14, 2)
+  taxAmount        Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount      Decimal  @db.Decimal(14, 2)
+  currencyCode     String   @default("USD")
+  status           String   @default("received")
+  notes            String?
+  createdByUserId  String?
+  createdByName    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  payable          Payable @relation(fields: [payableId], references: [id])
+
+  @@index([payableId, status])
+  @@index([dueDate])
+}
+
+model PaymentDisbursement {
+  id                 String   @id @default(cuid())
+  payableId          String
+  paymentReference   String   @unique
+  amount             Decimal  @db.Decimal(14, 2)
+  currencyCode       String   @default("USD")
+  paymentDate        DateTime @default(now())
+  method             String   @default("bank_transfer")
+  status             String   @default("processing")
+  proofDocumentId    String?
+  notes              String?
+  executedByUserId   String?
+  executedByName     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  payable            Payable @relation(fields: [payableId], references: [id])
+
+  @@index([payableId, paymentDate])
+  @@index([status])
+}
+
+model ReceiptCollection {
+  id                 String   @id @default(cuid())
+  receivableId       String
+  receiptReference   String   @unique
+  amount             Decimal  @db.Decimal(14, 2)
+  currencyCode       String   @default("USD")
+  receiptDate        DateTime @default(now())
+  method             String   @default("bank_transfer")
+  status             String   @default("processing")
+  proofDocumentId    String?
+  notes              String?
+  receivedByUserId   String?
+  receivedByName     String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  receivable         Receivable @relation(fields: [receivableId], references: [id])
+
+  @@index([receivableId, receiptDate])
+  @@index([status])
+}
+
+model PayrollBatch {
+  id                  String   @id @default(cuid())
+  batchCode           String   @unique
+  periodStart         DateTime
+  periodEnd           DateTime
+  payoutDate          DateTime?
+  currencyCode        String   @default("USD")
+  totalAmount         Decimal  @default(0) @db.Decimal(14, 2)
+  status              String   @default("draft")
+  approvalStatus      String   @default("pending")
+  registerDocumentId  String?
+  approvedByUserId    String?
+  approvedByName      String?
+  approvedAt          DateTime?
+  createdByUserId     String?
+  createdByName       String?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  lines               PayrollDisbursementLine[]
+  payrollRuns         PayrollRun[]
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([periodStart, periodEnd])
+}
+
+model EmployeeSalaryProfile {
+  id                   String   @id @default(cuid())
+  userId               String
+  monthlyBaseSalary    Decimal  @db.Decimal(14, 2)
+  currencyCode         String   @default("USD")
+  overtimeMultiplier   Decimal  @default(1.50) @db.Decimal(6, 2)
+  effectiveFrom        DateTime
+  effectiveTo          DateTime?
+  isActive             Boolean  @default(true)
+  createdByUserId      String?
+  createdByName        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, isActive])
+  @@index([effectiveFrom, effectiveTo])
+}
+
+model PayrollSchedule {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  name                 String
+  executionRule        String
+  dayOfMonth           Int?
+  timezone             String   @default("UTC")
+  validationMode       String   @default("review_before_posting")
+  isActive             Boolean  @default(true)
+  nextRunAt            DateTime?
+  lastRunAt            DateTime?
+  lastRunStatus        String?
+  createdByUserId      String?
+  createdByName        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  runs                 PayrollRun[]
+  history              PayrollScheduleHistory[]
+
+  @@index([isActive, nextRunAt])
+}
+
+model PayrollScheduleHistory {
+  id                   String   @id @default(cuid())
+  payrollScheduleId    String
+  changedByUserId      String?
+  changedByName        String?
+  changeType           String
+  oldValueJson         Json?
+  newValueJson         Json?
+  createdAt            DateTime @default(now())
+
+  payrollSchedule      PayrollSchedule @relation(fields: [payrollScheduleId], references: [id])
+
+  @@index([payrollScheduleId, createdAt])
+}
+
+model PayrollPeriod {
+  id                   String   @id @default(cuid())
+  code                 String   @unique
+  periodStart          DateTime
+  periodEnd            DateTime
+  month                Int
+  year                 Int
+  createdAt            DateTime @default(now())
+
+  runs                 PayrollRun[]
+
+  @@index([year, month])
+}
+
+model PayrollRun {
+  id                   String   @id @default(cuid())
+  runCode              String   @unique
+  payrollScheduleId    String?
+  payrollPeriodId      String
+  payrollBatchId       String?
+  triggerType          String   @default("manual")
+  startedAt            DateTime @default(now())
+  completedAt          DateTime?
+  postingCompletedAt   DateTime?
+  status               String   @default("running")
+  validationMode       String   @default("review_before_posting")
+  postingStatus        String   @default("pending_validation")
+  warningCount         Int      @default(0)
+  errorCount           Int      @default(0)
+  totalEmployees       Int      @default(0)
+  includedEmployees    Int      @default(0)
+  excludedEmployees    Int      @default(0)
+  blockedEmployees     Int      @default(0)
+  totalRegularPay      Decimal  @default(0) @db.Decimal(14, 2)
+  totalOvertimePay     Decimal  @default(0) @db.Decimal(14, 2)
+  totalGrossPay        Decimal  @default(0) @db.Decimal(14, 2)
+  currencyCode         String   @default("USD")
+  startedByUserId      String?
+  startedByName        String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  payrollSchedule      PayrollSchedule? @relation(fields: [payrollScheduleId], references: [id])
+  payrollPeriod        PayrollPeriod @relation(fields: [payrollPeriodId], references: [id])
+  payrollBatch         PayrollBatch? @relation(fields: [payrollBatchId], references: [id])
+  employees            PayrollRunEmployee[]
+  notifications        PayrollNotification[]
+  logs                 PayrollRunLog[]
+
+  @@index([payrollScheduleId, startedAt])
+  @@index([payrollPeriodId])
+  @@index([status, postingStatus])
+}
+
+model PayrollRunEmployee {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  userId               String
+  departmentId         String?
+  salaryProfileId      String?
+  inclusionStatus      String   @default("included")
+  exclusionReason      String?
+  regularWorkedDays    Decimal  @default(0) @db.Decimal(8, 2)
+  weekendWorkedDays    Decimal  @default(0) @db.Decimal(8, 2)
+  standardWorkingDays  Int      @default(0)
+  dailyRate            Decimal  @default(0) @db.Decimal(14, 4)
+  overtimeMultiplier   Decimal  @default(1.50) @db.Decimal(6, 2)
+  regularPay           Decimal  @default(0) @db.Decimal(14, 2)
+  overtimePay          Decimal  @default(0) @db.Decimal(14, 2)
+  grossPay             Decimal  @default(0) @db.Decimal(14, 2)
+  adjustedGrossPay     Decimal? @db.Decimal(14, 2)
+  payrollLineId        String?
+  payableId            String?
+  warningJson          Json?
+  errorJson            Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  payrollRun           PayrollRun @relation(fields: [payrollRunId], references: [id])
+
+  @@unique([payrollRunId, userId])
+  @@index([payrollRunId, inclusionStatus])
+  @@index([payableId])
+}
+
+model PayrollRunTimesheetLink {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  payrollRunEmployeeId String
+  timesheetEntryId     String
+  workedDate           DateTime
+  weekdayType          String
+  hours                Decimal  @db.Decimal(5, 2)
+  createdAt            DateTime @default(now())
+
+  @@index([payrollRunId, payrollRunEmployeeId])
+  @@index([timesheetEntryId])
+}
+
+model PayrollCalculationDetail {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  payrollRunEmployeeId String
+  ruleCode             String
+  ruleDescription      String?
+  inputJson            Json?
+  outputJson           Json?
+  createdAt            DateTime @default(now())
+
+  @@index([payrollRunId, payrollRunEmployeeId])
+}
+
+model PayrollAdjustment {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  payrollRunEmployeeId String
+  originalAmount       Decimal  @db.Decimal(14, 2)
+  adjustedAmount       Decimal  @db.Decimal(14, 2)
+  reason               String
+  comment              String?
+  adjustedByUserId     String?
+  adjustedByName       String?
+  createdAt            DateTime @default(now())
+
+  @@index([payrollRunId, payrollRunEmployeeId, createdAt])
+}
+
+model PayrollNotification {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  notificationType     String
+  severity             String   @default("info")
+  recipientRole        String?
+  recipientUserId      String?
+  title                String
+  message              String
+  status               String   @default("sent")
+  createdAt            DateTime @default(now())
+
+  payrollRun           PayrollRun @relation(fields: [payrollRunId], references: [id])
+
+  @@index([payrollRunId, severity, createdAt])
+}
+
+model PayrollRunLog {
+  id                   String   @id @default(cuid())
+  payrollRunId         String
+  actorUserId          String?
+  actorDisplayName     String?
+  actionType           String
+  level                String   @default("info")
+  message              String
+  detailJson           Json?
+  createdAt            DateTime @default(now())
+
+  payrollRun           PayrollRun @relation(fields: [payrollRunId], references: [id])
+
+  @@index([payrollRunId, createdAt])
+}
+
+model PayrollDisbursementLine {
+  id                 String   @id @default(cuid())
+  payrollBatchId     String
+  employeeUserId     String?
+  employeeCode       String?
+  employeeName       String
+  bankAccountRef     String?
+  netAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  allowanceAmount    Decimal  @default(0) @db.Decimal(14, 2)
+  deductionAmount    Decimal  @default(0) @db.Decimal(14, 2)
+  taxAmount          Decimal  @default(0) @db.Decimal(14, 2)
+  totalAmount        Decimal  @db.Decimal(14, 2)
+  status             String   @default("pending")
+  payableId          String?
+  paymentId          String?
+  proofDocumentId    String?
+  paidAt             DateTime?
+  reconciledAt       DateTime?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  payrollBatch       PayrollBatch @relation(fields: [payrollBatchId], references: [id])
+
+  @@index([payrollBatchId])
+  @@index([status])
+  @@index([employeeUserId])
+  @@index([payableId])
+}
+
+model ExpenseClaim {
+  id                 String   @id @default(cuid())
+  claimNumber        String   @unique
+  employeeUserId     String?
+  employeeName       String
+  categoryCode       String?
+  description        String?
+  expenseDate        DateTime?
+  submissionDate     DateTime @default(now())
+  amount             Decimal  @db.Decimal(14, 2)
+  currencyCode       String   @default("USD")
+  status             String   @default("submitted")
+  approvalStatus     String   @default("pending")
+  approvedByUserId   String?
+  approvedByName     String?
+  approvedAt         DateTime?
+  payableId          String?
+  paymentId          String?
+  proofDocumentId    String?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([employeeUserId])
+  @@index([payableId])
+}
+
+model EmployeeAdvance {
+  id                 String   @id @default(cuid())
+  advanceNumber      String   @unique
+  employeeUserId     String?
+  employeeName       String
+  reason             String?
+  requestedAt        DateTime @default(now())
+  amount             Decimal  @db.Decimal(14, 2)
+  currencyCode       String   @default("USD")
+  status             String   @default("submitted")
+  approvalStatus     String   @default("pending")
+  approvedByUserId   String?
+  approvedByName     String?
+  approvedAt         DateTime?
+  payableId          String?
+  paymentId          String?
+  proofDocumentId    String?
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([employeeUserId])
+  @@index([payableId])
+}
+
+model FinanceReconciliation {
+  id                 String   @id @default(cuid())
+  reconciliationCode String   @unique
+  periodStart        DateTime?
+  periodEnd          DateTime?
+  status             String   @default("completed")
+  runByUserId        String?
+  runByName          String?
+  summaryJson        Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  closedAt           DateTime?
+
+  lines              ReconciliationLine[]
+  discrepancyCases   DiscrepancyCase[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ReconciliationLine {
+  id                 String   @id @default(cuid())
+  reconciliationId   String
+  movementType       String
+  movementId         String
+  referenceCode      String?
+  sourceModule       String?
+  sourceEntity       String?
+  sourceEntityId     String?
+  financeEntryId     String?
+  expectedAmount     Decimal? @db.Decimal(14, 2)
+  actualAmount       Decimal? @db.Decimal(14, 2)
+  proofPresent       Boolean  @default(false)
+  matchStatus        String   @default("auto_matched")
+  notes              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  reconciliation     FinanceReconciliation @relation(fields: [reconciliationId], references: [id])
+  discrepancyCases   DiscrepancyCase[]
+
+  @@index([reconciliationId, movementType])
+  @@index([matchStatus])
+}
+
+model DiscrepancyCase {
+  id                 String   @id @default(cuid())
+  reconciliationId   String
+  lineId             String?
+  caseType           String
+  severity           String   @default("medium")
+  status             String   @default("open")
+  title              String
+  description        String?
+  expectedAmount     Decimal? @db.Decimal(14, 2)
+  actualAmount       Decimal? @db.Decimal(14, 2)
+  sourceModule       String?
+  sourceEntity       String?
+  sourceEntityId     String?
+  financeEntryId     String?
+  resolutionNotes    String?
+  resolvedByUserId   String?
+  resolvedByName     String?
+  resolvedAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  reconciliation     FinanceReconciliation @relation(fields: [reconciliationId], references: [id])
+  line               ReconciliationLine?   @relation(fields: [lineId], references: [id])
+
+  @@index([reconciliationId, status])
+  @@index([caseType])
+}
+
+model FinanceCategorySetting {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  direction    String
+  description  String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([direction])
+  @@index([isActive])
+}
+
+model FinanceEvidenceRule {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  transactionType  String
+  requiredDocsJson Json
+  minCount         Int      @default(1)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([transactionType])
+  @@index([isActive])
+}
+
+model FinanceApprovalThreshold {
+  id             String   @id @default(cuid())
+  code           String   @unique
+  transactionType String
+  minAmount      Decimal  @db.Decimal(14, 2)
+  maxAmount      Decimal? @db.Decimal(14, 2)
+  requiredRole   String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([transactionType])
+  @@index([requiredRole])
+  @@index([isActive])
+}
+
+model FinanceNumberingScheme {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  targetType  String
+  prefix      String
+  yearIncluded Boolean @default(true)
+  nextNumber  Int      @default(1)
+  padding     Int      @default(5)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([targetType])
+  @@index([isActive])
+}
+
+model FinancePaymentMethodSetting {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  label       String
+  direction   String
+  requiresProof Boolean @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([direction])
+  @@index([isActive])
+}
+
+model FinanceLedgerMapping {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  sourceModule  String
+  sourceEntity  String
+  direction     String
+  accountCode   String
+  categoryCode  String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([sourceModule, sourceEntity])
+  @@index([direction])
+  @@index([isActive])
+}
+model TimesheetEntry {
+  id            String      @id @default(cuid())
+  userId        String
+  departmentId  String
+  workDate      DateTime
+  hours         Decimal     @db.Decimal(5, 2)
+  description   String?
+  statusCode    String      @default("submitted")
+  isDeleted     Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  deletedAt     DateTime?
+
+  user          User        @relation(fields: [userId], references: [id])
+  department    Department  @relation(fields: [departmentId], references: [id])
+
+  @@index([userId, workDate])
+  @@index([departmentId])
+  @@index([isDeleted])
+}
+
+model PurchaseRequest {
+  id                     String      @id @default(cuid())
+  requestNumber          String      @unique
+  requesterUserId        String
+  requesterDepartmentId  String
+  statusCode             String      @default("draft")
+  justification          String?
+  totalAmount            Decimal?    @db.Decimal(14, 2)
+  isDeleted              Boolean     @default(false)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  deletedAt              DateTime?
+
+  requester              User        @relation("Requester", fields: [requesterUserId], references: [id])
+  requesterDepartment    Department  @relation(fields: [requesterDepartmentId], references: [id])
+
+  @@index([requesterUserId])
+  @@index([requesterDepartmentId])
+  @@index([isDeleted])
+}
+
+model RecruitmentCandidate {
+  id                      String      @id @default(cuid())
+  fullName                String
+  personalEmail           String
+  phone                   String?
+  position                String
+  statusCode              String      @default("sourced")
+  recruitmentDepartmentId String
+  hiredUserId             String?     @unique
+  hiredAt                 DateTime?
+  isDeleted               Boolean     @default(false)
+  createdAt               DateTime    @default(now())
+  updatedAt               DateTime    @updatedAt
+  deletedAt               DateTime?
+
+  recruitmentDepartment   Department  @relation(fields: [recruitmentDepartmentId], references: [id])
+  hiredUser               User?       @relation("CandidateHiredUser", fields: [hiredUserId], references: [id])
+  accessProvisionings     AccessProvisioning[]
+
+  @@index([statusCode])
+  @@index([recruitmentDepartmentId])
+  @@index([isDeleted])
+}
+
+model AccessProvisioning {
+  id                       String      @id @default(cuid())
+  candidateId              String
+  userId                   String
+  statusCode               String      @default("provisioned")
+  temporaryPasswordSentAt  DateTime?
+  forcedPasswordChangedAt  DateTime?
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  candidate                RecruitmentCandidate @relation(fields: [candidateId], references: [id])
+  user                     User                 @relation(fields: [userId], references: [id])
+
+  @@unique([candidateId, userId])
+  @@index([statusCode])
+}
+
+model AuditLog {
+  id            String    @id @default(cuid())
+  txId          String
+  occurredAt    DateTime  @default(now())
+  userId        String?
+  module        String
+  entity        String
+  entityId      String
+  actionType    String
+  oldValueJson  Json?
+  newValueJson  Json?
+  metaJson      Json?
+
+  user          User?     @relation(fields: [userId], references: [id])
+
+  @@index([txId])
+  @@index([occurredAt])
+  @@index([module, entity, entityId])
+}
+
+model DomainEvent {
+  id           String    @id @default(cuid())
+  txId         String
+  eventType    String
+  payloadJson  Json
+  createdAt    DateTime  @default(now())
+  publishedAt  DateTime?
+
+  @@index([txId])
+  @@index([eventType])
+  @@index([publishedAt])
+}
+
+
+
+
+
