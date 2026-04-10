@@ -45,6 +45,53 @@ interface SidebarProps {
     readonly onViewChange: (view: string) => void;
 }
 
+type ModuleAccessType = 'self-service' | 'department';
+
+interface ModuleConfigItem {
+    id: string;
+    label: string;
+    icon: string;
+    access?: {
+        type?: ModuleAccessType;
+        targetDepartment?: string;
+        targetDepartmentAliases?: string[];
+    };
+}
+
+function normalizeDepartmentValue(value?: string): string {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+}
+
+function isDepartmentMember(
+    user: { department?: string; departmentName?: string } | null | undefined,
+    module: ModuleConfigItem,
+): boolean {
+    const access = module.access;
+    if (!access || access.type !== 'department') return false;
+
+    const targetValues = [
+        access.targetDepartment,
+        ...(access.targetDepartmentAliases || []),
+    ]
+        .map((value) => normalizeDepartmentValue(value))
+        .filter(Boolean);
+
+    if (!targetValues.length) return false;
+
+    const userValues = [
+        user?.department,
+        user?.departmentName,
+    ]
+        .map((value) => normalizeDepartmentValue(value))
+        .filter(Boolean);
+
+    return userValues.some((value) => targetValues.includes(value));
+}
+
 const CRM_SUBMENU = (sidebarConfig.submenu?.crm as Array<{ id: string; label: string; expandable?: boolean }>) || [
     { id: 'crm-overview', label: 'Overview', expandable: false },
     { id: 'crm-pipeline', label: 'Pipeline', expandable: true },
@@ -198,16 +245,38 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
         ShieldCheck,
     };
 
-    const menuItems = ((sidebarConfig.modules || []) as Array<{ id: string; label: string; icon: string }>)
+    const moduleConfigs = (sidebarConfig.modules || []) as ModuleConfigItem[];
+    const isOmniAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
+    const isSelfServiceModule = (moduleId: string): boolean => {
+        const moduleConfig = moduleConfigs.find((mod) => mod.id === moduleId);
+        return moduleConfig?.access?.type === 'self-service';
+    };
+    const hasDepartmentAccess = (moduleId: string): boolean => {
+        const moduleConfig = moduleConfigs.find((mod) => mod.id === moduleId);
+        return isDepartmentMember(user, moduleConfig as ModuleConfigItem);
+    };
+    const canAccessModule = (moduleId: string): boolean => {
+        if (isOmniAdmin) return true;
+        if (isSelfServiceModule(moduleId)) return true;
+        if (hasDepartmentAccess(moduleId)) return true;
+        return canViewModule(moduleId as any);
+    };
+
+    const menuItems = moduleConfigs
         .map((item) => ({ ...item, icon: ICONS[item.icon] || FileText }))
-        .filter(item => canViewModule(item.id as any));
+        .filter((item) => canAccessModule(item.id));
 
     const isProjectReadOnly = isReadOnlyModule('project');
-    const isOmniAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
     const projectSubmenuItems = isProjectReadOnly
         ? PROJECTS_SUBMENU.filter((sub) => sub.id === 'projects-overview')
         : PROJECTS_SUBMENU;
-    const canViewHrmSensitive = hasPermission('hrm', 'contracts', 'read') || hasPermission('hrm', 'compensation', 'read');
+    const canManageDepartmentModule = (moduleId: string): boolean =>
+        isOmniAdmin || hasDepartmentAccess(moduleId);
+
+    const canViewHrmSensitive =
+        canManageDepartmentModule('hrm')
+        || hasPermission('hrm', 'contracts', 'read')
+        || hasPermission('hrm', 'compensation', 'read');
     const hrmSelfServiceMenu = new Set([
         'hrm-overview',
         'hrm-directory',
@@ -218,12 +287,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
     ]);
     const hrmSubmenuItems = HRM_SUBMENU.filter((sub) => (canViewHrmSensitive ? true : hrmSelfServiceMenu.has(sub.id)));
 
-    const scmCanApprove = hasPermission('scm', 'requisition', 'approve');
+    const scmCanApprove = canManageDepartmentModule('scm') || hasPermission('scm', 'requisition', 'approve');
     const scmSelfServiceMenu = new Set([
         'scm-overview',
         'scm-requisitions',
     ]);
     const scmSubmenuItems = SCM_SUBMENU.filter((sub: any) => (scmCanApprove ? true : scmSelfServiceMenu.has(sub.id)));
+
+    const crmCanManage = canManageDepartmentModule('crm');
+    const crmSelfServiceMenu = new Set(['crm-overview']);
+    const crmSubmenuItems = CRM_SUBMENU.filter((sub) => (crmCanManage ? true : crmSelfServiceMenu.has(sub.id)));
 
     useEffect(() => {
         let cancelled = false;
@@ -336,7 +409,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
                                     className="ml-2 mt-1 overflow-hidden transition-all duration-[250ms] ease-in-out flex flex-col gap-[2px] bg-transparent"
                                     style={{ maxHeight: '600px' }}
                                 >
-                                    {CRM_SUBMENU.map((sub) => {
+                                    {crmSubmenuItems.map((sub) => {
                                         const isSubExpanded = expandedSubItems.has(sub.id);
                                         const isSubActive = activeView === sub.id || (sub.id === 'crm-pipeline' && activeView === 'crm-pipeline');
 

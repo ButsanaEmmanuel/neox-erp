@@ -1,11 +1,52 @@
 {
   "modules": [
-    { "id": "dashboard", "label": "Dashboard", "icon": "LayoutDashboard" },
-    { "id": "crm", "label": "CRM", "icon": "Target" },
-    { "id": "finance", "label": "Finance", "icon": "BarChart3" },
-    { "id": "scm", "label": "SCM", "icon": "Truck" },
+    {
+      "id": "dashboard",
+      "label": "Dashboard",
+      "icon": "LayoutDashboard",
+      "access": { "type": "self-service" }
+    },
+    {
+      "id": "crm",
+      "label": "CRM",
+      "icon": "Target",
+      "access": {
+        "type": "department",
+        "targetDepartment": "Sales",
+        "targetDepartmentAliases": ["Commercial", "Ventes", "CRM"]
+      }
+    },
+    {
+      "id": "finance",
+      "label": "Finance",
+      "icon": "BarChart3",
+      "access": {
+        "type": "department",
+        "targetDepartment": "Finance",
+        "targetDepartmentAliases": ["Comptabilite", "Accounting"]
+      }
+    },
+    {
+      "id": "scm",
+      "label": "SCM",
+      "icon": "Truck",
+      "access": {
+        "type": "department",
+        "targetDepartment": "Logistics",
+        "targetDepartmentAliases": ["Logistique", "Operations / SCM", "SCM"]
+      }
+    },
     { "id": "project", "label": "Projects", "icon": "FileText" },
-    { "id": "hrm", "label": "HRM", "icon": "Users" },
+    {
+      "id": "hrm",
+      "label": "HRM",
+      "icon": "Users",
+      "access": {
+        "type": "department",
+        "targetDepartment": "Human Resources",
+        "targetDepartmentAliases": ["HR", "Ressources Humaines", "People Ops"]
+      }
+    },
     { "id": "hse", "label": "HSE", "icon": "ShieldCheck" },
     { "id": "reports", "label": "Reports", "icon": "FileText" }
   ],
