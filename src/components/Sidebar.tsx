@@ -33,6 +33,12 @@ import { usePermissions } from '../hooks/usePermissions';
 import { useAuth } from '../contexts/AuthContext';
 import sidebarConfig from '../config/sidebar.config.json';
 import { apiRequest } from '../lib/apiClient';
+import {
+    hasDepartmentAccess,
+    isGlobalAdmin,
+    isSelfServiceModule,
+    type ModuleConfigItem,
+} from '../lib/navigationAccess';
 
 /** Utility for Tailwind class merging */
 function cn(...inputs: ClassValue[]) {
@@ -45,58 +51,23 @@ interface SidebarProps {
     readonly onViewChange: (view: string) => void;
 }
 
-type ModuleAccessType = 'self-service' | 'department';
-
-interface ModuleConfigItem {
+interface NavSubmenuItem {
     id: string;
     label: string;
-    icon: string;
-    access?: {
-        type?: ModuleAccessType;
-        targetDepartment?: string;
-        targetDepartmentAliases?: string[];
-    };
+    icon?: React.ComponentType<any> | string;
+    expandable?: boolean;
+    subItems?: NavSubmenuItem[];
+    isSelfService?: boolean;
 }
 
-function normalizeDepartmentValue(value?: string): string {
-    return String(value || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .trim()
-        .toLowerCase();
-}
-
-function isDepartmentMember(
-    user: { department?: string; departmentName?: string } | null | undefined,
-    module: ModuleConfigItem,
-): boolean {
-    const access = module.access;
-    if (!access || access.type !== 'department') return false;
-
-    const targetValues = [
-        access.targetDepartment,
-        ...(access.targetDepartmentAliases || []),
-    ]
-        .map((value) => normalizeDepartmentValue(value))
-        .filter(Boolean);
-
-    if (!targetValues.length) return false;
-
-    const userValues = [
-        user?.department,
-        user?.departmentName,
-    ]
-        .map((value) => normalizeDepartmentValue(value))
-        .filter(Boolean);
-
-    return userValues.some((value) => targetValues.includes(value));
-}
-
-const CRM_SUBMENU = (sidebarConfig.submenu?.crm as Array<{ id: string; label: string; expandable?: boolean }>) || [
-    { id: 'crm-overview', label: 'Overview', expandable: false },
-    { id: 'crm-pipeline', label: 'Pipeline', expandable: true },
-    { id: 'crm-contacts', label: 'Contacts', expandable: true },
-    { id: 'crm-activity-module', label: 'Tasks & Activity', expandable: true },
+const CRM_SUBMENU = (sidebarConfig.submenu?.crm as Array<{ id: string; label: string; expandable?: boolean }>)?.map((item) => ({
+    ...item,
+    isSelfService: item.id === 'crm-overview',
+})) || [
+    { id: 'crm-overview', label: 'Overview', expandable: false, isSelfService: true },
+    { id: 'crm-pipeline', label: 'Pipeline', expandable: true, isSelfService: false },
+    { id: 'crm-contacts', label: 'Contacts', expandable: true, isSelfService: false },
+    { id: 'crm-activity-module', label: 'Tasks & Activity', expandable: true, isSelfService: false },
 ];
 
 const FINANCE_SUBMENU = (sidebarConfig.submenu?.finance as Array<{ id: string; label: string; expandable?: boolean }>) || [
@@ -118,47 +89,48 @@ const FINANCE_SUBMENU = (sidebarConfig.submenu?.finance as Array<{ id: string; l
 ];
 
 const SCM_SUBMENU = [
-    { id: 'scm-overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'scm-suppliers', label: 'Suppliers', icon: Target },
-    { id: 'scm-products', label: 'Products', icon: Box },
-    { id: 'scm-inventory', label: 'Inventory', icon: Package },
+    { id: 'scm-overview', label: 'Overview', icon: LayoutDashboard, isSelfService: true },
+    { id: 'scm-suppliers', label: 'Suppliers', icon: Target, isSelfService: false },
+    { id: 'scm-products', label: 'Products', icon: Box, isSelfService: false },
+    { id: 'scm-inventory', label: 'Inventory', icon: Package, isSelfService: false },
 
-    { id: 'scm-locations', label: 'Locations', icon: MapPin },
-    { id: 'scm-purchase-orders', label: 'Purchase Orders', icon: ClipboardList },
+    { id: 'scm-locations', label: 'Locations', icon: MapPin, isSelfService: false },
+    { id: 'scm-purchase-orders', label: 'Purchase Orders', icon: ClipboardList, isSelfService: false },
 
     // --- Logistics Submodule ---
     {
         id: 'scm-logistics-dashboard',
         label: 'Logistics',
         icon: Truck,
+        isSelfService: false,
         expandable: true,
         subItems: [
-            { id: 'scm-logistics-shipments', label: 'Shipments', icon: Package },
-            { id: 'scm-logistics-transfers', label: 'Transfers', icon: Truck },
-            { id: 'scm-logistics-receiving', label: 'Receiving', icon: Box },
-            { id: 'scm-logistics-deliveries', label: 'Deliveries', icon: MapPin },
-            { id: 'scm-logistics-exceptions', label: 'Exceptions', icon: AlertTriangle },
+            { id: 'scm-logistics-shipments', label: 'Shipments', icon: Package, isSelfService: false },
+            { id: 'scm-logistics-transfers', label: 'Transfers', icon: Truck, isSelfService: false },
+            { id: 'scm-logistics-receiving', label: 'Receiving', icon: Box, isSelfService: false },
+            { id: 'scm-logistics-deliveries', label: 'Deliveries', icon: MapPin, isSelfService: false },
+            { id: 'scm-logistics-exceptions', label: 'Exceptions', icon: AlertTriangle, isSelfService: false },
         ]
     },
     // ---------------------------
 
-    { id: 'scm-requisitions', label: 'Requests', icon: ClipboardList },
-    { id: 'scm-reports', label: 'Reports', icon: BarChart3 },
-    { id: 'scm-config', label: 'Configuration', icon: Settings },
+    { id: 'scm-requisitions', label: 'Requests', icon: ClipboardList, isSelfService: true },
+    { id: 'scm-reports', label: 'Reports', icon: BarChart3, isSelfService: false },
+    { id: 'scm-config', label: 'Configuration', icon: Settings, isSelfService: false },
 ];
 
 const HRM_SUBMENU = [
-    { id: 'hrm-overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'hrm-directory', label: 'Directory', icon: Users },
-    { id: 'hrm-onboarding', label: 'Onboarding', icon: UserPlus },
-    { id: 'hrm-offboarding', label: 'Offboarding', icon: UserMinus },
-    { id: 'hrm-recruitment', label: 'Recruitment', icon: Briefcase },
-    { id: 'hrm-timesheets', label: 'Timesheets', icon: Clock },
-    { id: 'hrm-leave', label: 'Leave', icon: CalendarOff },
-    { id: 'hrm-training', label: 'Training', icon: GraduationCap },
-    { id: 'hrm-policies', label: 'Policies', icon: BookOpen },
-    { id: 'hrm-cases', label: 'Cases', icon: AlertTriangle },
-    { id: 'hrm-configuration', label: 'Configuration', icon: Settings },
+    { id: 'hrm-overview', label: 'Overview', icon: LayoutDashboard, isSelfService: true },
+    { id: 'hrm-directory', label: 'Directory', icon: Users, isSelfService: true },
+    { id: 'hrm-onboarding', label: 'Onboarding', icon: UserPlus, isSelfService: false },
+    { id: 'hrm-offboarding', label: 'Offboarding', icon: UserMinus, isSelfService: false },
+    { id: 'hrm-recruitment', label: 'Recruitment', icon: Briefcase, isSelfService: false },
+    { id: 'hrm-timesheets', label: 'Timesheets', icon: Clock, isSelfService: true },
+    { id: 'hrm-leave', label: 'Leave', icon: CalendarOff, isSelfService: true },
+    { id: 'hrm-training', label: 'Training', icon: GraduationCap, isSelfService: true },
+    { id: 'hrm-policies', label: 'Policies', icon: BookOpen, isSelfService: true },
+    { id: 'hrm-cases', label: 'Cases', icon: AlertTriangle, isSelfService: false },
+    { id: 'hrm-configuration', label: 'Configuration', icon: Settings, isSelfService: false },
 ];
 
 const PROJECTS_SUBMENU = (sidebarConfig.submenu?.projects as Array<{ id: string; label: string; icon: string }>) || [
@@ -246,19 +218,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
     };
 
     const moduleConfigs = (sidebarConfig.modules || []) as ModuleConfigItem[];
-    const isOmniAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
-    const isSelfServiceModule = (moduleId: string): boolean => {
-        const moduleConfig = moduleConfigs.find((mod) => mod.id === moduleId);
-        return moduleConfig?.access?.type === 'self-service';
-    };
-    const hasDepartmentAccess = (moduleId: string): boolean => {
-        const moduleConfig = moduleConfigs.find((mod) => mod.id === moduleId);
-        return isDepartmentMember(user, moduleConfig as ModuleConfigItem);
-    };
+    const isOmniAdmin = isGlobalAdmin(user);
+    const moduleById = new Map(moduleConfigs.map((module) => [module.id, module]));
+    const hasDepartmentModuleAccess = (moduleId: string): boolean =>
+        hasDepartmentAccess(user, moduleById.get(moduleId));
     const canAccessModule = (moduleId: string): boolean => {
+        const moduleConfig = moduleById.get(moduleId);
         if (isOmniAdmin) return true;
-        if (isSelfServiceModule(moduleId)) return true;
-        if (hasDepartmentAccess(moduleId)) return true;
+        if (isSelfServiceModule(moduleConfig)) return true;
+        if (hasDepartmentModuleAccess(moduleId)) return true;
         return canViewModule(moduleId as any);
     };
 
@@ -270,33 +238,27 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
     const projectSubmenuItems = isProjectReadOnly
         ? PROJECTS_SUBMENU.filter((sub) => sub.id === 'projects-overview')
         : PROJECTS_SUBMENU;
-    const canManageDepartmentModule = (moduleId: string): boolean =>
-        isOmniAdmin || hasDepartmentAccess(moduleId);
+    const canManageDepartmentModule = (moduleId: string): boolean => isOmniAdmin || hasDepartmentModuleAccess(moduleId);
+    const filterDepartmentSubmenu = (
+        moduleId: string,
+        items: NavSubmenuItem[],
+        extraAccess?: (item: NavSubmenuItem) => boolean,
+    ): NavSubmenuItem[] => {
+        if (canManageDepartmentModule(moduleId)) return items;
+        return items.filter((item) => Boolean(item.isSelfService || extraAccess?.(item)));
+    };
 
-    const canViewHrmSensitive =
-        canManageDepartmentModule('hrm')
-        || hasPermission('hrm', 'contracts', 'read')
-        || hasPermission('hrm', 'compensation', 'read');
-    const hrmSelfServiceMenu = new Set([
-        'hrm-overview',
-        'hrm-directory',
-        'hrm-timesheets',
-        'hrm-leave',
-        'hrm-training',
-        'hrm-policies',
-    ]);
-    const hrmSubmenuItems = HRM_SUBMENU.filter((sub) => (canViewHrmSensitive ? true : hrmSelfServiceMenu.has(sub.id)));
+    const hrmSubmenuItems = filterDepartmentSubmenu('hrm', HRM_SUBMENU, (item) => (
+        item.id === 'hrm-configuration'
+            ? hasPermission('hrm', 'contracts', 'read') || hasPermission('hrm', 'compensation', 'read')
+            : false
+    ));
 
-    const scmCanApprove = canManageDepartmentModule('scm') || hasPermission('scm', 'requisition', 'approve');
-    const scmSelfServiceMenu = new Set([
-        'scm-overview',
-        'scm-requisitions',
-    ]);
-    const scmSubmenuItems = SCM_SUBMENU.filter((sub: any) => (scmCanApprove ? true : scmSelfServiceMenu.has(sub.id)));
+    const scmSubmenuItems = filterDepartmentSubmenu('scm', SCM_SUBMENU, (item) => (
+        item.id === 'scm-requisitions' && hasPermission('scm', 'requisition', 'approve')
+    ));
 
-    const crmCanManage = canManageDepartmentModule('crm');
-    const crmSelfServiceMenu = new Set(['crm-overview']);
-    const crmSubmenuItems = CRM_SUBMENU.filter((sub) => (crmCanManage ? true : crmSelfServiceMenu.has(sub.id)));
+    const crmSubmenuItems = filterDepartmentSubmenu('crm', CRM_SUBMENU);
 
     useEffect(() => {
         let cancelled = false;
@@ -562,6 +524,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
                                     {scmSubmenuItems.map((sub: any) => {
                                         const isSubActive = activeView === sub.id || (sub.id === 'scm-logistics-dashboard' && activeView.startsWith('scm-logistics-'));
                                         const isSubExpanded = expandedSubItems.has(sub.id);
+                                        const SubIcon = (sub.icon as React.ComponentType<any>) || FileText;
 
                                         return (
                                             <div key={sub.id}>
@@ -582,7 +545,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
                                                     )}
                                                 >
                                                     <div className="flex items-center gap-3">
-                                                        <sub.icon size={14} className={cn(isSubActive ? "opacity-100" : "opacity-40 group-hover:opacity-100")} />
+                                                        <SubIcon size={14} className={cn(isSubActive ? "opacity-100" : "opacity-40 group-hover:opacity-100")} />
                                                         <span>{translateLabel(sub.label)}</span>
                                                     </div>
                                                     {sub.expandable && (
@@ -654,6 +617,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
                                 <div className="ml-2 mt-1 flex flex-col gap-[2px] bg-transparent">
                                     {hrmSubmenuItems.map((sub) => {
                                         const isSubActive = activeView === sub.id;
+                                        const SubIcon = (sub.icon as React.ComponentType<any>) || FileText;
 
                                         return (
                                             <div
@@ -666,7 +630,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
                                                         : (isDark ? "text-slate-500 hover:text-slate-200 hover:bg-white/5" : "text-[#64748b] hover:text-[#475569] hover:bg-black/5")
                                                 )}
                                             >
-                                                <sub.icon size={14} className={cn(isSubActive ? "opacity-100" : "opacity-40 group-hover:opacity-100")} />
+                                                <SubIcon size={14} className={cn(isSubActive ? "opacity-100" : "opacity-40 group-hover:opacity-100")} />
                                                 <span>{translateLabel(sub.label)}</span>
                                             </div>
                                         );
@@ -845,9 +809,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isDark, activeView, onViewChange }) =
 };
 
 export default Sidebar;
-
-
-
 
 
 
