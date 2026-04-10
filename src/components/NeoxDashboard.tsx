@@ -86,6 +86,14 @@ import { ToastProvider } from './ui/Toast';
 import { useTheme } from './ThemeProvider';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import sidebarConfig from '../config/sidebar.config.json';
+import { usePermissions, type ModuleId } from '../hooks/usePermissions';
+import {
+  hasDepartmentAccess,
+  isGlobalAdmin,
+  isSelfServiceModule,
+  type ModuleConfigItem,
+} from '../lib/navigationAccess';
 
 /** Utility for Tailwind class merging */
 function cn(...inputs: ClassValue[]) {
@@ -96,6 +104,7 @@ const DashboardContent: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
   const { user } = useAuth();
+  const { canViewModule, hasPermission, loading: permissionsLoading } = usePermissions();
   const [activeView, setActiveView] = useState<string>(() => {
     if (!user) return 'dashboard';
     const role = user.role?.toUpperCase();
@@ -108,6 +117,12 @@ const DashboardContent: React.FC = () => {
   });
   const location = useLocation();
   const navigate = useNavigate();
+  const moduleConfigs = useMemo(() => (sidebarConfig.modules || []) as ModuleConfigItem[], []);
+  const moduleById = useMemo(
+    () => new Map(moduleConfigs.map((module) => [module.id, module])),
+    [moduleConfigs],
+  );
+  const isOmniAdmin = isGlobalAdmin(user);
 
   const { deals } = useDeals();
   const tableRef = useRef<HTMLDivElement>(null);
@@ -192,6 +207,79 @@ const DashboardContent: React.FC = () => {
       setActiveView('dashboard');
     }
   }, [location.pathname]);
+
+  const canAccessModule = (moduleId: ModuleId): boolean => {
+    const moduleConfig = moduleById.get(moduleId);
+    if (isOmniAdmin) return true;
+    if (isSelfServiceModule(moduleConfig)) return true;
+    if (hasDepartmentAccess(user, moduleConfig)) return true;
+    return canViewModule(moduleId);
+  };
+
+  const hasDepartmentModuleAccess = (moduleId: ModuleId): boolean =>
+    isOmniAdmin || hasDepartmentAccess(user, moduleById.get(moduleId));
+
+  const isSelfServiceView = (view: string): boolean => {
+    if (view === 'crm-overview') return true;
+    if (view === 'scm-overview' || view === 'scm-requisitions' || view.startsWith('scm-requisitions-detail-')) return true;
+    if (
+      view === 'hrm-overview'
+      || view === 'hrm-directory'
+      || view === 'hrm-timesheets'
+      || view === 'hrm-leave'
+      || view === 'hrm-training'
+      || view === 'hrm-policies'
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const getViewModuleId = (view: string): ModuleId | null => {
+    if (view === 'dashboard') return 'dashboard';
+    if (view === 'reports') return 'reports';
+    if (view.startsWith('crm-')) return 'crm';
+    if (view.startsWith('finance-')) return 'finance';
+    if (view.startsWith('scm-')) return 'scm';
+    if (view.startsWith('hrm-')) return 'hrm';
+    if (view === 'project' || view.startsWith('projects')) return 'project';
+    return null;
+  };
+
+  const canAccessView = (view: string): boolean => {
+    if (view === 'settings') return true;
+    const moduleId = getViewModuleId(view);
+    if (!moduleId) return true;
+    if (moduleId === 'dashboard') return true;
+    if (!canAccessModule(moduleId)) return false;
+    if (moduleId === 'project') return true;
+    if (hasDepartmentModuleAccess(moduleId)) return true;
+    if (isSelfServiceView(view)) return true;
+    if (moduleId === 'hrm' && view === 'hrm-configuration') {
+      return hasPermission('hrm', 'contracts', 'read') || hasPermission('hrm', 'compensation', 'read');
+    }
+    if (moduleId === 'scm' && view === 'scm-requisitions') {
+      return hasPermission('scm', 'requisition', 'approve');
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (permissionsLoading) return;
+    if (canAccessView(activeView)) return;
+    setActiveView('dashboard');
+    if (location.pathname.startsWith('/projects')) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [activeView, canViewModule, hasPermission, isOmniAdmin, location.pathname, navigate, permissionsLoading, user?.department, user?.departmentName, user?.role]);
+
+  useEffect(() => {
+    if (permissionsLoading) return;
+    if (!location.pathname.startsWith('/projects')) return;
+    if (canAccessModule('project')) return;
+    setActiveView('dashboard');
+    navigate('/dashboard', { replace: true });
+  }, [canViewModule, isOmniAdmin, location.pathname, navigate, permissionsLoading, user?.department, user?.departmentName, user?.role]);
 
   useEffect(() => {
     if (tableRef.current) {
@@ -721,4 +809,3 @@ const NeoxDashboard: React.FC = () => {
 };
 
 export default NeoxDashboard;
-
