@@ -15,6 +15,21 @@ const API_TIMEOUT_MS = 12000;
 const API_RETRY_ATTEMPTS = 2;
 let pendingRequestCount = 0;
 
+function normalizeBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '');
+}
+
+function getApiBaseCandidates() {
+  const candidates = [API_BASE_URL, ''];
+  if (import.meta.env.DEV) {
+    candidates.push('http://localhost:4000', 'http://127.0.0.1:4000');
+  }
+
+  return candidates
+    .map((candidate) => normalizeBaseUrl(candidate))
+    .filter((candidate, index, arr): candidate is string => candidate !== undefined && candidate !== null && arr.indexOf(candidate) === index);
+}
+
 function emitNetworkActivity() {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(
@@ -39,9 +54,7 @@ export async function apiRequest<T>(
   } = {},
 ): Promise<T> {
   const { method = 'GET', body, token } = options;
-  const baseCandidates = [API_BASE_URL, '', 'http://localhost:4000', 'http://127.0.0.1:4000']
-    .map((candidate) => candidate?.trim())
-    .filter((candidate, index, arr): candidate is string => candidate !== undefined && candidate !== null && arr.indexOf(candidate) === index);
+  const baseCandidates = getApiBaseCandidates();
 
   let lastError: Error | null = null;
 
@@ -86,6 +99,9 @@ export async function apiRequest<T>(
       } catch (error) {
         clearTimeout(timeout);
         const err = error as Error;
+        if (err instanceof ApiError) {
+          throw err;
+        }
         const isAbort = err.name === 'AbortError';
         const isNetwork = err.message?.toLowerCase().includes('failed to fetch') || isAbort;
         lastError = new Error(
