@@ -225,7 +225,7 @@ export const useHRMStore = create<HRMStore>((set, get) => ({
         } catch (err) {
             const message = String((err as Error).message || 'Unknown error');
             const friendly = message.toLowerCase().includes('failed to fetch') || message.toLowerCase().includes('timeout')
-                ? 'Network/API unreachable. Verify API server on http://localhost:4000 and try again.'
+                ? 'Network/API unreachable. Verify the API server and try again.'
                 : message;
             set({ isLoading: false, error: friendly, hydrated: true });
         }

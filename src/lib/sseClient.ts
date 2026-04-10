@@ -6,9 +6,23 @@
  */
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
-const BASE_CANDIDATES = [API_BASE_URL, '', 'http://localhost:4000', 'http://127.0.0.1:4000']
-  .map((c) => c?.trim())
-  .filter((c, i, a): c is string => !!c && a.indexOf(c) === i);
+
+function normalizeBaseUrl(baseUrl: string) {
+  return baseUrl.trim().replace(/\/+$/, '');
+}
+
+function getBaseCandidates() {
+  const candidates = [API_BASE_URL, ''];
+  if (import.meta.env.DEV) {
+    candidates.push('http://localhost:4000', 'http://127.0.0.1:4000');
+  }
+
+  return candidates
+    .map((candidate) => normalizeBaseUrl(candidate))
+    .filter((candidate, index, arr): candidate is string => candidate !== undefined && candidate !== null && arr.indexOf(candidate) === index);
+}
+
+const BASE_CANDIDATES = getBaseCandidates();
 
 type SseCallback = (payload: Record<string, unknown>) => void;
 
