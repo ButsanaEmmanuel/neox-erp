@@ -60,6 +60,11 @@ function computeKpis(workItems = []) {
 }
 
 function mapWorkItem(row, state) {
+  const toIsoDateOnly = (value) => {
+    const normalized = toIsoDate(value);
+    return normalized || undefined;
+  };
+  const effectiveImportedFields = state?.importedFieldsJson ?? row.importedFieldsJson;
   const effectiveQaStatus = state?.qaStatus ?? row.qaStatus;
   const effectiveAcceptanceStatus = state?.acceptanceStatus ?? row.acceptanceStatus;
   const effectiveTicketNumber = state?.ticketNumber ?? row.ticketNumber;
@@ -72,6 +77,30 @@ function mapWorkItem(row, state) {
   const effectiveFinanceErrorMessage = state?.financeErrorMessage ?? row.financeErrorMessage;
   const effectiveOperationalFields = state?.operationalManualFieldsJson ?? row.operationalManualFieldsJson;
   const effectiveAcceptanceFields = state?.acceptanceManualFieldsJson ?? row.acceptanceManualFieldsJson;
+  const planningAuditDate =
+    toIsoDateOnly(effectiveOperationalFields?.planning_audit_date)
+    || toIsoDateOnly(state?.planningAuditDate)
+    || toIsoDateOnly(effectiveImportedFields?.planning_audit_date)
+    || toIsoDateOnly(effectiveImportedFields?.planned_start_date);
+  const forecastDate =
+    toIsoDateOnly(effectiveOperationalFields?.forecast_date)
+    || toIsoDateOnly(state?.forecastDate)
+    || toIsoDateOnly(effectiveImportedFields?.forecast_date)
+    || planningAuditDate;
+  const actualAuditDate =
+    toIsoDateOnly(effectiveOperationalFields?.actual_audit_date)
+    || toIsoDateOnly(state?.actualAuditDate)
+    || toIsoDateOnly(effectiveImportedFields?.actual_audit_date);
+  let delayDays;
+  let delayWeeks;
+  if (planningAuditDate && forecastDate) {
+    const planningMs = new Date(`${planningAuditDate}T00:00:00.000Z`).getTime();
+    const forecastMs = new Date(`${forecastDate}T00:00:00.000Z`).getTime();
+    if (Number.isFinite(planningMs) && Number.isFinite(forecastMs)) {
+      delayDays = Math.round((forecastMs - planningMs) / 86400000);
+      delayWeeks = delayDays === 0 ? 0 : delayDays > 0 ? Math.ceil(delayDays / 7) : -Math.ceil(Math.abs(delayDays) / 7);
+    }
+  }
   const effectiveEligibility =
     state?.isFinanciallyEligible !== undefined
       ? state.isFinanciallyEligible
@@ -97,7 +126,7 @@ function mapWorkItem(row, state) {
     status: effectiveStatus,
     priority: row.priority,
     assignee: row.assignee || undefined,
-    plannedDate: toIsoDate(row.plannedDate),
+    plannedDate: toIsoDateOnly(row.plannedDate) || planningAuditDate,
     actualDate: toIsoDate(row.actualDate),
     qaStatus: effectiveQaStatus || undefined,
     qaDate: toIsoDate(row.qaDate),
@@ -114,7 +143,18 @@ function mapWorkItem(row, state) {
     ticket_number: decimalToNumber(effectiveTicketNumber) ?? undefined,
     po_unit_price_completed: decimalToNumber(effectivePoUnitPriceCompleted) ?? undefined,
     contractor_payable_amount: decimalToNumber(effectiveContractorPayableAmount) ?? undefined,
-    imported_fields: row.importedFieldsJson || undefined,
+    planning_audit_date: planningAuditDate,
+    planning_audit_week: (effectiveOperationalFields?.planning_audit_week ?? state?.planningAuditWeek) || undefined,
+    forecast_date: forecastDate,
+    forecast_week: (effectiveOperationalFields?.forecast_week ?? state?.forecastWeek) || undefined,
+    actual_audit_date: actualAuditDate,
+    actual_audit_week: (effectiveOperationalFields?.actual_audit_week ?? state?.actualAuditWeek) || undefined,
+    schedule_status: state?.scheduleStatus || undefined,
+    start_variance_days: state?.startVarianceDays ?? undefined,
+    is_delayed: state?.isDelayed ?? undefined,
+    delay_days: delayDays,
+    delay_weeks: delayWeeks,
+    imported_fields: effectiveImportedFields || undefined,
     operational_manual_fields: effectiveOperationalFields || undefined,
     acceptance_manual_fields: effectiveAcceptanceFields || undefined,
     description: row.description || undefined,
@@ -671,6 +711,19 @@ export async function notifyTeam(prisma, input = {}) {
 
   if (events.length > 0) {
     await prisma.domainEvent.createMany({ data: events });
+    for (const member of recipients) {
+      try {
+        sseBroadcast('notification_created', {
+          id: `${txId}-${member.userId}`,
+          ...basePayload,
+          targetUserId: member.userId,
+          targetEmail: member.email || null,
+          targetName: member.name || null,
+        });
+      } catch {
+        // Non-blocking: missed realtime fanout must not break the business action.
+      }
+    }
   }
 
   try {

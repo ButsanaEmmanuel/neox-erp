@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto, { randomUUID } from 'node:crypto';
+import { notifyTeam } from '../projects/projectCollaboration.service.mjs';
 
 const FILE_ROOT = path.resolve(process.cwd(), 'backend', 'storage', 'finance-evidence');
 
@@ -67,6 +68,43 @@ async function writeDomainEvent(tx, payload) {
       payloadJson: payload.payloadJson,
     },
   });
+}
+
+async function notifyProjectFinanceAction(prisma, entry, payload, outcome) {
+  const projectId = String(entry?.projectId || '').trim();
+  if (!projectId) return;
+
+  const workItemId = String(entry?.workItemId || '').trim();
+  const actorDisplayName = String(payload?.actorDisplayName || 'User').trim() || 'User';
+  const outcomeLabel = outcome === 'approved' ? 'approved' : 'rejected';
+  const entryTitle = String(entry?.title || entry?.referenceCode || 'finance entry').trim();
+  const details = `${actorDisplayName} ${outcomeLabel} ${entryTitle}.`;
+
+  try {
+    await notifyTeam(prisma, {
+      projectId,
+      actionType: `finance_entry_${outcomeLabel}`,
+      type: 'FINANCE_UPDATE',
+      title: `Finance entry ${outcomeLabel} • ${entry.referenceCode || projectId}`,
+      details,
+      message: details,
+      department: 'Finance',
+      link: workItemId
+        ? `/projects/${encodeURIComponent(projectId)}/work-items?workItemId=${encodeURIComponent(workItemId)}`
+        : `/projects/${encodeURIComponent(projectId)}/work-items`,
+      meta: {
+        financeEntryId: entry.id,
+        referenceCode: entry.referenceCode,
+        sourceEntity: entry.sourceEntity,
+        sourceEntityId: entry.sourceEntityId,
+        workItemId: workItemId || null,
+      },
+      actorUserId: payload?.actorUserId || null,
+      actorDisplayName,
+    });
+  } catch {
+    // Non-blocking: finance approval should succeed even if notification fanout fails.
+  }
 }
 
 export async function createFinanceActivity(tx, payload) {
@@ -687,7 +725,7 @@ export function resolveAbsoluteFinanceStoredPath(storagePath) {
 }
 
 export async function approveFinanceEntry(prisma, financeEntryId, payload) {
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const entry = await tx.financeEntry.findFirst({
       where: { id: financeEntryId, isDeleted: false },
     });
@@ -749,10 +787,12 @@ export async function approveFinanceEntry(prisma, financeEntryId, payload) {
 
     return updated;
   });
+  await notifyProjectFinanceAction(prisma, updated, payload, 'approved');
+  return updated;
 }
 
 export async function rejectFinanceEntry(prisma, financeEntryId, payload) {
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const entry = await tx.financeEntry.findFirst({
       where: { id: financeEntryId, isDeleted: false },
     });
@@ -809,6 +849,8 @@ export async function rejectFinanceEntry(prisma, financeEntryId, payload) {
 
     return updated;
   });
+  await notifyProjectFinanceAction(prisma, updated, payload, 'rejected');
+  return updated;
 }
 
 export async function backfillProjectFinanceEntries(prisma) {

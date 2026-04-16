@@ -42,6 +42,74 @@ function parseNumberLike(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function normalizeDateInput(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber) && asNumber > 0 && asNumber < 100000) {
+    const epoch = Date.UTC(1899, 11, 30);
+    const excelDate = new Date(epoch + Math.round(asNumber) * 86400000);
+    const year = excelDate.getUTCFullYear();
+    if (year >= 2000 && year <= 2100) return excelDate.toISOString().slice(0, 10);
+  }
+  const raw = String(value).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return undefined;
+  const date = new Date(`${raw}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  const year = date.getUTCFullYear();
+  if (year < 2000 || year > 2100) return undefined;
+  return raw;
+}
+
+function weekOfDate(value: unknown): number | undefined {
+  const normalized = normalizeDateInput(value);
+  if (!normalized) return undefined;
+  const date = new Date(`${normalized}T00:00:00.000Z`);
+  const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function formatDisplayDate(value?: string): string {
+  const normalized = normalizeDateInput(value);
+  if (!normalized) return '';
+  const [year, month, day] = normalized.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<string, string | number | boolean | null> {
+  const next: Record<string, string | number | boolean | null> = {
+    ...((item.operational_manual_fields || {}) as Record<string, string | number | boolean | null>),
+  };
+
+  const planningAuditDate =
+    normalizeDateInput(item.planning_audit_date) ||
+    normalizeDateInput(item.imported_fields?.planning_audit_date) ||
+    normalizeDateInput(item.imported_fields?.planned_start_date);
+  const forecastDate = normalizeDateInput(item.forecast_date);
+  const actualAuditDate = normalizeDateInput(item.actual_audit_date);
+
+  if (planningAuditDate) next.planning_audit_date = planningAuditDate;
+  if (planningAuditDate) next.planning_audit_week = weekOfDate(planningAuditDate) ?? null;
+  else {
+    delete next.planning_audit_date;
+    delete next.planning_audit_week;
+  }
+
+  if (forecastDate) next.forecast_date = forecastDate;
+  else delete next.forecast_date;
+  if (forecastDate) next.forecast_week = weekOfDate(forecastDate) ?? null;
+  else delete next.forecast_week;
+
+  if (actualAuditDate) next.actual_audit_date = actualAuditDate;
+  else delete next.actual_audit_date;
+  if (actualAuditDate) next.actual_audit_week = weekOfDate(actualAuditDate) ?? null;
+  else delete next.actual_audit_week;
+
+  return next;
+}
+
 const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) => {
   const { user } = useAuth();
   const { workItems, addWorkItem, updateWorkItem, activeProjectId, projects } = useProjectStore();
@@ -163,6 +231,13 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
 
   const currentOperationalFields = (formData.operational_manual_fields || {}) as Record<string, string | number | boolean | null>;
   const currentAcceptanceFields = (formData.acceptance_manual_fields || {}) as Record<string, string | number | boolean | null>;
+  const displayedPlannedDate =
+    normalizeDateInput(formData.plannedDate) ||
+    normalizeDateInput(formData.planning_audit_date) ||
+    normalizeDateInput(formData.imported_fields?.planning_audit_date) ||
+    normalizeDateInput(formData.imported_fields?.planned_start_date) ||
+    '';
+  const plannedDateReadOnly = isTelecom && Boolean(displayedPlannedDate);
 
   const availableFieldDefs = useMemo(() => {
     const source = manualGroup === 'operational' ? OPERATIONAL_MANUAL_FIELDS : ACCEPTANCE_MANUAL_FIELDS;
@@ -183,6 +258,16 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
   const persistTelecomDetails = async (nextPatch: Partial<WorkItem>) => {
     if (!projectId || !workItemId || isNew) return;
     const merged = { ...formData, ...nextPatch };
+    const operationalManualFields = buildOperationalManualFieldsPayload(merged);
+    console.info('[WorkItemDrawer] Persisting telecom item details', {
+      projectId,
+      workItemId,
+      forecast_date: merged.forecast_date,
+      actual_audit_date: merged.actual_audit_date,
+      planning_audit_date: merged.planning_audit_date || merged.imported_fields?.planning_audit_date,
+      ticket_number: merged.ticket_number,
+      operationalManualFields,
+    });
     const response = await saveProjectItemDetailsToBackend({
       projectId,
       workItemId,
@@ -194,45 +279,28 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
       qaStatus: merged.qaStatus,
       acceptanceStatus: merged.acceptanceStatus,
       importedFields: merged.imported_fields as Record<string, unknown>,
-      operationalManualFields: merged.operational_manual_fields as Record<string, unknown>,
+      operationalManualFields,
       acceptanceManualFields: merged.acceptance_manual_fields as Record<string, unknown>,
     });
 
     const state = response.state;
+    console.info('[WorkItemDrawer] Telecom item details saved', {
+      projectId,
+      workItemId,
+      responseState: {
+        planningAuditDate: state.planningAuditDate,
+        forecastDate: state.forecastDate,
+        actualAuditDate: state.actualAuditDate,
+        scheduleStatus: state.scheduleStatus,
+        startVarianceDays: state.startVarianceDays,
+      },
+    });
     const operationalFromState = (state.operationalManualFieldsJson || merged.operational_manual_fields || {}) as Record<string, unknown>;
-    const normalizeDate = (value: unknown): string | undefined => {
-      if (value === null || value === undefined || value === '') return undefined;
-      const asNumber = Number(value);
-      if (Number.isFinite(asNumber) && asNumber > 0 && asNumber < 100000) {
-        const epoch = Date.UTC(1899, 11, 30);
-        const excelDate = new Date(epoch + Math.round(asNumber) * 86400000);
-        const year = excelDate.getUTCFullYear();
-        if (year >= 2000 && year <= 2100) return excelDate.toISOString().slice(0, 10);
-      }
-      const raw = String(value).trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return undefined;
-      const date = new Date(`${raw}T00:00:00.000Z`);
-      if (Number.isNaN(date.getTime())) return undefined;
-      const year = date.getUTCFullYear();
-      if (year < 2000 || year > 2100) return undefined;
-      return raw;
-    };
-
-    const weekOf = (value: unknown): number | undefined => {
-      const normalized = normalizeDate(value);
-      if (!normalized) return undefined;
-      const date = new Date(`${normalized}T00:00:00.000Z`);
-      const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-      const day = d.getUTCDay() || 7;
-      d.setUTCDate(d.getUTCDate() + 4 - day);
-      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-      return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-    };
-    const planningAuditWeek = weekOf(operationalFromState.planning_audit_date);
-    const forecastWeek = weekOf(operationalFromState.forecast_date);
-    const actualAuditWeek = weekOf(operationalFromState.actual_audit_date);
-    const plannedStart = normalizeDate(merged.imported_fields?.planned_start_date) || normalizeDate(merged.imported_fields?.planning_audit_date) || normalizeDate(operationalFromState.planning_audit_date);
-    const actualAuditDate = normalizeDate(operationalFromState.actual_audit_date);
+    const planningAuditWeek = weekOfDate(operationalFromState.planning_audit_date);
+    const forecastWeek = weekOfDate(operationalFromState.forecast_date);
+    const actualAuditWeek = weekOfDate(operationalFromState.actual_audit_date);
+    const plannedStart = normalizeDateInput(merged.imported_fields?.planned_start_date) || normalizeDateInput(merged.imported_fields?.planning_audit_date) || normalizeDateInput(operationalFromState.planning_audit_date);
+    const actualAuditDate = normalizeDateInput(operationalFromState.actual_audit_date);
     let scheduleStatus: WorkItem['schedule_status'] = 'pending';
     let startVarianceDays: number | undefined;
     if (plannedStart && actualAuditDate) {
@@ -253,11 +321,11 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
       ticket_number: parseNumberLike(state.ticketNumber),
       qaStatus: (state.qaStatus as WorkItem['qaStatus']) || merged.qaStatus,
       acceptanceStatus: (state.acceptanceStatus as WorkItem['acceptanceStatus']) || merged.acceptanceStatus,
-      operational_manual_fields: (state.operationalManualFieldsJson || merged.operational_manual_fields) as Record<string, string | number | boolean | null>,
+      operational_manual_fields: (state.operationalManualFieldsJson || operationalManualFields) as Record<string, string | number | boolean | null>,
       acceptance_manual_fields: (state.acceptanceManualFieldsJson || merged.acceptance_manual_fields) as Record<string, string | number | boolean | null>,
-      planning_audit_date: normalizeDate(operationalFromState.planning_audit_date),
+      planning_audit_date: normalizeDateInput(operationalFromState.planning_audit_date),
       planning_audit_week: planningAuditWeek,
-      forecast_date: normalizeDate(operationalFromState.forecast_date),
+      forecast_date: normalizeDateInput(operationalFromState.forecast_date),
       forecast_week: forecastWeek,
       actual_audit_date: actualAuditDate,
       actual_audit_week: actualAuditWeek,
@@ -284,6 +352,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
     if (!formData.title || !activeProjectId) return;
     const normalizedTicket = parseDecimalInput(ticketInput);
     const nextFormData = { ...formData, ticket_number: normalizedTicket };
+    console.info('[WorkItemDrawer] Save requested', {
+      workItemId,
+      projectId: activeProjectId,
+      isTelecom,
+      forecast_date: nextFormData.forecast_date,
+      actual_audit_date: nextFormData.actual_audit_date,
+      planning_audit_date: nextFormData.planning_audit_date || nextFormData.imported_fields?.planning_audit_date,
+      ticket_number: nextFormData.ticket_number,
+    });
     if (isNew) {
       addWorkItem({
         ...(nextFormData as Omit<WorkItem, 'id'>),
@@ -316,6 +393,11 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
       else if (workItemId) updateWorkItem(workItemId, nextFormData);
       onClose();
     } catch (error) {
+      console.error('[WorkItemDrawer] Save failed', {
+        workItemId,
+        projectId: activeProjectId,
+        error,
+      });
       setManualFieldsError(error instanceof Error ? error.message : 'Unable to save item details.');
     }
   };
@@ -448,7 +530,28 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="text-xs text-muted">Assignee</label><input type="text" value={formData.assignee || ''} onChange={(e) => setFormData((prev) => ({ ...prev, assignee: e.target.value }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary" /></div>
                     <div><label className="text-xs text-muted">Type</label><select value={formData.type} onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as WorkItemType }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="task">Task</option><option value="milestone">Milestone</option><option value="deliverable">Deliverable</option><option value="issue">Issue</option><option value="site">Site</option></select></div>
-                    <div><label className="text-xs text-muted">Planned Date</label><div className="relative"><Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" /><input type="date" value={formData.plannedDate} onChange={(e) => setFormData((prev) => ({ ...prev, plannedDate: e.target.value }))} className="w-full mt-1 bg-surface border border-input rounded-lg pl-9 pr-3 py-2 text-xs text-primary " /></div></div>
+                    <div>
+                      <label className="text-xs text-muted">Planned Date</label>
+                      <div className="relative">
+                        <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                        {plannedDateReadOnly ? (
+                          <input
+                            type="text"
+                            value={formatDisplayDate(displayedPlannedDate)}
+                            readOnly
+                            placeholder="DD/MM/YYYY"
+                            className="w-full mt-1 rounded-lg pl-9 pr-3 py-2 text-xs bg-surface border border-border/70 text-secondary cursor-not-allowed"
+                          />
+                        ) : (
+                          <input
+                            type="date"
+                            value={displayedPlannedDate}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, plannedDate: e.target.value }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg pl-9 pr-3 py-2 text-xs text-primary"
+                          />
+                        )}
+                      </div>
+                    </div>
                     <div><label className="text-xs text-muted">Priority</label><select value={formData.priority} onChange={(e) => setFormData((prev) => ({ ...prev, priority: e.target.value as any }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
                   </div>
 
@@ -489,15 +592,6 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                       <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
                         <p className="text-xs font-semibold text-indigo-300 flex items-center gap-2"><Calendar size={14} /> Audit Dates & Delay Tracking</p>
                         <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs text-muted">Planning Audit Date (Imported — Baseline)</label>
-                            <input
-                              type="date"
-                              value={formData.planning_audit_date || formData.imported_fields?.planning_audit_date || ''}
-                              readOnly
-                              className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-secondary cursor-not-allowed"
-                            />
-                          </div>
                           <div>
                             <label className="text-xs text-muted">Forecast Date (Editable)</label>
                             <input
@@ -558,7 +652,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                             </div>
                           </div>
                         </div>
-                        <p className="text-[11px] text-muted">Planning date is the imported baseline. Editing the forecast date recalculates the delay automatically.</p>
+                        <p className="text-[11px] text-muted">The imported planned date is shown once above. Editing the forecast date recalculates the delay automatically.</p>
                       </div>
 
                       <div className="rounded-xl border border-border/70 p-4 bg-surface space-y-4">
@@ -604,9 +698,6 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
 };
 
 export default WorkItemDrawer;
-
-
-
 
 
 

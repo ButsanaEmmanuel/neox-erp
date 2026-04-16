@@ -216,6 +216,18 @@ function humanizeFieldName(fieldName = '') {
 }
 
 export async function saveProjectItemDetails(prisma, input) {
+  console.info('[projectItemDetails] Save request received', {
+    projectId: input.projectId,
+    workItemId: input.workItemId,
+    actorUserId: input.actorUserId || null,
+    payload: {
+      ticketNumber: input.ticketNumber ?? null,
+      qaStatus: input.qaStatus ?? null,
+      acceptanceStatus: input.acceptanceStatus ?? null,
+      operationalManualFields: input.operationalManualFields || null,
+      acceptanceManualFields: input.acceptanceManualFields || null,
+    },
+  });
   const result = await prisma.$transaction(async (tx) => {
     const project = await tx.project.findFirst({
       where: { id: input.projectId, isDeleted: false },
@@ -276,8 +288,20 @@ export async function saveProjectItemDetails(prisma, input) {
     };
 
     next.operationalManualFieldsJson = deriveDateWeeks(next.operationalManualFieldsJson || {});
-    const importedFields = input.importedFields || {};
+    const importedFields = input.importedFields || current.importedFieldsJson || {};
     const schedule = deriveScheduleVariance(importedFields, next.operationalManualFieldsJson || {});
+    const planningAuditDate =
+      toIsoDate(next.operationalManualFieldsJson?.planning_audit_date)
+      || toIsoDate(importedFields?.planning_audit_date)
+      || toIsoDate(importedFields?.planned_start_date);
+    const planningAuditWeek = planningAuditDate ? isoWeek(planningAuditDate) : null;
+    const forecastDate =
+      toIsoDate(next.operationalManualFieldsJson?.forecast_date)
+      || toIsoDate(importedFields?.forecast_date)
+      || planningAuditDate;
+    const forecastWeek = forecastDate ? isoWeek(forecastDate) : null;
+    const actualAuditDate = toIsoDate(next.operationalManualFieldsJson?.actual_audit_date) || toIsoDate(importedFields?.actual_audit_date);
+    const actualAuditWeek = actualAuditDate ? isoWeek(actualAuditDate) : null;
 
     const eligibility = getEligibility(next);
     const hasAcceptance = (next.acceptanceStatus || '').toLowerCase() === 'signed';
@@ -298,6 +322,16 @@ export async function saveProjectItemDetails(prisma, input) {
       acceptanceStatus: next.acceptanceStatus,
       operationalManualFieldsJson: next.operationalManualFieldsJson,
       acceptanceManualFieldsJson: next.acceptanceManualFieldsJson,
+      importedFieldsJson: importedFields,
+      planningAuditDate: planningAuditDate ? new Date(`${planningAuditDate}T00:00:00.000Z`) : null,
+      planningAuditWeek,
+      forecastDate: forecastDate ? new Date(`${forecastDate}T00:00:00.000Z`) : null,
+      forecastWeek,
+      actualAuditDate: actualAuditDate ? new Date(`${actualAuditDate}T00:00:00.000Z`) : null,
+      actualAuditWeek,
+      startVarianceDays: schedule.startVarianceDays,
+      scheduleStatus: schedule.scheduleStatus,
+      isDelayed: Boolean(schedule.isDelayed),
       isFinanciallyEligible: eligibility.eligible,
       financialEligibilityReason: eligibility.reason,
       poUnitPriceCompleted,
@@ -344,6 +378,20 @@ export async function saveProjectItemDetails(prisma, input) {
         financialEligibilityReason: eligibility.reason,
         operationalManualFieldsJson: next.operationalManualFieldsJson,
         acceptanceManualFieldsJson: next.acceptanceManualFieldsJson,
+        importedFieldsJson: importedFields,
+      },
+    });
+
+    console.info('[projectItemDetails] Database state persisted', {
+      projectId: input.projectId,
+      workItemId: input.workItemId,
+      state: {
+        planningAuditDate: saved.planningAuditDate,
+        forecastDate: saved.forecastDate,
+        actualAuditDate: saved.actualAuditDate,
+        scheduleStatus: saved.scheduleStatus,
+        startVarianceDays: saved.startVarianceDays,
+        isDelayed: saved.isDelayed,
       },
     });
 
@@ -528,6 +576,18 @@ export async function saveProjectItemDetails(prisma, input) {
     });
   } catch { /* non-critical — SSE failure must never block saves */ }
 
+  console.info('[projectItemDetails] Save completed', {
+    projectId: input.projectId,
+    workItemId: input.workItemId,
+    result: {
+      planningAuditDate: result.planningAuditDate,
+      forecastDate: result.forecastDate,
+      actualAuditDate: result.actualAuditDate,
+      scheduleStatus: result.scheduleStatus,
+      startVarianceDays: result.startVarianceDays,
+      isDelayed: result.isDelayed,
+    },
+  });
   return result;
 }
 export async function listProjectItemActivities(prisma, projectId, workItemId) {
@@ -646,7 +706,6 @@ export async function deleteProjectItemFile(prisma, fileId, actor) {
 export function resolveAbsoluteStoredPath(storagePath) {
   return path.join(FILE_ROOT, storagePath);
 }
-
 
 
 

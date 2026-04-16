@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { registerClient as sseRegisterClient, connectedClientCount, broadcast as sseBroadcast } from './services/realtime/sseBroadcaster.mjs';
+import { registerClient as sseRegisterClient, connectedClientCount } from './services/realtime/sseBroadcaster.mjs';
 import { PrismaClient } from '@prisma/client';
 import {
   deleteProjectItemFile,
@@ -943,20 +943,6 @@ const server = http.createServer(async (req, res) => {
         actorUserId: actor.actorUserId,
         actorDisplayName: actor.actorDisplayName,
       });
-      try {
-        for (const target of result.targets || []) {
-          // Global broadcaster is currently all-clients; frontend filters by targetUserId.
-          // Keep payload compact for instant bell badge updates.
-          const payload = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            targetUserId: target.targetUserId,
-            ...target.payload,
-          };
-          sseBroadcast('notification_created', payload);
-        }
-      } catch {
-        // non-blocking
-      }
       return json(res, 200, result);
     }
 
@@ -1949,8 +1935,6 @@ void ensureLockedAdminIdentity().catch((error) => {
 server.listen(PORT, () => {
   console.log(`Auth API listening on http://localhost:${PORT}`);
 });
-
-
 
 
 
