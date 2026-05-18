@@ -439,6 +439,11 @@ model Project {
   startDate         DateTime
   endDate           DateTime
   description       String?
+  costHT            Decimal         @default(0) @db.Decimal(14, 2)
+  vatRate           Decimal         @default(16) @db.Decimal(7, 4)
+  vatAmount         Decimal         @default(0) @db.Decimal(14, 2)
+  costTTC           Decimal         @default(0) @db.Decimal(14, 2)
+  currency          String          @default("USD")
   isDeleted         Boolean         @default(false)
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
@@ -450,11 +455,26 @@ model Project {
   workItems         WorkItem[]
   members           ProjectMember[]
   importBatches     ProjectImportBatch[]
+  scope             ProjectScope?
 
   @@index([managerId])
   @@index([clientAccountId])
   @@index([ownerDepartmentId])
   @@index([isDeleted])
+}
+
+model ProjectScope {
+  id              String   @id @default(cuid())
+  projectId       String   @unique
+  objectives      Json     @default("[]")
+  deliverables    Json     @default("[]")
+  outOfScope      Json     @default("[]")
+  assumptions     Json     @default("[]")
+  constraints     Json     @default("[]")
+  updatedAt       DateTime @updatedAt
+  updatedByUserId String?
+
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ProjectMember {
