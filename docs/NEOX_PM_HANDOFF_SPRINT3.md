@@ -134,15 +134,11 @@ Le bloc `prisma.rolePermission.findMany` dans `universalAccess.service.mjs` sugg
 
 ## 4. Risques identifiés
 
-### R1 — Régression accès Engineering (critique)
+### R1 — Régression accès Engineering ✅ RÉSOLU
 
-**Scénario :** si on supprime `inEngineeringDepartment` sans avoir d'abord peuplé `RolePermission` ou vérifié que les utilisateurs Engineering ont déjà `roleCodes.includes('PROJECT_MANAGER')`, **ils perdent l'accès au module Project silencieusement**.
+**Scénario initial :** si on supprime `inEngineeringDepartment` sans avoir d'abord peuplé `RolePermission` ou vérifié que les utilisateurs Engineering ont déjà `roleCodes.includes('PROJECT_MANAGER')`, **ils perdraient l'accès au module Project silencieusement**.
 
-**Mitigation requise avant le code change :**
-1. Script audit DB : combien d'utilisateurs ont `department.code/name` matchant "eng"/"engineering" ?
-2. Parmi eux, combien ont `roleCodes.includes('PROJECT_MANAGER')` ?
-3. Parmi eux, combien ont au moins un signal DB positif (`managedProjectCount > 0`, `projectMembershipCount > 0`, etc.) ?
-4. Pour ceux qui n'ont aucun signal — peupler `RolePermission` ou créer une migration de données avant suppression heuristiques.
+**Statut :** audit DB exécuté 2026-05-18 via `docker exec neox-db psql`. **COUNT = 0.** Aucun utilisateur ne dépend des heuristiques string sans signal DB positif. Suppression safe, aucune migration de données préalable requise. Voir section 5 pour la requête et le résultat.
 
 ### R2 — Fixtures de tests sur autre branche
 
@@ -174,10 +170,18 @@ ne sont jamais évaluées. Suppression safe vis-à-vis des tests existants.
 (régression Engineering) reste valide — les tests ne protègent pas.
 Mitigation obligatoire avant code change : script audit DB.
 
-## Prochaine action immédiate
+## Audit R1 — exécuté ✅
 
-Script audit DB à exécuter AVANT toute modification de
-universalAccess.service.mjs.
+**Audit exécuté le 2026-05-18 via `docker exec neox-db psql`. COUNT = 0.**
+
+Aucun utilisateur actif ne matche les heuristiques string sans avoir
+au moins un signal DB positif (rôle `PROJECT_MANAGER` actif OU
+`ProjectMember` non-supprimée). R1 levé. Suppression safe, aucune
+migration de données préalable requise.
+
+**Tâche 3.1 peut démarrer directement.**
+
+### Requête utilisée
 
 > **Note** : version corrigée après audit schema Prisma — 3 erreurs structurelles dans la version initiale.
 > - `Employee` n'existe pas comme modèle ; `jobTitle` et `departmentId` sont sur `User` directement
