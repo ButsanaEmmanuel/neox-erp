@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import {
   Project,
+  ProjectMember,
   WorkItem,
   Document,
   ImportRecord,
@@ -14,6 +15,7 @@ import { calculateTelecomAmounts, evaluateFinancialEligibility } from '../../ser
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
 import { suspendContractorPayableSync, syncContractorPayableToFinance } from '../../services/pm/telecomFinanceSync.service';
 import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser, notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
+import * as projectApi from '../../services/pm/projectApi.service';
 
 type CreateProjectInput = Omit<Project, 'id' | 'kpis'> & {
   creatorUserId?: string;
@@ -30,15 +32,16 @@ interface ProjectStore {
   imports: ImportRecord[];
   activities: ProjectActivity[];
   telecomImportBatches: TelecomImportBatch[];
+  projectMembers: Record<string, ProjectMember[]>;
 
   setActiveProject: (id: string | null) => void;
   replaceProjectDataset: (projects: Project[], workItems: WorkItem[]) => void;
   loadProjectsForUser: (userId: string) => Promise<void>;
   createProject: (project: Omit<Project, 'id' | 'kpis'>) => string;
   createProjectWithWorkflow: (project: CreateProjectInput) => Promise<{ projectId: string; redirectToImport: boolean }>;
-  updateProject: (id: string, updates: Partial<Project>) => void;
-  deleteProject: (id: string) => void;
-  addWorkItem: (item: Omit<WorkItem, 'id'>) => void;
+  updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+  addWorkItem: (item: Omit<WorkItem, 'id'>) => Promise<void>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>) => void;
   updateTelecomManualFields: (id: string, updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>) => void;
   retryFinanceSync: (id: string) => void;
@@ -49,6 +52,9 @@ interface ProjectStore {
   addDocument: (doc: Document) => void;
   addScopeItem: (projectId: string, type: 'objectives' | 'deliverables' | 'outOfScope' | 'assumptions', text: string) => void;
   logActivity: (activity: Omit<ProjectActivity, 'id' | 'timestamp'>) => void;
+  fetchProjectMembers: (projectId: string) => Promise<void>;
+  addProjectMember: (projectId: string, data: { userId: string; role: string }) => Promise<void>;
+  removeProjectMember: (projectId: string, userId: string) => Promise<void>;
 }
 
 const MOCK_PROJECTS: Project[] = [];
@@ -143,6 +149,7 @@ export const useProjectStore = create<ProjectStore>()(
         imports: [],
         activities: MOCK_ACTIVITIES,
         telecomImportBatches: [],
+        projectMembers: {},
 
         setActiveProject: (id: string | null) => set({ activeProjectId: id }),
 
@@ -281,25 +288,46 @@ export const useProjectStore = create<ProjectStore>()(
           }
         },
 
-        updateProject: (id, updates) => {
-          set((state: ProjectStore) => ({
-            projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+        updateProject: async (id, updates) => {
+          const updated = await projectApi.updateProject(id, updates);
+          set((state) => ({
+            projects: state.projects.map((p) => (p.id === id ? updated : p)),
           }));
-          const active = get().projects.find((p) => p.id === id);
-          if (active) {
-            void notifyProjectTeam(id, {
-              actionType: 'project_updated',
-              message: `Project ${active.name} was updated.`,
-              meta: { updates },
-            }).catch(() => {});
-          }
         },
 
-        deleteProject: (id) => {
-          set((state: ProjectStore) => ({
+        deleteProject: async (id) => {
+          await projectApi.deleteProject(id);
+          set((state) => ({
             projects: state.projects.filter((p) => p.id !== id),
             workItems: state.workItems.filter((wi) => wi.projectId !== id),
             activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
+          }));
+        },
+
+        fetchProjectMembers: async (projectId) => {
+          const members = await projectApi.fetchProjectMembers(projectId);
+          set((state) => ({
+            projectMembers: { ...state.projectMembers, [projectId]: members },
+          }));
+        },
+
+        addProjectMember: async (projectId, data) => {
+          await projectApi.addProjectMember(projectId, data);
+          // Invalide le cache pour forcer un re-fetch
+          set((state) => ({
+            projectMembers: { ...state.projectMembers, [projectId]: [] },
+          }));
+        },
+
+        removeProjectMember: async (projectId, userId) => {
+          await projectApi.removeProjectMember(projectId, userId);
+          set((state) => ({
+            projectMembers: {
+              ...state.projectMembers,
+              [projectId]: (state.projectMembers[projectId] ?? []).filter(
+                (m) => m.userId !== userId
+              ),
+            },
           }));
         },
 
