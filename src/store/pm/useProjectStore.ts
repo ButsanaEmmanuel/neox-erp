@@ -48,7 +48,7 @@ interface ProjectStore {
   importTelecomRows: (projectId: string, fileName: string, rows: TelecomImportRow[], uploader: string, actorUserId?: string) => Promise<{ batchId: string; created: number; failed: number }>;
   addImportRecord: (record: ImportRecord) => void;
   addDocument: (doc: Document) => void;
-  addScopeItem: (projectId: string, type: 'objectives' | 'deliverables' | 'outOfScope' | 'assumptions', text: string) => void;
+  addScopeItem: (projectId: string, type: string, text: string) => Promise<void>;
   logActivity: (activity: Omit<ProjectActivity, 'id' | 'timestamp'>) => void;
   fetchProjectMembers: (projectId: string) => Promise<void>;
   addProjectMember: (projectId: string, data: { userId: string; role: string }) => Promise<void>;
@@ -253,12 +253,8 @@ export const useProjectStore = create<ProjectStore>()(
               redirectToImport: Boolean(created.isTelecomProject && created.bulkImportRequired),
             };
           } catch (error) {
-            const fallbackId = get().createProject(newProject);
-            const fallback = get().projects.find((p) => p.id === fallbackId);
-            return {
-              projectId: fallbackId,
-              redirectToImport: Boolean(fallback?.isTelecomProject && fallback?.bulkImportRequired),
-            };
+            console.error('[PM] createProjectWithWorkflow failed:', error);
+            throw error;
           }
         },
 
@@ -421,47 +417,27 @@ export const useProjectStore = create<ProjectStore>()(
             ],
           })),
 
-        addScopeItem: (projectId, type, text) =>
-          set((state: ProjectStore) => {
-            const newItem = {
-              id: `${type.slice(0, 3)}-${Date.now()}`,
-              text,
-              createdAt: new Date().toISOString(),
-              ...(type === 'deliverables' ? { status: 'pending', evidenceRequired: false } : {}),
-              ...(type === 'assumptions' ? { riskLevel: 'low' } : {}),
-            };
-
-            return {
-              activities: [
-                {
-                  id: `act-${Date.now()}`,
-                  projectId,
-                  userId: 'current-user',
-                  userName: 'System',
-                  action: `added scope ${type.slice(0, -1)}: ${text}`,
-                  targetId: newItem.id,
-                  targetName: text,
-                  timestamp: new Date().toISOString(),
-                  type: 'scope',
-                },
-                ...state.activities,
-              ],
-              projects: state.projects.map((p) =>
-                p.id === projectId
-                  ? {
-                      ...p,
-                      scope: {
-                        objectives: p.scope?.objectives || [],
-                        deliverables: p.scope?.deliverables || [],
-                        outOfScope: p.scope?.outOfScope || [],
-                        assumptions: p.scope?.assumptions || [],
-                        [type]: [...(p.scope?.[type] || []), newItem],
-                      } as ProjectScope,
-                    }
-                  : p
-              ),
-            };
-          }),
+        addScopeItem: async (projectId, type, text) => {
+          const project = get().projects.find((p) => p.id === projectId);
+          const currentScope = project?.scope ?? {
+            objectives: [],
+            deliverables: [],
+            outOfScope: [],
+            assumptions: [],
+            constraints: [],
+          };
+          const newItem = { id: `${type.slice(0, 3)}-${Date.now()}`, text, type };
+          const updatedScope = {
+            ...currentScope,
+            [type]: [...(currentScope[type as keyof ProjectScope] ?? []), newItem],
+          };
+          const saved = await projectApi.updateProjectScope(projectId, updatedScope);
+          set((state) => ({
+            projects: state.projects.map((p) =>
+              p.id === projectId ? { ...p, scope: saved } : p
+            ),
+          }));
+        },
       };
     }
 );

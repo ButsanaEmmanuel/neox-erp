@@ -62,10 +62,10 @@
 
 ## SPRINT 2 — Câblage Frontend (Éliminer le localStorage fantôme)
 **Objectif : Le store PM suit le pattern HRM. Zéro fallback silencieux.**
-**Statut : 🔄 En cours — Commits A+B+C livrés, Commit D restant**
+**Statut : ✅ TERMINÉ — 28/28 cases (100%)**
 
 ### Tâche 2.1 — Refactorer useProjectStore
-- [ ] Supprimer le fallback silencieux dans `createProjectWithWorkflow` (Commit D)
+- [x] Supprimer le fallback silencieux dans `createProjectWithWorkflow` (Commit D)
 - [x] Supprimer `emitGlobalProjectsRefresh()` et toute écriture localStorage (Commit A)
 - [x] Supprimer la config `persist` Zustand pour PM (Commit A)
 - [x] Brancher `updateProject` → `PATCH /api/v1/projects/:id` (Commit B)
@@ -73,8 +73,8 @@
 - [x] Brancher `addWorkItem` → `POST /api/v1/projects/:id/work-items` (Commit C)
 - [x] Brancher `updateWorkItem` → `PATCH /api/v1/projects/:id/work-items/:itemId` (Commit C)
 - [x] Brancher `deleteWorkItem` → `DELETE /api/v1/projects/:id/work-items/:itemId` (Commit C)
-- [ ] Brancher `addScopeItem` → `PATCH /api/v1/projects/:id/scope` (Commit D)
-- [ ] Vérifier : aucun `set()` avant confirmation backend (final Commit D)
+- [x] Brancher `addScopeItem` → `PATCH /api/v1/projects/:id/scope` (Commit D)
+- [x] Vérifier : aucun `set()` avant confirmation backend (Commit D)
 
 ### Tâche 2.2 — Créer projectApi.service.ts
 - [x] Créer `src/services/pm/projectApi.service.ts`
