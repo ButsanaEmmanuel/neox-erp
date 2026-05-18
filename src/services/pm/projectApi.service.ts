@@ -13,7 +13,8 @@ export async function fetchProjects(userId: string): Promise<Project[]> {
 }
 
 export async function fetchProjectById(id: string): Promise<Project> {
-  return apiRequest<Project>(`/api/v1/projects/${id}`);
+  const { project } = await apiRequest<{ project: Project }>(`/api/v1/projects/${id}`);
+  return project;
 }
 
 export async function createProject(data: Omit<Project, 'id' | 'kpis'>): Promise<Project> {
@@ -25,10 +26,11 @@ export async function createProject(data: Omit<Project, 'id' | 'kpis'>): Promise
 }
 
 export async function updateProject(id: string, data: Partial<Project>): Promise<Project> {
-  return apiRequest<Project>(`/api/v1/projects/${id}`, {
+  const { project } = await apiRequest<{ project: Project }>(`/api/v1/projects/${id}`, {
     method: 'PATCH',
     body: data,
   });
+  return project;
 }
 
 export async function deleteProject(id: string): Promise<void> {
@@ -36,17 +38,19 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 export async function fetchProjectMembers(id: string): Promise<ProjectMember[]> {
-  return apiRequest<ProjectMember[]>(`/api/v1/projects/${id}/members`);
+  const { members } = await apiRequest<{ members: ProjectMember[] }>(`/api/v1/projects/${id}/members`);
+  return members;
 }
 
 export async function addProjectMember(
   id: string,
   data: { userId: string; role: string },
 ): Promise<ProjectMember> {
-  return apiRequest<ProjectMember>(`/api/v1/projects/${id}/members`, {
+  const { member } = await apiRequest<{ member: ProjectMember }>(`/api/v1/projects/${id}/members`, {
     method: 'POST',
     body: data,
   });
+  return member;
 }
 
 export async function removeProjectMember(id: string, userId: string): Promise<void> {
@@ -71,10 +75,11 @@ export async function createWorkItem(
   projectId: string,
   data: Omit<WorkItem, 'id'>,
 ): Promise<WorkItem> {
-  return apiRequest<WorkItem>(`/api/v1/projects/${projectId}/work-items`, {
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items`, {
     method: 'POST',
     body: data,
   });
+  return workItem;
 }
 
 export async function updateWorkItem(
@@ -82,10 +87,11 @@ export async function updateWorkItem(
   itemId: string,
   data: Partial<WorkItem>,
 ): Promise<WorkItem> {
-  return apiRequest<WorkItem>(`/api/v1/projects/${projectId}/work-items/${itemId}`, {
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items/${itemId}`, {
     method: 'PATCH',
     body: data,
   });
+  return workItem;
 }
 
 export async function deleteWorkItem(projectId: string, itemId: string): Promise<void> {
