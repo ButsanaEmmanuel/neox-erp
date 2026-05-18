@@ -177,28 +177,35 @@ Mitigation obligatoire avant code change : script audit DB.
 ## Prochaine action immédiate
 
 Script audit DB à exécuter AVANT toute modification de
-universalAccess.service.mjs :
+universalAccess.service.mjs.
+
+> **Note** : version corrigée après audit schema Prisma — 3 erreurs structurelles dans la version initiale.
+> - `Employee` n'existe pas comme modèle ; `jobTitle` et `departmentId` sont sur `User` directement
+> - `UserRole.isActive` n'existe pas ; convention "UserRole actif" = `validTo IS NULL`
+> - `ProjectMember` utilise `isDeleted` pour l'état logique, pas `isActive`
 
 ```sql
 SELECT COUNT(*) FROM "User" u
-JOIN "Employee" e ON e."userId" = u.id
-JOIN "Department" d ON d.id = e."departmentId"
-WHERE (
-  LOWER(d.code) LIKE '%eng%'
-  OR LOWER(d.name) LIKE '%engineering%'
-  OR LOWER(e."jobTitle") LIKE '%project manager%'
-)
-AND NOT EXISTS (
-  SELECT 1 FROM "UserRole" ur
-  JOIN "Role" r ON r.id = ur."roleId"
-  WHERE ur."userId" = u.id
-  AND r.code = 'PROJECT_MANAGER'
-  AND ur."isActive" = true
-)
-AND NOT EXISTS (
-  SELECT 1 FROM "ProjectMember" pm
-  WHERE pm."userId" = u.id
-)
+LEFT JOIN "Department" d ON d.id = u."departmentId"
+WHERE u."isActive" = true
+  AND u."isDeleted" = false
+  AND (
+    LOWER(d.code) LIKE '%eng%'
+    OR LOWER(d.name) LIKE '%engineering%'
+    OR LOWER(u."jobTitle") LIKE '%project manager%'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM "UserRole" ur
+    JOIN "Role" r ON r.id = ur."roleId"
+    WHERE ur."userId" = u.id
+      AND r.code = 'PROJECT_MANAGER'
+      AND ur."validTo" IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM "ProjectMember" pm
+    WHERE pm."userId" = u.id
+      AND pm."isDeleted" = false
+  );
 ```
 
 Ce compte = nombre d'users qui perdraient l'accès projet après
