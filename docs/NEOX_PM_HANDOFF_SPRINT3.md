@@ -164,21 +164,48 @@ Le plan initial Sprint 3 ne mentionnait qu'**une** des deux duplications heurist
 
 ---
 
-## 5. Première action à la reprise
+## 5. Résultat analyse fixtures (résolu)
 
-**AVANT toute écriture Sprint 3, lire les fixtures backend Sprint 1 via `git show` (elles ne sont pas dans cette branche) :**
+**Question binaire R2 — RÉSOLUE** : les 18 tests Sprint 1 utilisent
+exclusivement ADMIN_USER_ID comme acteur RBAC. Les heuristiques string
+ne sont jamais évaluées. Suppression safe vis-à-vis des tests existants.
 
-```bash
-git show claude/vigorous-napier-03a79d:backend/tests/pm-routes-task-1-1.test.mjs | head -150
+**Caveat** : les tests ne couvrent pas le chemin non-admin. R1
+(régression Engineering) reste valide — les tests ne protègent pas.
+Mitigation obligatoire avant code change : script audit DB.
+
+## Prochaine action immédiate
+
+Script audit DB à exécuter AVANT toute modification de
+universalAccess.service.mjs :
+
+```sql
+SELECT COUNT(*) FROM "User" u
+JOIN "Employee" e ON e."userId" = u.id
+JOIN "Department" d ON d.id = e."departmentId"
+WHERE (
+  LOWER(d.code) LIKE '%eng%'
+  OR LOWER(d.name) LIKE '%engineering%'
+  OR LOWER(e."jobTitle") LIKE '%project manager%'
+)
+AND NOT EXISTS (
+  SELECT 1 FROM "UserRole" ur
+  JOIN "Role" r ON r.id = ur."roleId"
+  WHERE ur."userId" = u.id
+  AND r.code = 'PROJECT_MANAGER'
+  AND ur."isActive" = true
+)
+AND NOT EXISTS (
+  SELECT 1 FROM "ProjectMember" pm
+  WHERE pm."userId" = u.id
+)
 ```
 
-**Question binaire à trancher :**
-- ✅ Les fixtures peuplent `RolePermission` explicitement → on peut supprimer les heuristiques sans casser Sprint 1 (si on porte les tests un jour)
-- ❌ Les fixtures reposent sur `department.code = 'engineering'` → Sprint 3 doit inclure une étape **migration de données** ou **adaptation des fixtures** avant le code change
+Ce compte = nombre d'users qui perdraient l'accès projet après
+suppression des heuristiques. Si > 0, migrer leurs rôles en DB
+avant de merger Tâche 3.1.
 
-Le résultat de cette lecture **détermine si Tâche 3.1 peut démarrer directement, ou si elle doit attendre une étape de préparation DB**.
-
-**Suite de lecture après réponse à la question :**
+**Suite de lecture après audit DB :**
 1. Lire `backend/services/access/universalAccess.service.mjs` en entier (pour comprendre le contexte de `getUserPermissionSet`)
 2. Lire `loadUserContext` (la fonction qui produit `context` consommé par les heuristiques)
 3. Vérifier la structure de `RolePermission` en DB : `grep -n "model RolePermission\|model Role" prisma/schema.prisma`
