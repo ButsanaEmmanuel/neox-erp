@@ -49,7 +49,7 @@ const ProjectOverview: React.FC = () => {
   const stats = [
     { label: 'Total Items', value: totalWorkItems, icon: FileText, color: 'text-blue-400', bg: 'bg-blue-500/10', view: 'all' },
     { label: 'Completed', value: completed, icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10', view: 'completed' },
-    { label: 'Pending QA', value: pendingQA, icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10', view: 'pending-qa' },
+    { label: 'Pending QA', value: pendingQA, icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10', view: 'awaiting_qa_approval' },
     { label: 'Overdue', value: overdue, icon: AlertCircle, color: 'text-rose-400', bg: 'bg-rose-500/10', view: 'overdue' },
   ];
 

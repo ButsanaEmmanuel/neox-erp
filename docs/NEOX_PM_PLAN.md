@@ -142,17 +142,17 @@
 
 ## SPRINT 4 — KPIs, Dashboard & Reporting
 **Objectif : Une seule source de vérité pour les KPIs — le backend.**
-**Statut : 🟢 Débloqué — 0/10 tâches**
+**Statut : 🔄 En cours — 6/10 tâches (60%)**
 
 > **Périmètre actualisé 2026-05-18** (cf. journal de progression entrée du jour) : 4.1 élargie à 6 sites frontend après audit DB, 4.2 scindée en audit + exec conditionnelle au verdict SSE.
 
 ### Tâche 4.1 — Unifier le calcul des KPIs
-- [ ] Supprimer `recalcProjectKpis()` du store frontend
-- [ ] Le store expose les KPIs tels que retournés par le backend
-- [ ] `ProjectOverview.tsx` consomme les KPIs sans recalcul local
-- [ ] Aligner les noms de statuts (`pending-acceptance` → valeur DB)
-- [ ] Extraire `computeTelecomSummary(workItems)` dans un helper dédié (décision δ)
-- [ ] Vérifier la cohérence des chiffres entre ancienne et nouvelle implémentation
+- [x] Supprimer `recalcProjectKpis()` du store frontend
+- [x] Le store expose les KPIs tels que retournés par le backend
+- [x] `ProjectOverview.tsx` consomme les KPIs sans recalcul local
+- [x] Aligner les noms de statuts (`pending-acceptance` → valeur DB)
+- [x] Extraire `computeTelecomSummary(workItems)` dans un helper dédié (décision δ)
+- [x] Vérifier la cohérence des chiffres entre ancienne et nouvelle implémentation (DB audit + tsc zéro erreur + grep défensif vide)
 
 ### Tâche 4.2-audit — Cartographier la couverture SSE PM
 - [ ] Livrable : `docs/NEOX_PM_SSE_AUDIT.md` listant événements émis vs mutations sans émission
@@ -243,7 +243,8 @@
 | 2026-05-18 | 3 | Sprint 3 — bilan | ✅ Complet | **Sprint 3 fermé à 4/4 tâches (100%)**. Tâche 3.1 (`21089eb`) — suppression heuristiques string `inEngineeringDepartment`/`isProjectManagerTitle` dans `getUserPermissionSet`, anti-pattern R3 (`rolePermission.findMany` lu mais ignoré) corrigé. Tâche 3.2 (`6084989`) — `projectCollaboration.service.mjs` délégué à `getUserPermissionSet` (2 occurrences, dont une duplication R4 découverte en cours). Tâche 3.3 (`e9ffee8`) — flag DB `canManageProjects` injecté dans `listHrmEmployees`, filtre frontend `role.includes(...)` supprimé. Tâche 3.4 (`0a5a956`) — `docs/NEOX_PM_PERMISSIONS.md` créé. Zéro heuristique string restante dans le chemin RBAC projet. `tsc --noEmit` zéro erreur après chaque commit. |
 | 2026-05-18 | — | Dette SSE D1 actée | 📌 Hors sprint | Constat : journal Sprint 1.3/1.4 annonce des émissions SSE qui n'existent pas sur cette branche. Cherry-pick `f79217c` a porté migrations sans le code routes. Audit complet planifié en Tâche 4.2-audit. |
 | 2026-05-18 | 4 | Sprint 4 — kickoff | 🟢 Débloqué | Audit DB `WorkItem.status` exécuté : 100 lignes actives, 2 statuts seulement (`needs_manual_completion` ×94, `finance_synced` ×6). Statuts kebab-case `pending-qa`/`pending-acceptance` : 0 occurrence → suppression frontend safe. Audit grep frontend : 6 sites consomment ces statuts → 4.1 élargie au-delà du store. 4.2 scindé en audit + exec. Dette D1 (SSE Sprint 1 annoncés vs réels) ajoutée à la section dédiée. |
-| 2026-05-18 | — | Pré-requis Sprint 4.1 | ✅ Complet | Bug d'enveloppes API masqué par `recalcProjectKpis` pré-Sprint 4 — révélé par audit (b1), corrigé avant refactor KPIs. 6 endpoints `projectApi.service.ts` désormais unwrap explicite (`{ project }`, `{ workItem }`, `{ members }`, `{ member }`). Pattern de référence déjà présent (`createProject` l.19-24). Zéro changement de signature publique → store inchangé. `tsc --noEmit` zéro erreur. |
+| 2026-05-18 | — | Pré-requis Sprint 4.1 | ✅ Complet | Bug d'enveloppes API masqué par `recalcProjectKpis` pré-Sprint 4 — révélé par audit (b1), corrigé avant refactor KPIs. 6 endpoints `projectApi.service.ts` désormais unwrap explicite (`{ project }`, `{ workItem }`, `{ members }`, `{ member }`). Pattern de référence déjà présent (`createProject` l.19-24). Zéro changement de signature publique → store inchangé. `tsc --noEmit` zéro erreur. Hash `d49fc4b`. |
+| 2026-05-18 | 4 | 4.1 — Unifier les KPIs | ✅ Complet | **Tâche 4.1 fermée — 6/6 sous-cases, Sprint 4 = 6/10 (60%)**. 7 fichiers touchés (1 nouveau `telecomSummary.service.ts`, 6 modifiés). Variante (b1) re-fetch ciblé pessimiste : `addWorkItem`/`deleteWorkItem` appellent `fetchProjectById` après mutation → KPIs backend toujours frais. Statuts kebab-case `pending-qa`/`pending-acceptance` supprimés du type union, du `COLOR_MAP`, du store, des composants (`ProjectOverview`, `WorkItemDrawer`, `WorkItemsPage`). Helper `withTelecomSummary` local au store (4 call sites) + helper externe `computeTelecomSummary` exporté. `recalcProjectKpis` (49 lignes) supprimé. Vérifications : `tsc --noEmit` zéro erreur, grep défensif `recalcProjectKpis|'pending-qa'|'pending-acceptance'` zéro résultat. Dette D7 ouverte sur `importWorkItems` (ids locaux + pas de re-fetch). |
 
 ---
 
@@ -273,6 +274,7 @@
 | D4 | Sprint 1 | `prisma migrate deploy` jamais exécuté sur cette branche (worktree sans `.env`). Migrations marquées appliquées via `prisma migrate resolve --applied` uniquement. | Validation utilisateur explicite requise avant exécution. |
 | D5 | Sprint 1 | FK `ProjectMember_projectId_fkey` = `ON DELETE RESTRICT`. Bloque tout hard delete projet. | Sprint "Migrations cleanup" (post-Sprint 6) : passer en CASCADE. |
 | D6 | Sprint 3 (Tâche 3.1) | `loadUserContext` l.112-147 (`engineeringTeamProjectCount`) contient encore un OR département `contains 'ENG'` / `'Engineering'`. Sous-filtre d'un compteur DB combiné à `roleCode`, pas une décision de permission directe → cohérent Sprint 3, mais à revisiter pour un pur DB-only. | Sprint RBAC cross-modules (priorité 5 roadmap). |
+| D7 | Sprint 4 (Tâche 4.1) | `importWorkItems` génère encore des ids locaux `wi-${now}-${index}` et ne fait pas de re-fetch backend après mutation. KPIs `project.kpis` peuvent diverger transitoirement après import bulk frontend. `TODO(D7):` inscrit dans le code. | À brancher sur l'API en Sprint Reporting (ou plus tôt si l'action est consommée par une UI utilisateur). |
 
 ---
 

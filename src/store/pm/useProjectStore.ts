@@ -14,6 +14,7 @@ import {
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
 import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser } from '../../services/pm/projectCollaborationBackend.service';
 import * as projectApi from '../../services/pm/projectApi.service';
+import { computeTelecomSummary } from '../../services/pm/telecomSummary.service';
 
 type CreateProjectInput = Omit<Project, 'id' | 'kpis'> & {
   creatorUserId?: string;
@@ -59,59 +60,15 @@ const MOCK_PROJECTS: Project[] = [];
 const MOCK_WORK_ITEMS: WorkItem[] = [];
 const MOCK_ACTIVITIES: ProjectActivity[] = [];
 
-function recalcProjectKpis(projects: Project[], workItems: WorkItem[]): Project[] {
-  const todayStr = new Date().toISOString().split('T')[0];
-
-  return projects.map((p) => {
-    const pItems = workItems.filter((wi) => wi.projectId === p.id);
-    const total = pItems.length;
-    const done = pItems.filter((wi) => wi.status === 'done' || wi.status === 'complete' || wi.status === 'finance_synced').length;
-    const qa = pItems.filter((wi) => wi.status === 'pending-qa').length;
-    const pendingAcceptance = pItems.filter((wi) => wi.status === 'pending-acceptance').length;
-    const overdue = pItems.filter((wi) => wi.status !== 'done' && wi.plannedDate && wi.plannedDate < todayStr).length;
-
-    const delayedItems = pItems.filter((wi) => wi.schedule_status === 'delayed' || wi.is_delayed).length;
-    const earlyItems = pItems.filter((wi) => wi.schedule_status === 'early').length;
-    const onTimeItems = pItems.filter((wi) => wi.schedule_status === 'on_time').length;
-    const varianceRows = pItems.filter((wi) => typeof wi.start_variance_days === 'number');
-    const averageDelayDays = varianceRows.length > 0
-      ? Math.round((varianceRows.reduce((sum, wi) => sum + Number(wi.start_variance_days || 0), 0) / varianceRows.length) * 10) / 10
-      : 0;
-
-    const telecomSummary = p.isTelecomProject
-      ? {
-          totalImportedRows: pItems.length,
-          incompleteItems: pItems.filter((wi) => wi.status === 'needs_manual_completion' || wi.manual_completion_status !== 'complete').length,
-          financePending: pItems.filter((wi) => wi.finance_sync_status === 'pending' || wi.finance_sync_status === 'blocked').length,
-          financeSynced: pItems.filter((wi) => wi.finance_sync_status === 'synced').length,
-          errorRows: pItems.filter((wi) => wi.status === 'validation_error' || wi.finance_sync_status === 'error' || wi.finance_sync_status === 'blocked').length,
-          qaApprovedItems: pItems.filter((wi) => wi.qaStatus === 'approved').length,
-          acceptanceSignedItems: pItems.filter((wi) => wi.acceptanceStatus === 'signed').length,
-          delayedItems,
-          onTimeItems,
-          earlyItems,
-          averageDelayDays,
-        }
-      : undefined;
-
-    return {
-      ...p,
-      telecomSummary,
-      kpis: {
-        totalWorkItems: total,
-        completed: done,
-        pendingQA: qa,
-        pendingAcceptance,
-        overdue,
-        progress: total > 0 ? Math.round((done / total) * 100) : 0,
-      },
-    };
-  });
+function withTelecomSummary(project: Project, allWorkItems: WorkItem[]): Project {
+  if (!project.isTelecomProject) return project;
+  const items = allWorkItems.filter((w) => w.projectId === project.id);
+  return { ...project, telecomSummary: computeTelecomSummary(items) };
 }
 
 export const useProjectStore = create<ProjectStore>()(
   (set, get) => {
-    const initialProjects = recalcProjectKpis(MOCK_PROJECTS, MOCK_WORK_ITEMS);
+    const initialProjects = MOCK_PROJECTS;
 
       return {
         projects: initialProjects,
@@ -129,7 +86,7 @@ export const useProjectStore = create<ProjectStore>()(
 
         replaceProjectDataset: (projects, workItems) =>
           set((state: ProjectStore) => ({
-            projects: recalcProjectKpis(projects, workItems),
+            projects: projects.map((p) => withTelecomSummary(p, workItems)),
             workItems,
             projectsLoaded: true,
             projectsLoading: false,
@@ -240,11 +197,12 @@ export const useProjectStore = create<ProjectStore>()(
             const existingProjects = get().projects.filter((p) => p.id !== created.id);
             const existingWorkItems = get().workItems.filter((wi) => wi.projectId !== created.id);
             const createdWorkItems = (created.workItems || []) as WorkItem[];
-            const nextProjects = recalcProjectKpis([created as Project, ...existingProjects], [...createdWorkItems, ...existingWorkItems]);
+            const allWorkItems = [...createdWorkItems, ...existingWorkItems];
+            const nextProjects = [withTelecomSummary(created as Project, allWorkItems), ...existingProjects];
 
             set({
               projects: nextProjects,
-              workItems: [...createdWorkItems, ...existingWorkItems],
+              workItems: allWorkItems,
               activeProjectId: created.id,
             });
 
@@ -303,11 +261,12 @@ export const useProjectStore = create<ProjectStore>()(
 
         addWorkItem: async (item) => {
           const created = await projectApi.createWorkItem(item.projectId, item);
+          const freshProject = await projectApi.fetchProjectById(item.projectId);
           set((state) => {
             const newWorkItems = [...state.workItems, created];
             return {
               workItems: newWorkItems,
-              projects: recalcProjectKpis(state.projects, newWorkItems),
+              projects: state.projects.map((p) => p.id === item.projectId ? withTelecomSummary(freshProject, newWorkItems) : p),
             };
           });
         },
@@ -337,11 +296,12 @@ export const useProjectStore = create<ProjectStore>()(
           const item = get().workItems.find((wi) => wi.id === id);
           if (!item) return;
           await projectApi.deleteWorkItem(item.projectId, id);
+          const freshProject = await projectApi.fetchProjectById(item.projectId);
           set((state) => {
             const newWorkItems = state.workItems.filter((wi) => wi.id !== id);
             return {
               workItems: newWorkItems,
-              projects: recalcProjectKpis(state.projects, newWorkItems),
+              projects: state.projects.map((p) => p.id === item.projectId ? withTelecomSummary(freshProject, newWorkItems) : p),
             };
           });
         },
@@ -351,12 +311,13 @@ export const useProjectStore = create<ProjectStore>()(
             const now = Date.now();
             const itemsWithIds: WorkItem[] = newItems.map((item, index) => ({
               ...item,
+              // TODO(D7): id local généré frontend — à remplacer par API + re-fetch project. Cf. NEOX_PM_PLAN.md dette D7.
               id: `wi-${now}-${index}`,
             }));
             const newWorkItems = [...state.workItems, ...itemsWithIds];
             return {
               workItems: newWorkItems,
-              projects: recalcProjectKpis(state.projects, newWorkItems),
+              projects: state.projects.map((p) => withTelecomSummary(p, newWorkItems)),
               activities: [
                 {
                   id: `act-${Date.now()}`,

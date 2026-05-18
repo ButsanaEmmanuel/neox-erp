@@ -4,8 +4,6 @@ export type WorkItemStatus =
   | 'pending'
   | 'todo'
   | 'in-progress'
-  | 'pending-qa'
-  | 'pending-acceptance'
   | 'done'
   | 'imported'
   | 'needs_manual_completion'

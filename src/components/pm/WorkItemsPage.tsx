@@ -75,8 +75,8 @@ const WorkItemsPage: React.FC = () => {
           ? Boolean(item.plannedDate && item.plannedDate < todayStr && item.status !== 'done' && item.status !== 'complete')
           : view === 'completed'
           ? ['done', 'complete', 'finance_synced'].includes(item.status)
-          : view === 'pending-qa'
-          ? item.status === 'pending-qa' || item.qaStatus === 'pending'
+          : view === 'awaiting_qa_approval'
+          ? item.status === 'awaiting_qa_approval' || item.qaStatus === 'pending'
           : view === 'needs_manual_completion'
           ? item.status === 'needs_manual_completion' || item.manual_completion_status !== 'complete'
           : view === 'finance_pending'
@@ -186,7 +186,7 @@ const WorkItemsPage: React.FC = () => {
               {(
                 isTelecom
                   ? (['all', 'needs_manual_completion', 'awaiting_qa_approval', 'awaiting_signed_acceptance', 'delayed', 'on_time', 'finance_pending', 'finance_synced', 'finance_sync_error'] as const)
-                  : (['all', 'my', 'overdue', 'completed', 'pending-qa'] as const)
+                  : (['all', 'my', 'overdue', 'completed', 'awaiting_qa_approval'] as const)
               ).map((v) => (
                 <button
                   key={v}
@@ -249,7 +249,7 @@ const WorkItemsPage: React.FC = () => {
               <option value="">All Statuses</option>
               {(isTelecom
                 ? ['imported','needs_manual_completion','awaiting_qa_approval','awaiting_signed_acceptance','awaiting_financial_eligibility','ready_for_calculation','finance_pending','finance_synced','finance_sync_error','complete']
-                : ['backlog','pending','in-progress','pending-qa','pending-acceptance','done']
+                : ['backlog','pending','in-progress','awaiting_qa_approval','awaiting_signed_acceptance','done']
               ).map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
             </select>
             {isTelecom && (
@@ -318,7 +318,7 @@ const WorkItemsPage: React.FC = () => {
                   <option value="backlog">Backlog</option>
                   <option value="pending">Pending</option>
                   <option value="in-progress">In Progress</option>
-                  <option value="pending-qa">Pending QA</option>
+                  <option value="awaiting_qa_approval">Pending QA</option>
                   <option value="done">Done</option>
                 </>
               )}

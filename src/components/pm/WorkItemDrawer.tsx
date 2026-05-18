@@ -510,7 +510,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                   <span className="text-xs font-mono text-muted">{isNew ? 'NEW' : existingItem?.id}</span>
                   <div className="relative group">
                     <select value={formData.status} onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as WorkItemStatus }))} className="appearance-none bg-transparent border-none p-0 pr-4 text-xs focus:ring-0 cursor-pointer text-blue-400 font-bold uppercase">
-                      {(isTelecom ? ['imported','needs_manual_completion','awaiting_qa_approval','awaiting_signed_acceptance','awaiting_financial_eligibility','ready_for_calculation','finance_pending','finance_synced','finance_sync_error','complete'] : ['backlog','pending','in-progress','pending-qa','pending-acceptance','done']).map((s) => (
+                      {(isTelecom ? ['imported','needs_manual_completion','awaiting_qa_approval','awaiting_signed_acceptance','awaiting_financial_eligibility','ready_for_calculation','finance_pending','finance_synced','finance_sync_error','complete'] : ['backlog','pending','in-progress','awaiting_qa_approval','awaiting_signed_acceptance','done']).map((s) => (
                         <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                       ))}
                     </select>

@@ -27,8 +27,6 @@ const COLOR_MAP: Record<string, string> = {
     medium: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     high: 'bg-red-500/10 text-red-400 border-red-500/20',
     signed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    'pending-qa': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    'pending-acceptance': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     'in-progress': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     imported: 'bg-cyan-500/10 text-cyan-300 border-cyan-500/30',
     needs_manual_completion: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
