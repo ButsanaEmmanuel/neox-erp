@@ -104,7 +104,7 @@
 
 ## SPRINT 3 — RBAC (Durcir les permissions)
 **Objectif : Zéro heuristique sur jobTitle ou department.code.**
-**Statut : 🔄 En cours — 3/4 tâches (75%)**
+**Statut : ✅ Terminé — 4/4 tâches (100%)**
 
 > Plan révisé après audit de session : les heuristiques string sont dupliquées dans 2 fichiers backend, pas 1. Voir `docs/NEOX_PM_HANDOFF_SPRINT3.md`.
 
@@ -133,8 +133,8 @@
 - [x] `node --check` + `tsc --noEmit` zéro erreur
 
 ### Tâche 3.4 — Documentation grille permissions
-- [ ] Lister les keys `module:resource:action` actuellement émises pour `project`
-- [ ] Documenter dans `docs/` pour les futurs call sites `usePermissions().hasPermission(...)`
+- [x] Lister les keys `module:resource:action` actuellement émises pour `project` (7 baseline + dynamique RolePermission + overrides UserPermissionSet)
+- [x] Documenter dans `docs/NEOX_PM_PERMISSIONS.md` : endpoint, pattern hook, grille statique, reasons, bypass admin, anti-patterns Sprint 3
 
 **✅ Sprint 3 terminé quand : toutes les cases ci-dessus sont cochées**
 
