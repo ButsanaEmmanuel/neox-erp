@@ -14,6 +14,8 @@ import {
   listProjectMembers,
   addProjectMember,
   removeProjectMember,
+  fetchProjectScope,
+  updateProjectScope,
 } from '../../services/pm/projectCrud.service.mjs';
 
 /**
@@ -42,6 +44,7 @@ export async function handlePmProjectRoutes(ctx) {
   const workItemMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)$/);
   const membersMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members$/);
   const memberMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members\/([^/]+)$/);
+  const scopeMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/scope$/);
 
   // Fast bail-out: if no pattern + method combination matches what we own,
   // return false so the main flow keeps dispatching. This prevents the
@@ -51,7 +54,8 @@ export async function handlePmProjectRoutes(ctx) {
     (workItemsMatch && method === 'POST') ||
     (workItemMatch && (method === 'PATCH' || method === 'DELETE')) ||
     (membersMatch && (method === 'GET' || method === 'POST')) ||
-    (memberMatch && method === 'DELETE');
+    (memberMatch && method === 'DELETE') ||
+    (scopeMatch && (method === 'GET' || method === 'PATCH'));
 
   if (!hasMatch) return false;
 
@@ -125,6 +129,24 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       await removeProjectMember(ctx.prisma, projectId, userId);
       json(res, 200, { ok: true });
+      return true;
+    }
+
+    if (scopeMatch && method === 'GET') {
+      const [, projectId] = scopeMatch;
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const scope = await fetchProjectScope(ctx.prisma, projectId);
+      json(res, 200, scope);
+      return true;
+    }
+
+    if (scopeMatch && method === 'PATCH') {
+      const [, projectId] = scopeMatch;
+      const body = await ctx.parseBody(ctx.req);
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const actor = ctx.parseActor(body);
+      const scope = await updateProjectScope(ctx.prisma, projectId, body, actor);
+      json(res, 200, scope);
       return true;
     }
 

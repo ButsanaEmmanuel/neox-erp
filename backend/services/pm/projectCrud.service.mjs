@@ -323,3 +323,59 @@ export async function removeProjectMember(prisma, projectId, userId) {
     data: { isDeleted: true, deletedAt: new Date() },
   });
 }
+
+const SCOPE_ALLOWED_KEYS = new Set(['objectives', 'deliverables', 'outOfScope', 'assumptions', 'constraints']);
+const EMPTY_SCOPE = { objectives: [], deliverables: [], outOfScope: [], assumptions: [], constraints: [] };
+
+export async function fetchProjectScope(prisma, projectId) {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!project) {
+    const err = new Error('Project not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const scope = await prisma.projectScope.findUnique({
+    where: { projectId },
+  });
+  return scope ?? { ...EMPTY_SCOPE, projectId };
+}
+
+export async function updateProjectScope(prisma, projectId, data, actor) {
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!project) {
+    const err = new Error('Project not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const invalidKey = Object.keys(data).find((k) => !SCOPE_ALLOWED_KEYS.has(k));
+  if (invalidKey) {
+    const err = new Error(`Invalid field: ${invalidKey}`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const invalidType = Object.entries(data).find(([, v]) => !Array.isArray(v));
+  if (invalidType) {
+    const err = new Error(`Field must be an array: ${invalidType[0]}`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return prisma.projectScope.upsert({
+    where: { projectId },
+    update: {
+      ...data,
+      updatedByUserId: actor?.actorUserId ?? null,
+    },
+    create: {
+      projectId,
+      ...EMPTY_SCOPE,
+      ...data,
+      updatedByUserId: actor?.actorUserId ?? null,
+    },
+  });
+}
