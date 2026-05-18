@@ -197,19 +197,24 @@ export async function getUserPermissionSet(prisma, userId) {
     });
   }
 
+  const rolePermissionRows = await prisma.rolePermission.findMany({
+    where: {
+      roleId: { in: (context.user.roles || []).map((row) => row.roleId) },
+    },
+    include: { permission: true },
+  });
+  const hasExplicitProjectPermission = rolePermissionRows.some(
+    (row) => String(row.permission?.module || '').toLowerCase() === 'project',
+  );
+
   const projectCapability = moduleAccess.get('project') || { visible: true, readOnly: true };
-  const inEngineeringDepartment =
-    String(context.departmentCode || '').toLowerCase().includes('eng')
-    || String(context.departmentName || '').toLowerCase().includes('engineering');
-  const isProjectManagerTitle = String(context.jobTitle || '').toLowerCase().includes('project manager');
   const hasProjectFullAccess =
     context.isAdmin
-    || inEngineeringDepartment
-    || isProjectManagerTitle
+    || context.roleCodes.includes('PROJECT_MANAGER')
+    || hasExplicitProjectPermission
     || context.managedProjectCount > 0
     || context.engineeringTeamProjectCount > 0
-    || context.projectMembershipCount > 0
-    || context.roleCodes.includes('PROJECT_MANAGER');
+    || context.projectMembershipCount > 0;
 
   if (hasProjectFullAccess) {
     moduleAccess.set('project', {
@@ -217,17 +222,17 @@ export async function getUserPermissionSet(prisma, userId) {
       visible: true,
       readOnly: false,
       reason:
-        inEngineeringDepartment
-          ? 'engineering_department_access'
-          : isProjectManagerTitle
-            ? 'project_manager_title_access'
+        context.roleCodes.includes('PROJECT_MANAGER')
+          ? 'project_manager_role'
+          : hasExplicitProjectPermission
+            ? 'role_permission_grant'
             : context.managedProjectCount > 0
-          ? 'project_manager_assignment'
-          : context.engineeringTeamProjectCount > 0
-            ? 'engineering_team_assignment'
-            : context.projectMembershipCount > 0
-              ? 'project_membership'
-              : 'role_grant',
+              ? 'project_manager_assignment'
+              : context.engineeringTeamProjectCount > 0
+                ? 'engineering_team_assignment'
+                : context.projectMembershipCount > 0
+                  ? 'project_membership'
+                  : 'role_grant',
     });
   } else {
     const salesProgressReadOnly =
@@ -241,12 +246,6 @@ export async function getUserPermissionSet(prisma, userId) {
   }
 
   const permissions = new Map();
-  const rolePermissionRows = await prisma.rolePermission.findMany({
-    where: {
-      roleId: { in: (context.user.roles || []).map((row) => row.roleId) },
-    },
-    include: { permission: true },
-  });
 
   for (const row of rolePermissionRows) {
     const module = String(row.permission?.module || '').toLowerCase() || 'global';

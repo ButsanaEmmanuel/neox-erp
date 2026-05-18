@@ -104,19 +104,32 @@
 
 ## SPRINT 3 — RBAC (Durcir les permissions)
 **Objectif : Zéro heuristique sur jobTitle ou department.code.**
-**Statut : ⏸️ Bloqué — attendre Sprint 2 complet**
+**Statut : 🔄 En cours — 1/4 tâches (25%)**
 
-### Tâche 3.1 — Backend : permissions DB
-- [ ] Créer `hasProjectPermission(userId, action)` dans `projectCollaboration.service.mjs`
-- [ ] Remplacer les heuristiques lignes 295-299 par cette fonction
-- [ ] Vérification via `UserPermissionSet` en DB
-- [ ] Tester : accès refusé sans permission, accordé avec permission
+> Plan révisé après audit de session : les heuristiques string sont dupliquées dans 2 fichiers backend, pas 1. Voir `docs/NEOX_PM_HANDOFF_SPRINT3.md`.
 
-### Tâche 3.2 — Frontend : retirer les arrays hardcodés
-- [ ] Remplacer le filtre heuristique des managers dans `ProjectsIndex.tsx`
-- [ ] Appeler le bon endpoint pour récupérer les utilisateurs par rôle
-- [ ] Remplacer les checks RBAC hardcodés par le hook RBAC existant
-- [ ] Vérifier que le pattern est identique à HRM
+### Tâche 3.1 — Backend : éliminer heuristiques dans `universalAccess.service.mjs`
+- [x] Supprimer `inEngineeringDepartment` (string match `department.code`/`name`)
+- [x] Supprimer `isProjectManagerTitle` (string match `jobTitle`)
+- [x] Réordonner : charger `rolePermission.findMany` AVANT décision `hasProjectFullAccess`
+- [x] Ajouter signal DB `hasExplicitProjectPermission` dérivé de `RolePermission`
+- [x] `hasProjectFullAccess` = OR de signaux DB uniquement (isAdmin, role PROJECT_MANAGER, RolePermission, compteurs)
+- [x] Retirer reasons `engineering_department_access` / `project_manager_title_access`
+- [x] `node --check` + `tsc --noEmit` zéro erreur
+
+### Tâche 3.2 — Backend : `projectCollaboration.service.mjs:290-310`
+- [ ] Décider (a) déléguer à `getUserPermissionSet` OU (b) calcul local sur mêmes signaux DB
+- [ ] Supprimer la duplication d'heuristiques string
+- [ ] Vérifier cohérence avec décision Tâche 3.1
+
+### Tâche 3.3 — Frontend : retirer heuristique `ProjectsIndex.tsx`
+- [ ] Supprimer le filtre `role.includes('manager'|'lead'|'director'|'head')` l.91–105
+- [ ] Décider endpoint (α réutiliser, β route neuve, γ étendre `/users`)
+- [ ] Brancher sur le hook RBAC / endpoint backend
+
+### Tâche 3.4 — Documentation grille permissions
+- [ ] Lister les keys `module:resource:action` actuellement émises pour `project`
+- [ ] Documenter dans `docs/` pour les futurs call sites `usePermissions().hasPermission(...)`
 
 **✅ Sprint 3 terminé quand : toutes les cases ci-dessus sont cochées**
 
