@@ -91,6 +91,7 @@ export interface EmploymentProfile {
         generatedAt: string;
         sentAt?: string;
     };
+    canManageProjects?: boolean;
 }
 
 

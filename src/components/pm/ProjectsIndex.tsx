@@ -88,12 +88,8 @@ const CreateProjectDrawer: React.FC<ProjectDrawerProps> = ({ isOpen, onClose, on
     );
     const canCreateInlineClient = ['ADMIN', 'SALES', 'CRM_MANAGER', 'PROJECT_MANAGER'].includes((user?.role || '').toUpperCase());
 
-    // Filter for Managers (role includes 'manager', 'lead', 'director', 'head' or just heuristic)
     const managerOptions: Array<{ id: string; label: string; subLabel: string; avatarColor?: string }> = employees
-        .filter(e => {
-            const role = (e.roleTitle || '').toLowerCase();
-            return role.includes('manager') || role.includes('lead') || role.includes('director') || role.includes('head');
-        })
+        .filter(e => e.canManageProjects === true)
         .map(e => ({
             id: (e as any).userId || e.personId,
             label: e.name || 'Unknown Staff',

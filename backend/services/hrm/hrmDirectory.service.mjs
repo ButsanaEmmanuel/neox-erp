@@ -468,8 +468,38 @@ export async function listHrmEmployees(prisma, options = {}) {
   }
   const dbMs = Date.now() - dbStartedAt;
   const total = await prisma.hrmEmploymentProfile.count({ where });
+
+  const profileUserIds = rows.map((row) => row.userId).filter(Boolean);
+  const canManageByUserId = new Map();
+  if (profileUserIds.length > 0) {
+    const userRolesWithPerms = await prisma.userRole.findMany({
+      where: { userId: { in: profileUserIds }, validTo: null },
+      include: {
+        role: {
+          include: {
+            permissions: { include: { permission: true } },
+          },
+        },
+      },
+    });
+    for (const ur of userRolesWithPerms) {
+      const uid = ur.userId;
+      if (canManageByUserId.get(uid) === true) continue;
+      const code = String(ur.role?.code || '').toUpperCase();
+      const hasProjectPerm = (ur.role?.permissions || []).some(
+        (rp) => String(rp.permission?.module || '').toLowerCase() === 'project',
+      );
+      if (code === 'ADMIN' || code === 'PROJECT_MANAGER' || hasProjectPerm) {
+        canManageByUserId.set(uid, true);
+      }
+    }
+  }
+
   return {
-    employees: rows.map((row) => mapEmployee(row, { includeRoles: false })),
+    employees: rows.map((row) => ({
+      ...mapEmployee(row, { includeRoles: false }),
+      canManageProjects: canManageByUserId.get(row.userId) === true,
+    })),
     pagination: {
       take,
       skip,

@@ -104,7 +104,7 @@
 
 ## SPRINT 3 — RBAC (Durcir les permissions)
 **Objectif : Zéro heuristique sur jobTitle ou department.code.**
-**Statut : 🔄 En cours — 2/4 tâches (50%)**
+**Statut : 🔄 En cours — 3/4 tâches (75%)**
 
 > Plan révisé après audit de session : les heuristiques string sont dupliquées dans 2 fichiers backend, pas 1. Voir `docs/NEOX_PM_HANDOFF_SPRINT3.md`.
 
@@ -125,9 +125,12 @@
 - [x] `node --check` + `tsc --noEmit` zéro erreur
 
 ### Tâche 3.3 — Frontend : retirer heuristique `ProjectsIndex.tsx`
-- [ ] Supprimer le filtre `role.includes('manager'|'lead'|'director'|'head')` l.91–105
-- [ ] Décider endpoint (α réutiliser, β route neuve, γ étendre `/users`)
-- [ ] Brancher sur le hook RBAC / endpoint backend
+- [x] Décision endpoint : option (γ) — étendre `listHrmEmployees` avec un flag `canManageProjects`
+- [x] Backend : calcul DB-only (ADMIN/PROJECT_MANAGER role OR RolePermission.module='project'), 1 query batchée
+- [x] Type frontend : `canManageProjects?: boolean` ajouté à `EmploymentProfile`
+- [x] Frontend : filtre `role.includes('manager'|'lead'|...)` remplacé par `e.canManageProjects === true`
+- [x] Fallback l.103-108 (utilisateur courant si liste vide) conservé
+- [x] `node --check` + `tsc --noEmit` zéro erreur
 
 ### Tâche 3.4 — Documentation grille permissions
 - [ ] Lister les keys `module:resource:action` actuellement émises pour `project`
