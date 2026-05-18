@@ -11,10 +11,8 @@ import {
   TelecomImportRow,
   WorkItemStatus,
 } from '../../types/pm';
-import { calculateTelecomAmounts, evaluateFinancialEligibility } from '../../services/pm/telecomCalculation.service';
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
-import { suspendContractorPayableSync, syncContractorPayableToFinance } from '../../services/pm/telecomFinanceSync.service';
-import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser, notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
+import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser } from '../../services/pm/projectCollaborationBackend.service';
 import * as projectApi from '../../services/pm/projectApi.service';
 
 type CreateProjectInput = Omit<Project, 'id' | 'kpis'> & {
@@ -42,10 +40,10 @@ interface ProjectStore {
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addWorkItem: (item: Omit<WorkItem, 'id'>) => Promise<void>;
-  updateWorkItem: (id: string, updates: Partial<WorkItem>) => void;
+  updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
   updateTelecomManualFields: (id: string, updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>) => void;
   retryFinanceSync: (id: string) => void;
-  deleteWorkItem: (id: string) => void;
+  deleteWorkItem: (id: string) => Promise<void>;
   importWorkItems: (items: Omit<WorkItem, 'id'>[]) => void;
   importTelecomRows: (projectId: string, fileName: string, rows: TelecomImportRow[], uploader: string, actorUserId?: string) => Promise<{ batchId: string; created: number; failed: number }>;
   addImportRecord: (record: ImportRecord) => void;
@@ -109,30 +107,6 @@ function recalcProjectKpis(projects: Project[], workItems: WorkItem[]): Project[
       },
     };
   });
-}
-
-function deriveTelecomStatus(source: WorkItem, eligible: boolean): WorkItemStatus {
-  if (!source.ticket_number || source.ticket_number <= 0) return 'needs_manual_completion';
-  if (source.qaStatus !== 'approved') return 'awaiting_qa_approval';
-  if (source.acceptanceStatus !== 'signed') return 'awaiting_signed_acceptance';
-  return eligible ? 'finance_synced' : 'finance_pending';
-}
-
-function computeDelayMetrics(planningDate?: string, forecastDate?: string): Partial<WorkItem> {
-  if (!planningDate || !forecastDate) return {};
-  const plan = new Date(planningDate + 'T00:00:00Z');
-  const forecast = new Date(forecastDate + 'T00:00:00Z');
-  if (Number.isNaN(plan.getTime()) || Number.isNaN(forecast.getTime())) return {};
-  const diffMs = forecast.getTime() - plan.getTime();
-  const delay_days = Math.round(diffMs / 86400000);
-  const delay_weeks = delay_days === 0 ? 0 : delay_days > 0 ? Math.ceil(delay_days / 7) : -Math.ceil(Math.abs(delay_days) / 7);
-  return {
-    delay_days,
-    delay_weeks,
-    schedule_status: (delay_days > 0 ? 'delayed' : delay_days < 0 ? 'early' : 'on_time') as WorkItem['schedule_status'],
-    start_variance_days: delay_days,
-    is_delayed: delay_days > 0,
-  };
 }
 
 export const useProjectStore = create<ProjectStore>()(
@@ -331,210 +305,47 @@ export const useProjectStore = create<ProjectStore>()(
           }));
         },
 
-        addWorkItem: (newItem) => {
-          const item: WorkItem = { ...newItem, id: `wi-${Date.now()}` };
-          set((state: ProjectStore) => {
-            const newWorkItems = [item, ...state.workItems];
+        addWorkItem: async (item) => {
+          const created = await projectApi.createWorkItem(item.projectId, item);
+          set((state) => {
+            const newWorkItems = [...state.workItems, created];
             return {
               workItems: newWorkItems,
               projects: recalcProjectKpis(state.projects, newWorkItems),
-              activities: [
-                {
-                  id: `act-${Date.now()}`,
-                  projectId: item.projectId,
-                  userId: 'current-user',
-                  userName: 'System',
-                  action: `created item: ${item.title}`,
-                  targetId: item.id,
-                  targetName: item.title,
-                  timestamp: new Date().toISOString(),
-                  type: 'work-item',
-                },
-                ...state.activities,
-              ],
             };
           });
         },
 
-        updateWorkItem: (id, updates) => {
-          set((state: ProjectStore) => {
-            const originalItem = state.workItems.find((wi) => wi.id === id);
-            const source = { ...originalItem, ...updates } as WorkItem;
-
-            let calculatedPatch: Partial<WorkItem> = {};
-            const hasAuthoritativeBackendTelecomState =
-              updates.is_financially_eligible !== undefined ||
-              updates.financial_eligibility_reason !== undefined ||
-              updates.po_unit_price_completed !== undefined ||
-              updates.contractor_payable_amount !== undefined ||
-              updates.finance_sync_status !== undefined ||
-              updates.finance_sync_at !== undefined ||
-              updates.finance_reference_id !== undefined ||
-              updates.finance_error_message !== undefined;
-
-            // Recompute delay metrics when forecast or planning date changes
-            if (updates.forecast_date !== undefined || updates.planning_audit_date !== undefined) {
-              const delayPatch = computeDelayMetrics(
-                source.planning_audit_date,
-                source.forecast_date,
-              );
-              calculatedPatch = { ...calculatedPatch, ...delayPatch };
-            }
-            const eligibilityTouched =
-              updates.ticket_number !== undefined ||
-              updates.po_unit_price !== undefined ||
-              updates.qaStatus !== undefined ||
-              updates.acceptanceStatus !== undefined;
-
-            if (!hasAuthoritativeBackendTelecomState && eligibilityTouched && source.po_unit_price !== undefined) {
-              const eligibility = evaluateFinancialEligibility({
-                po_unit_price: source.po_unit_price,
-                ticket_number: source.ticket_number,
-                qaStatus: source.qaStatus,
-                acceptanceStatus: source.acceptanceStatus,
-              });
-
-              const rowStatus = deriveTelecomStatus(source, eligibility.is_financially_eligible);
-              const calc = calculateTelecomAmounts({
-                po_unit_price: source.po_unit_price,
-                ticket_number: source.ticket_number,
-                qaStatus: source.qaStatus,
-                acceptanceStatus: source.acceptanceStatus,
-              });
-
-              if (!eligibility.is_financially_eligible) {
-                const blocked = suspendContractorPayableSync({
-                  projectId: source.projectId,
-                  workItemId: source.id,
-                  reason: eligibility.financial_eligibility_reason || 'Awaiting operational prerequisites.',
-                  currency: 'USD',
-                });
-
-                calculatedPatch = {
-                  is_financially_eligible: false,
-                  financial_eligibility_reason: eligibility.financial_eligibility_reason,
-                  po_unit_price_completed: calc.po_unit_price_completed > 0 ? calc.po_unit_price_completed : undefined,
-                  contractor_payable_amount: undefined,
-                  finance_sync_status: blocked.status,
-                  finance_sync_at: blocked.synced_at,
-                  finance_reference_id: blocked.reference_id,
-                  finance_error_message: blocked.error_message,
-                  status: rowStatus,
-                };
-              } else {
-                const finance = syncContractorPayableToFinance({
-                  projectId: source.projectId,
-                  workItemId: source.id,
-                  amount: calc.contractor_payable_amount,
-                  currency: 'USD',
-                });
-
-                calculatedPatch = {
-                  is_financially_eligible: true,
-                  financial_eligibility_reason: undefined,
-                  po_unit_price_completed: calc.po_unit_price_completed,
-                  contractor_payable_amount: calc.contractor_payable_amount,
-                  finance_sync_status: finance.status,
-                  finance_sync_at: finance.synced_at,
-                  finance_reference_id: finance.reference_id,
-                  finance_error_message: undefined,
-                  status: finance.status === 'synced' ? 'finance_synced' : 'finance_pending',
-                };
-              }
-            } else if (!hasAuthoritativeBackendTelecomState && (source.type === 'site' || source.import_batch_id)) {
-              const calc = calculateTelecomAmounts({
-                po_unit_price: source.po_unit_price,
-                ticket_number: source.ticket_number,
-              });
-              calculatedPatch = {
-                is_financially_eligible: calc.is_financially_eligible,
-                financial_eligibility_reason: calc.financial_eligibility_reason,
-                po_unit_price_completed: calc.po_unit_price_completed > 0 ? calc.po_unit_price_completed : undefined,
-                contractor_payable_amount: calc.is_financially_eligible ? calc.contractor_payable_amount : undefined,
-              };
-            }
-
-            const newWorkItems = state.workItems.map((item) =>
-              item.id === id
-                ? {
-                    ...item,
-                    ...updates,
-                    ...calculatedPatch,
-                  }
-                : item
-            );
-
-            const updatedProjects = recalcProjectKpis(state.projects, newWorkItems);
-
-            return {
-              workItems: newWorkItems,
-              projects: updatedProjects,
-              activities: [
-                {
-                  id: `act-${Date.now()}`,
-                  projectId: originalItem?.projectId || '',
-                  userId: 'current-user',
-                  userName: 'System',
-                  action:
-                    updates.ticket_number !== undefined
-                      ? `updated ticket number for ${originalItem?.title}`
-                      : updates.qaStatus !== undefined || updates.acceptanceStatus !== undefined
-                      ? `updated validation gates for ${originalItem?.title}`
-                      : updates.status
-                      ? `updated status to ${updates.status} for ${originalItem?.title}`
-                      : `updated ${originalItem?.title}`,
-                  targetId: id,
-                  targetName: originalItem?.title || '',
-                  timestamp: new Date().toISOString(),
-                  type: updates.ticket_number !== undefined || updates.qaStatus !== undefined || updates.acceptanceStatus !== undefined ? 'finance-sync' : 'work-item',
-                },
-                ...state.activities,
-              ],
-            };
-          });
+        updateWorkItem: async (id, updates) => {
+          const item = get().workItems.find((wi) => wi.id === id);
+          if (!item) return;
+          const updated = await projectApi.updateWorkItem(item.projectId, id, updates);
+          set((state) => ({
+            workItems: state.workItems.map((wi) => (wi.id === id ? updated : wi)),
+          }));
         },
 
 
-        updateTelecomManualFields: (id, updates) => {
-          get().updateWorkItem(id, {
-            ...updates,
-            manual_completion_status: updates.ticket_number ? 'complete' : 'pending',
-            status: updates.ticket_number ? 'ready_for_calculation' : 'needs_manual_completion',
-          });
+        updateTelecomManualFields: (_id, _updates) => {
+          // TODO: Phase 4 — migrate to finance details endpoint
+          // (telecomFinanceSync stubs removed; this action is a no-op until Phase 4)
+          console.warn('updateTelecomManualFields: not implemented, pending Phase 4');
         },
 
-        retryFinanceSync: (id) => {
-          const row = get().workItems.find((item) => item.id === id);
-          if (!row) return;
-          get().updateWorkItem(id, {
-            ticket_number: row.ticket_number,
-            po_unit_price: row.po_unit_price,
-          });
+        retryFinanceSync: (_id) => {
+          // TODO: Phase 4 — migrate to finance details endpoint
+          console.warn('retryFinanceSync: not implemented, pending Phase 4');
         },
 
-        deleteWorkItem: (id) => {
-          set((state: ProjectStore) => {
-            const item = state.workItems.find((wi) => wi.id === id);
+        deleteWorkItem: async (id) => {
+          const item = get().workItems.find((wi) => wi.id === id);
+          if (!item) return;
+          await projectApi.deleteWorkItem(item.projectId, id);
+          set((state) => {
             const newWorkItems = state.workItems.filter((wi) => wi.id !== id);
             return {
               workItems: newWorkItems,
               projects: recalcProjectKpis(state.projects, newWorkItems),
-              activities: item
-                ? [
-                    {
-                      id: `act-${Date.now()}`,
-                      projectId: item.projectId,
-                      userId: 'current-user',
-                      userName: 'System',
-                      action: `deleted item: ${item.title}`,
-                      targetId: id,
-                      targetName: item.title,
-                      timestamp: new Date().toISOString(),
-                      type: 'work-item',
-                    },
-                    ...state.activities,
-                  ]
-                : state.activities,
             };
           });
         },

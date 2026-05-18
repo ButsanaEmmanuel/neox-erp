@@ -62,19 +62,19 @@
 
 ## SPRINT 2 — Câblage Frontend (Éliminer le localStorage fantôme)
 **Objectif : Le store PM suit le pattern HRM. Zéro fallback silencieux.**
-**Statut : ⏸️ Bloqué — attendre Sprint 1 complet**
+**Statut : 🔄 En cours — Commits A+B+C livrés, Commit D restant**
 
 ### Tâche 2.1 — Refactorer useProjectStore
-- [ ] Supprimer le fallback silencieux dans `createProjectWithWorkflow`
-- [ ] Supprimer `emitGlobalProjectsRefresh()` et toute écriture localStorage
-- [ ] Supprimer la config `persist` Zustand pour PM
-- [ ] Brancher `updateProject` → `PATCH /api/v1/projects/:id`
-- [ ] Brancher `deleteProject` → `DELETE /api/v1/projects/:id`
-- [ ] Brancher `addWorkItem` → `POST /api/v1/projects/:id/work-items`
-- [ ] Brancher `updateWorkItem` → `PATCH /api/v1/projects/:id/work-items/:itemId`
-- [ ] Brancher `deleteWorkItem` → `DELETE /api/v1/projects/:id/work-items/:itemId`
-- [ ] Brancher `addScopeItem` → `PATCH /api/v1/projects/:id/scope`
-- [ ] Vérifier : aucun `set()` avant confirmation backend
+- [ ] Supprimer le fallback silencieux dans `createProjectWithWorkflow` (Commit D)
+- [x] Supprimer `emitGlobalProjectsRefresh()` et toute écriture localStorage (Commit A)
+- [x] Supprimer la config `persist` Zustand pour PM (Commit A)
+- [x] Brancher `updateProject` → `PATCH /api/v1/projects/:id` (Commit B)
+- [x] Brancher `deleteProject` → `DELETE /api/v1/projects/:id` (Commit B)
+- [x] Brancher `addWorkItem` → `POST /api/v1/projects/:id/work-items` (Commit C)
+- [x] Brancher `updateWorkItem` → `PATCH /api/v1/projects/:id/work-items/:itemId` (Commit C)
+- [x] Brancher `deleteWorkItem` → `DELETE /api/v1/projects/:id/work-items/:itemId` (Commit C)
+- [ ] Brancher `addScopeItem` → `PATCH /api/v1/projects/:id/scope` (Commit D)
+- [ ] Vérifier : aucun `set()` avant confirmation backend (final Commit D)
 
 ### Tâche 2.2 — Créer projectApi.service.ts
 - [x] Créer `src/services/pm/projectApi.service.ts`
@@ -208,6 +208,9 @@
 | 2026-05-18 | — | Dette FK ProjectMember | 📌 Hors sprint | `ProjectMember_projectId_fkey` est `ON DELETE RESTRICT` (défaut Prisma) — bloque tout hard delete d'un projet auto-créé. Le test pm-scope-task-1-3 nettoie explicitement les `projectMember` avant `project.delete` en Phase 6. À revisiter dans le sprint "Migrations cleanup" : passer ProjectMember (+ WorkItem, ProjectImportBatch) en CASCADE pour permettre le hard delete admin. |
 | 2026-05-18 | 1 | 1.4 (routes + tests) | ✅ Complet | Routes `POST/PATCH/DELETE /api/v1/projects/:id/work-items[/:itemId]` implémentées dans `backend/routes/projects.routes.mjs` (+340 L). Stratégie de réutilisation : pas de duplication métier — `projectItemDetails.service.mjs` reste centralisé via son endpoint existant `/pm/.../details`. PATCH du présent module bloque explicitement 19 champs (`WORKITEM_MANAGED_FIELDS`) avec `400 FIELD_MANAGED_ELSEWHERE` (fast-fail avant tout pick). Whitelist `type=['task','milestone']` et `priority=['low','medium','high']` (confirmées via grep frontend). Asymétrie volontaire : `status` éditable au POST initial mais bloqué au PATCH (calculé par le service). SSE `work_item_created/updated/deleted` (event `_updated` partagé avec le service). DELETE soft pur sans side effects (ProjectItemState/Activity préservés). Tests : **105/105** dans `pm-workitems-task-1-4.test.mjs` (6 phases : POST + defaults, PATCH happy + errors, rejet managed × 7 + mix, validation stricte, DELETE soft + idempotency 404, cross-project leak). Régression cumulée Sprint 1 : **195/195 ✓** (18 + 21 + 51 + 105). |
 | 2026-05-18 | 1 | Sprint 1 — bilan | ✅ Complet | Tous les blocages backend de la persistance PM sont levés. 4 tâches livrées en 2 jours (17-18 mai). 195/195 tests verts. 3 dettes hors-sprint documentées (baseline migration, FK ProjectMember RESTRICT, env loading dans worktree). Sprint 2 (frontend câblage) débloqué. |
+| 2026-05-18 | 2 | 2.1 — Commit A | ✅ Complet | Suppression `persist` middleware Zustand + fonction `emitGlobalProjectsRefresh` + 9 appels internes + handlers `onStorage` dans 2 composants consommateurs (`PMRouter.tsx`, `ProjectsIndex.tsx`). Périmètre étendu aux composants car les listeners écoutaient un event que plus personne n'émet (option γ — suppression cross-tab signal, polling 15s + onFocus conservés). 3 fichiers, -49/+3 lignes. `tsc --noEmit` zéro erreur. Hash `2c4e66b`. |
+| 2026-05-18 | 2 | 2.1 — Commit B | ✅ Complet | `updateProject`/`deleteProject` branchés sur `projectApi.service.ts`. Nouvelles actions `fetchProjectMembers`/`addProjectMember`/`removeProjectMember` + state `projectMembers: Record<projectId, ProjectMember[]>`. Signature `data: { userId, role }` alignée sur service API (mismatch `roleCode` vs `role` corrigé). +44/-16 lignes. Erreur tsc résiduelle : mismatch `addWorkItem` interface=Promise/impl=void (résolue Commit C). Hash `2f3ef7f`. |
+| 2026-05-18 | 2 | 2.1 — Commit C | ✅ Complet | `addWorkItem`/`updateWorkItem`/`deleteWorkItem` branchés sur API Phase 2. Imports supprimés : 5 (`calculateTelecomAmounts`, `evaluateFinancialEligibility`, `suspendContractorPayableSync`, `syncContractorPayableToFinance`, `notifyTeam as notifyProjectTeam`). Helpers locaux supprimés : 2 (`deriveTelecomStatus`, `computeDelayMetrics`). `updateWorkItem` : 137 → 8 lignes (logique finance frontend disparue, backend autoritatif via PATCH). `updateTelecomManualFields`/`retryFinanceSync` → stubs `console.warn` + TODO Phase 4 (route `/details` à brancher). Signatures interface `updateWorkItem`/`deleteWorkItem` alignées en `Promise<void>`. Erreur tsc résiduelle Commit B résolue. `tsc --noEmit` zéro erreur global. |
 
 ---
 
