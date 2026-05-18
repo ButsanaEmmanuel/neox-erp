@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { broadcast as sseBroadcast } from '../realtime/sseBroadcaster.mjs';
+import { getUserPermissionSet } from '../access/universalAccess.service.mjs';
 
 function decimalToNumber(value) {
   if (value === null || value === undefined) return null;
@@ -292,11 +293,8 @@ export async function listProjectsForUser(prisma, input = {}) {
   });
   const roleCodes = (user?.roles || []).map((row) => String(row?.role?.code || '').toUpperCase());
   const isAdmin = await resolveOmniAdmin(prisma, user);
-  const inEngineeringDepartment =
-    String(user?.department?.code || '').toLowerCase().includes('eng')
-    || String(user?.department?.name || '').toLowerCase().includes('engineering');
-  const isProjectManagerTitle = String(user?.jobTitle || '').toLowerCase().includes('project manager');
-  const hasStructuralProjectAccess = isAdmin || inEngineeringDepartment || isProjectManagerTitle || roleCodes.includes('PROJECT_MANAGER');
+  const permissionSet = await getUserPermissionSet(prisma, primaryUser.id);
+  const hasStructuralProjectAccess = permissionSet.modules?.project?.readOnly === false;
   const isSales = roleCodes.includes('SALES') || roleCodes.includes('SALES_ACCOUNT_MANAGER');
 
   let salesClientAccountIds = [];
@@ -479,11 +477,8 @@ export async function getEngineeringDashboard(prisma, input = {}) {
 
   const roleCodes = (user?.roles || []).map((row) => String(row?.role?.code || '').toUpperCase());
   const isAdmin = await resolveOmniAdmin(prisma, user);
-  const inEngineeringDepartment =
-    String(user?.department?.code || '').toLowerCase().includes('eng')
-    || String(user?.department?.name || '').toLowerCase().includes('engineering');
-  const isProjectManagerTitle = String(user?.jobTitle || '').toLowerCase().includes('project manager');
-  const hasStructuralProjectAccess = isAdmin || inEngineeringDepartment || isProjectManagerTitle || roleCodes.includes('PROJECT_MANAGER');
+  const permissionSet = await getUserPermissionSet(prisma, primaryUser.id);
+  const hasStructuralProjectAccess = permissionSet.modules?.project?.readOnly === false;
 
   const ownedAndMemberProjects = await prisma.project.findMany({
     where: hasStructuralProjectAccess

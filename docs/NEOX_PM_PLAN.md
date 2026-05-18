@@ -104,7 +104,7 @@
 
 ## SPRINT 3 — RBAC (Durcir les permissions)
 **Objectif : Zéro heuristique sur jobTitle ou department.code.**
-**Statut : 🔄 En cours — 1/4 tâches (25%)**
+**Statut : 🔄 En cours — 2/4 tâches (50%)**
 
 > Plan révisé après audit de session : les heuristiques string sont dupliquées dans 2 fichiers backend, pas 1. Voir `docs/NEOX_PM_HANDOFF_SPRINT3.md`.
 
@@ -117,10 +117,12 @@
 - [x] Retirer reasons `engineering_department_access` / `project_manager_title_access`
 - [x] `node --check` + `tsc --noEmit` zéro erreur
 
-### Tâche 3.2 — Backend : `projectCollaboration.service.mjs:290-310`
-- [ ] Décider (a) déléguer à `getUserPermissionSet` OU (b) calcul local sur mêmes signaux DB
-- [ ] Supprimer la duplication d'heuristiques string
-- [ ] Vérifier cohérence avec décision Tâche 3.1
+### Tâche 3.2 — Backend : `projectCollaboration.service.mjs`
+- [x] Décision : option (a) déléguer à `getUserPermissionSet` (source de vérité unique)
+- [x] Import `getUserPermissionSet` depuis `../access/universalAccess.service.mjs`
+- [x] Remplacer heuristiques l.295-299 (`listProjectsForUser`) par `permissionSet.modules.project.readOnly === false`
+- [x] Remplacer heuristiques l.482-486 (`getEngineeringDashboard`, duplication découverte en cours de tâche) par même pattern
+- [x] `node --check` + `tsc --noEmit` zéro erreur
 
 ### Tâche 3.3 — Frontend : retirer heuristique `ProjectsIndex.tsx`
 - [ ] Supprimer le filtre `role.includes('manager'|'lead'|'director'|'head')` l.91–105
