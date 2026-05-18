@@ -139,6 +139,9 @@ import {
   upsertResourceStakeholder,
 } from './services/access/universalAccess.service.mjs';
 
+// PM route modules
+import { handlePmProjectRoutes } from './routes/pm/projects.routes.mjs';
+
 function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -398,6 +401,13 @@ function parseActor(body) {
   return {
     actorUserId: String(body.actorUserId || body.userId || '').trim() || null,
     actorDisplayName: String(body.actorDisplayName || body.userName || '').trim() || 'User',
+  };
+}
+
+function parseActorFromUrl(url) {
+  return {
+    actorUserId: url.searchParams.get('userId') || null,
+    actorDisplayName: url.searchParams.get('userName') || 'User',
   };
 }
 
@@ -860,6 +870,12 @@ const server = http.createServer(async (req, res) => {
       }));
       return json(res, 200, { contracts, pagination: rows.pagination || null });
     }
+
+    const pmHandled = await handlePmProjectRoutes({
+      req, res, url, pathname, method, prisma,
+      assertModuleAccess, parseBody, parseActor, parseActorFromUrl, json,
+    });
+    if (pmHandled) return;
 
     if (method === 'GET' && pathname === '/api/v1/projects') {
       await assertModuleAccess(prisma, url, 'project');
