@@ -104,7 +104,7 @@
 
 ## SPRINT 3 — RBAC (Durcir les permissions)
 **Objectif : Zéro heuristique sur jobTitle ou department.code.**
-**Statut : ✅ Terminé — 4/4 tâches (100%)**
+**Statut : ✅ Terminé — 4/4 tâches (100%) — commits `21089eb`, `6084989`, `e9ffee8`, `0a5a956`**
 
 > Plan révisé après audit de session : les heuristiques string sont dupliquées dans 2 fichiers backend, pas 1. Voir `docs/NEOX_PM_HANDOFF_SPRINT3.md`.
 
@@ -142,18 +142,25 @@
 
 ## SPRINT 4 — KPIs, Dashboard & Reporting
 **Objectif : Une seule source de vérité pour les KPIs — le backend.**
-**Statut : ⏸️ Bloqué — attendre Sprint 3 complet**
+**Statut : 🟢 Débloqué — 0/10 tâches**
+
+> **Périmètre actualisé 2026-05-18** (cf. journal de progression entrée du jour) : 4.1 élargie à 6 sites frontend après audit DB, 4.2 scindée en audit + exec conditionnelle au verdict SSE.
 
 ### Tâche 4.1 — Unifier le calcul des KPIs
 - [ ] Supprimer `recalcProjectKpis()` du store frontend
 - [ ] Le store expose les KPIs tels que retournés par le backend
 - [ ] `ProjectOverview.tsx` consomme les KPIs sans recalcul local
 - [ ] Aligner les noms de statuts (`pending-acceptance` → valeur DB)
+- [ ] Extraire `computeTelecomSummary(workItems)` dans un helper dédié (décision δ)
 - [ ] Vérifier la cohérence des chiffres entre ancienne et nouvelle implémentation
 
-### Tâche 4.2 — Supprimer le polling redondant
-- [ ] Supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx`
-- [ ] Vérifier que le SSE `useRealtimeSync` couvre tous les cas
+### Tâche 4.2-audit — Cartographier la couverture SSE PM
+- [ ] Livrable : `docs/NEOX_PM_SSE_AUDIT.md` listant événements émis vs mutations sans émission
+- [ ] Verdict explicite : couverture suffisante pour retirer le polling, OUI/NON
+
+### Tâche 4.2-exec — Supprimer le polling (conditionnel)
+- [ ] Si verdict 4.2-audit = OUI : supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx` (l.733)
+- [ ] Si verdict 4.2-audit = NON : documenter le gap, pousser l'exec en Sprint 6 scope, cocher la case comme "reportée"
 
 **✅ Sprint 4 terminé quand : toutes les cases ci-dessus sont cochées**
 
@@ -233,6 +240,9 @@
 | 2026-05-18 | 2 | Sprint 2 — bilan | ✅ Complet | **Sprint 2 fermé à 28/28 cases (100%)**. Tâche 2.1 : 10/10 (4 commits A→D). Tâche 2.2 : 15/15. Tâche 2.3 : 3/3. Store frontend entièrement migré vers le pattern backend-autoritatif : zéro `persist` Zustand, zéro `emitGlobalProjectsRefresh`, zéro fallback silencieux, zéro création d'id local, toutes les mutations passent par les routes Sprint 1 + Phase 2. Stubs `updateTelecomManualFields`/`retryFinanceSync` (no-op + console.warn) signalent que la route `/pm/.../work-items/.../details` reste à brancher en Phase 4. Type `ProjectScope.constraints` optionnel — à durcir quand les composants UI seront mis à jour. Sprint 3 (RBAC durci) débloqué. |
 | 2026-05-18 | — | Dette migrations résolue | ✅ Complet | **Migrations Sprint 1 portées depuis `claude/vigorous-napier-03a79d`** via cherry-pick du commit `fb6a21b` : `20260517_add_project_financials/migration.sql` (5 colonnes `Project` : `costHT`, `vatRate`, `vatAmount`, `costTTC`, `currency`) + `20260518_add_project_scope/migration.sql` (table `ProjectScope` + FK cascade) + 20 lignes `prisma/schema.prisma`. 3 fichiers, 46 insertions, zéro suppression. `prisma generate` ✅, `tsc --noEmit` ✅. **`prisma migrate deploy` non appliqué** — à exécuter manuellement en environnement DB (le worktree n'a pas de `.env` avec `DATABASE_URL`). Contexte : la branche actuelle (`angry-sinoussi-faf92c`) n'avait jamais reçu le travail backend Sprint 1, qui vivait isolé sur `vigorous-napier`. Notre Phase 2 (`backend/routes/pm/projects.routes.mjs` + `backend/services/pm/projectCrud.service.mjs`) est une implémentation parallèle compatible — le merge des migrations comble le gap DB sans toucher au code routes. Hash commit `f79217c` (amend de `b69fa91`). |
 | 2026-05-18 | — | Dette scope-routes résolue | ✅ Complet | Handlers `GET /api/v1/projects/:id/scope` et `PATCH /api/v1/projects/:id/scope` ajoutés dans `backend/routes/pm/projects.routes.mjs` (+27 lignes : import, regex `scopeMatch`, étension `hasMatch`, 2 branches handler). Service `backend/services/pm/projectCrud.service.mjs` étendu (+62 lignes) : `fetchProjectScope(prisma, projectId)` retourne synthétique `{ ...EMPTY_SCOPE, projectId }` si pas de ligne en DB (cohérent Sprint 1.3 sémantique) ; `updateProjectScope(prisma, projectId, data, actor)` valide strictement clés autorisées (5 max : `objectives`, `deliverables`, `outOfScope`, `assumptions`, `constraints`) + arrays (400 sinon), upsert sur `projectId @unique`, propage `updatedByUserId` depuis l'actor. PATCH partiel autorisé (n'importe quel sous-ensemble des 5 clés). `node --check` ✅, `tsc --noEmit` ✅. Le frontend `projectApi.updateProjectScope` (Commit D Sprint 2) est maintenant routable en runtime sans 404. |
+| 2026-05-18 | 3 | Sprint 3 — bilan | ✅ Complet | **Sprint 3 fermé à 4/4 tâches (100%)**. Tâche 3.1 (`21089eb`) — suppression heuristiques string `inEngineeringDepartment`/`isProjectManagerTitle` dans `getUserPermissionSet`, anti-pattern R3 (`rolePermission.findMany` lu mais ignoré) corrigé. Tâche 3.2 (`6084989`) — `projectCollaboration.service.mjs` délégué à `getUserPermissionSet` (2 occurrences, dont une duplication R4 découverte en cours). Tâche 3.3 (`e9ffee8`) — flag DB `canManageProjects` injecté dans `listHrmEmployees`, filtre frontend `role.includes(...)` supprimé. Tâche 3.4 (`0a5a956`) — `docs/NEOX_PM_PERMISSIONS.md` créé. Zéro heuristique string restante dans le chemin RBAC projet. `tsc --noEmit` zéro erreur après chaque commit. |
+| 2026-05-18 | — | Dette SSE D1 actée | 📌 Hors sprint | Constat : journal Sprint 1.3/1.4 annonce des émissions SSE qui n'existent pas sur cette branche. Cherry-pick `f79217c` a porté migrations sans le code routes. Audit complet planifié en Tâche 4.2-audit. |
+| 2026-05-18 | 4 | Sprint 4 — kickoff | 🟢 Débloqué | Audit DB `WorkItem.status` exécuté : 100 lignes actives, 2 statuts seulement (`needs_manual_completion` ×94, `finance_synced` ×6). Statuts kebab-case `pending-qa`/`pending-acceptance` : 0 occurrence → suppression frontend safe. Audit grep frontend : 6 sites consomment ces statuts → 4.1 élargie au-delà du store. 4.2 scindé en audit + exec. Dette D1 (SSE Sprint 1 annoncés vs réels) ajoutée à la section dédiée. |
 
 ---
 
@@ -249,6 +259,19 @@
 | `Project.vatRate` = pourcentage entier (16 = 16%), pas fraction (0.16) | Lisibilité DB. Frontend stocke actuellement 0.16 — **alignement Sprint 2 obligatoire** (Tâche 2.1) : Project.vatRate désormais source de vérité, frontend divise par 100 pour multiplier les montants. |
 | `Project.currency` (et non `currencyCode`) | Cohérence avec le frontend type `Project`. Dette technique connue : inconsistant avec `FinanceEntry.currencyCode` — à réconcilier dans un sprint ultérieur (Reporting cross-modules). |
 | Migrations Sprint 1+ : créées manuellement + marquées appliquées via `prisma migrate resolve` | Le shadow DB est inutilisable (baseline initial manquant). En attendant un sprint "Migrations cleanup", chaque nouvelle migration est écrite à la main dans `prisma/migrations/<timestamp>_<name>/migration.sql`, appliquée via `prisma db execute`, puis enregistrée via `prisma migrate resolve --applied`. |
+
+---
+
+## Dettes connues
+
+| ID | Origine | Constat | Action prévue |
+|----|---------|---------|---------------|
+| D1 | Sprint 1 (cherry-pick `f79217c`) | Journal Sprint 1.3 / 1.4 annonce les SSE `project_scope_updated`, `work_item_created`, `work_item_updated`, `work_item_deleted` émis depuis les routes. Vérification grep sur la branche : **aucune émission SSE dans `backend/routes/`**. Cherry-pick depuis `vigorous-napier-03a79d` a porté les migrations mais pas le code routes Sprint 1 (architecture parallèle `backend/routes/pm/` vs `backend/routes/`). SSE actuellement présents : `work_item_updated` (depuis service partagé `projectItemDetails`), `notification_created`, `project_import_completed`. | Audit complet en Tâche 4.2-audit → livrable `docs/NEOX_PM_SSE_AUDIT.md`. Décision re-port vs réécriture des émetteurs manquants à acter en Sprint 6, après audit. |
+| D2 | Sprint 2 (`telecomFinanceSync`) | Stubs `updateTelecomManualFields` / `retryFinanceSync` = no-op + `console.warn`. Route `/pm/projects/:id/work-items/:itemId/details` non branchée frontend. | Phase 4 — pas de sprint affecté pour l'instant. |
+| D3 | Sprint 2 (Commit D) | Type `ProjectScope.constraints?` optionnel côté frontend. Doit devenir obligatoire quand `ProjectScope.tsx` rendra ce champ. | À durcir au moment de l'implémentation UI. |
+| D4 | Sprint 1 | `prisma migrate deploy` jamais exécuté sur cette branche (worktree sans `.env`). Migrations marquées appliquées via `prisma migrate resolve --applied` uniquement. | Validation utilisateur explicite requise avant exécution. |
+| D5 | Sprint 1 | FK `ProjectMember_projectId_fkey` = `ON DELETE RESTRICT`. Bloque tout hard delete projet. | Sprint "Migrations cleanup" (post-Sprint 6) : passer en CASCADE. |
+| D6 | Sprint 3 (Tâche 3.1) | `loadUserContext` l.112-147 (`engineeringTeamProjectCount`) contient encore un OR département `contains 'ENG'` / `'Engineering'`. Sous-filtre d'un compteur DB combiné à `roleCode`, pas une décision de permission directe → cohérent Sprint 3, mais à revisiter pour un pur DB-only. | Sprint RBAC cross-modules (priorité 5 roadmap). |
 
 ---
 
