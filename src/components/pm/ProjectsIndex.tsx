@@ -736,18 +736,11 @@ const ProjectsIndex: React.FC = () => {
       const refresh = () => void loadProjectsForUser(user.id);
       const interval = setInterval(refresh, 15000);
       const onFocus = () => refresh();
-      const onStorage = (event: StorageEvent) => {
-        if (event.key === 'neox.global.projects.refreshAt') {
-          refresh();
-        }
-      };
 
       window.addEventListener('focus', onFocus);
-      window.addEventListener('storage', onStorage);
       return () => {
         clearInterval(interval);
         window.removeEventListener('focus', onFocus);
-        window.removeEventListener('storage', onStorage);
       };
     }, [user?.id, loadProjectsForUser]);
 

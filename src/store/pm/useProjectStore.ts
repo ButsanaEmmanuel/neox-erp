@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import {
   Project,
   WorkItem,
@@ -55,14 +54,6 @@ interface ProjectStore {
 const MOCK_PROJECTS: Project[] = [];
 const MOCK_WORK_ITEMS: WorkItem[] = [];
 const MOCK_ACTIVITIES: ProjectActivity[] = [];
-
-function emitGlobalProjectsRefresh() {
-  try {
-    localStorage.setItem('neox.global.projects.refreshAt', String(Date.now()));
-  } catch {
-    // no-op
-  }
-}
 
 function recalcProjectKpis(projects: Project[], workItems: WorkItem[]): Project[] {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -139,9 +130,8 @@ function computeDelayMetrics(planningDate?: string, forecastDate?: string): Part
 }
 
 export const useProjectStore = create<ProjectStore>()(
-  persist(
-    (set, get) => {
-      const initialProjects = recalcProjectKpis(MOCK_PROJECTS, MOCK_WORK_ITEMS);
+  (set, get) => {
+    const initialProjects = recalcProjectKpis(MOCK_PROJECTS, MOCK_WORK_ITEMS);
 
       return {
         projects: initialProjects,
@@ -238,8 +228,6 @@ export const useProjectStore = create<ProjectStore>()(
             ],
           }));
 
-          emitGlobalProjectsRefresh();
-
           return id;
         },
 
@@ -278,7 +266,6 @@ export const useProjectStore = create<ProjectStore>()(
               workItems: [...createdWorkItems, ...existingWorkItems],
               activeProjectId: created.id,
             });
-            emitGlobalProjectsRefresh();
 
             return {
               projectId: created.id,
@@ -298,7 +285,6 @@ export const useProjectStore = create<ProjectStore>()(
           set((state: ProjectStore) => ({
             projects: state.projects.map((p) => (p.id === id ? { ...p, ...updates } : p)),
           }));
-          emitGlobalProjectsRefresh();
           const active = get().projects.find((p) => p.id === id);
           if (active) {
             void notifyProjectTeam(id, {
@@ -315,7 +301,6 @@ export const useProjectStore = create<ProjectStore>()(
             workItems: state.workItems.filter((wi) => wi.projectId !== id),
             activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
           }));
-          emitGlobalProjectsRefresh();
         },
 
         addWorkItem: (newItem) => {
@@ -341,7 +326,6 @@ export const useProjectStore = create<ProjectStore>()(
               ],
             };
           });
-          emitGlobalProjectsRefresh();
         },
 
         updateWorkItem: (id, updates) => {
@@ -480,9 +464,8 @@ export const useProjectStore = create<ProjectStore>()(
               ],
             };
           });
-          emitGlobalProjectsRefresh();
         },
-        
+
 
         updateTelecomManualFields: (id, updates) => {
           get().updateWorkItem(id, {
@@ -526,7 +509,6 @@ export const useProjectStore = create<ProjectStore>()(
                 : state.activities,
             };
           });
-          emitGlobalProjectsRefresh();
         },
 
         importWorkItems: (newItems) => {
@@ -556,7 +538,6 @@ export const useProjectStore = create<ProjectStore>()(
               ],
             };
           });
-          emitGlobalProjectsRefresh();
         },
 
         importTelecomRows: async (projectId, fileName, rows, uploader, actorUserId) => {
@@ -570,7 +551,6 @@ export const useProjectStore = create<ProjectStore>()(
           if (actorUserId) {
             await get().loadProjectsForUser(actorUserId);
           }
-          emitGlobalProjectsRefresh();
           return {
             batchId: backendResult.batchId || `batch-${Date.now()}`,
             created: Number(backendResult.created || 0),
@@ -644,17 +624,5 @@ export const useProjectStore = create<ProjectStore>()(
             };
           }),
       };
-    },
-    {
-      name: 'neox.projects.v3.telecom',
-      partialize: (state: ProjectStore) => ({
-        projects: state.projects,
-        activeProjectId: state.activeProjectId,
-        workItems: state.workItems,
-        documents: state.documents,
-        imports: state.imports,
-        telecomImportBatches: state.telecomImportBatches,
-      }),
     }
-  )
 );

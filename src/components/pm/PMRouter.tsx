@@ -49,18 +49,11 @@ const ProjectWorkspace: React.FC = () => {
         const onVisibility = () => {
             if (document.visibilityState === 'visible') refresh();
         };
-        const onStorage = (event: StorageEvent) => {
-            if (event.key === 'neox.global.projects.refreshAt') {
-                refresh();
-            }
-        };
         window.addEventListener('focus', onFocus);
         document.addEventListener('visibilitychange', onVisibility);
-        window.addEventListener('storage', onStorage);
         return () => {
             window.removeEventListener('focus', onFocus);
             document.removeEventListener('visibilitychange', onVisibility);
-            window.removeEventListener('storage', onStorage);
         };
     }, [user?.id, loadProjectsForUser]);
     
