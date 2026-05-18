@@ -84,6 +84,14 @@ export interface Project {
   kpis: ProjectKPIs;
 }
 
+export interface ProjectMember {
+  id: string;
+  userId: string;
+  roleCode: 'LEAD' | 'CONTRIBUTOR' | 'VIEWER' | string;
+  userName: string;
+  departmentId: string;
+}
+
 // Scope Types
 export interface ScopeBaseItem {
   id: string;

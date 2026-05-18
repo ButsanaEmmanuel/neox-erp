@@ -1,13 +1,7 @@
 import { apiRequest } from '../../lib/apiClient';
-import { Project, WorkItem } from '../../types/pm';
+import { Project, ProjectMember, WorkItem } from '../../types/pm';
 
-export interface ProjectMemberRecord {
-  id: string;
-  userId: string;
-  roleCode: 'LEAD' | 'CONTRIBUTOR' | 'VIEWER' | string;
-  userName: string;
-  departmentId: string;
-}
+export type ProjectMemberRecord = ProjectMember;
 
 export interface ProjectsForUserResponse {
   projects: Array<Project & { members?: ProjectMemberRecord[]; workItems?: WorkItem[] }>;
