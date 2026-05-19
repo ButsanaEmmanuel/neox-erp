@@ -237,7 +237,8 @@ function verifyPassword(plainTextPassword, storedPasswordHash) {
   if (!storedPasswordHash) return false;
 
   if (!storedPasswordHash.includes(':')) {
-    return plainTextPassword === storedPasswordHash;
+    console.warn('[auth] verifyPassword: stored hash missing ":" separator — refusing (D10).');
+    return false;
   }
 
   const [salt, hash] = storedPasswordHash.split(':');
