@@ -31,6 +31,8 @@ Keys toujours émises par `getUserPermissionSet`, valeur calculée à la volée.
 | `project:scope:write` | `hasProjectFullAccess` |
 | `project:work_items:read` | `hasProjectFullAccess` |
 | `project:work_items:write` | `hasProjectFullAccess` |
+| `project:milestones:read` | `hasProjectFullAccess` |
+| `project:milestones:write` | `hasProjectFullAccess` |
 | `project:documents:read` | `hasProjectFullAccess` |
 | `project:documents:write` | `hasProjectFullAccess` |
 

@@ -18,6 +18,12 @@ import {
   updateProjectScope,
   getProjectById,
 } from '../../services/pm/projectCrud.service.mjs';
+import {
+  listProjectMilestones,
+  createMilestone,
+  updateMilestone,
+  deleteMilestone,
+} from '../../services/pm/milestones.service.mjs';
 
 /**
  * Route a request to the appropriate PM project handler.
@@ -46,6 +52,8 @@ export async function handlePmProjectRoutes(ctx) {
   const membersMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members$/);
   const memberMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members\/([^/]+)$/);
   const scopeMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/scope$/);
+  const milestonesMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/milestones$/);
+  const milestoneMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/milestones\/([^/]+)$/);
 
   // Fast bail-out: if no pattern + method combination matches what we own,
   // return false so the main flow keeps dispatching. This prevents the
@@ -56,7 +64,9 @@ export async function handlePmProjectRoutes(ctx) {
     (workItemMatch && (method === 'PATCH' || method === 'DELETE')) ||
     (membersMatch && (method === 'GET' || method === 'POST')) ||
     (memberMatch && method === 'DELETE') ||
-    (scopeMatch && (method === 'GET' || method === 'PATCH'));
+    (scopeMatch && (method === 'GET' || method === 'PATCH')) ||
+    (milestonesMatch && (method === 'GET' || method === 'POST')) ||
+    (milestoneMatch && (method === 'PATCH' || method === 'DELETE'));
 
   if (!hasMatch) return false;
 
@@ -159,6 +169,40 @@ export async function handlePmProjectRoutes(ctx) {
       return true;
     }
 
+    if (milestonesMatch && method === 'GET') {
+      const [, projectId] = milestonesMatch;
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const milestones = await listProjectMilestones(ctx.prisma, projectId);
+      json(res, 200, { milestones });
+      return true;
+    }
+
+    if (milestonesMatch && method === 'POST') {
+      const [, projectId] = milestonesMatch;
+      const body = await ctx.parseBody(ctx.req);
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const milestone = await createMilestone(ctx.prisma, projectId, body);
+      json(res, 201, { milestone });
+      return true;
+    }
+
+    if (milestoneMatch && method === 'PATCH') {
+      const [, projectId, milestoneId] = milestoneMatch;
+      const body = await ctx.parseBody(ctx.req);
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const milestone = await updateMilestone(ctx.prisma, projectId, milestoneId, body);
+      json(res, 200, { milestone });
+      return true;
+    }
+
+    if (milestoneMatch && method === 'DELETE') {
+      const [, projectId, milestoneId] = milestoneMatch;
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      await deleteMilestone(ctx.prisma, projectId, milestoneId);
+      json(res, 200, { ok: true });
+      return true;
+    }
+
     // Defensive: hasMatch said we own this, but no branch matched.
     // Indicates a bug in hasMatch — log and surface as 500.
     console.error(
@@ -171,7 +215,9 @@ export async function handlePmProjectRoutes(ctx) {
     if (status >= 500) {
       console.error(`[handlePmProjectRoutes] ${method} ${pathname} failed:`, err);
     }
-    json(res, status, { error: err?.message || 'Internal error' });
+    const payload = { error: err?.message || 'Internal error' };
+    if (err?.code) payload.code = err.code;
+    json(res, status, payload);
     return true;
   }
 }

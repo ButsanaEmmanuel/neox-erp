@@ -177,10 +177,10 @@
 - [x] Appliquer la migration (`20260519_add_milestones`, vérifié `\d` postgres)
 
 ### Tâche 5.2 — Routes backend Milestone
-- [ ] Implémenter `GET /api/v1/projects/:id/milestones`
-- [ ] Implémenter `POST /api/v1/projects/:id/milestones`
-- [ ] Implémenter `PATCH /api/v1/projects/:id/milestones/:mId`
-- [ ] Implémenter `DELETE /api/v1/projects/:id/milestones/:mId` (soft delete)
+- [x] Implémenter `GET /api/v1/projects/:id/milestones`
+- [x] Implémenter `POST /api/v1/projects/:id/milestones`
+- [x] Implémenter `PATCH /api/v1/projects/:id/milestones/:mId`
+- [ ] Implémenter `DELETE /api/v1/projects/:id/milestones/:mId` (soft delete) — code écrit, en attente couverture tests 5.2
 
 ### Tâche 5.3 — Composant MilestonesPage.tsx
 - [ ] Créer `src/components/pm/MilestonesPage.tsx`
@@ -251,6 +251,8 @@
 | 2026-05-19 | 4 | 4.2-audit + 4.2-exec | ✅ Complet | **Sprint 4 fermé à 10/10 (100%)**. Audit SSE livré dans `docs/NEOX_PM_SSE_AUDIT.md` : 3 émetteurs backend (`work_item_updated`, `notification_created`, `project_import_completed`), 12 mutations PM identifiées, couverture **2/12 = 17%**. Frontend (`useRealtimeSync.ts`) écoute exactement les 2 événements PM émis (zéro bruit, zéro attente vaine). **Verdict 4.2-exec : NON** — retirer le polling 15s casserait 83% des cas (project CRUD, work-item CRUD simple, members, scope). Polling conservé. 4.2-exec reportée Sprint 6 avec liste exhaustive de 9 émetteurs à ajouter (priorité haute/moyenne). Sprint 5 (Milestones) débloqué. |
 | 2026-05-18 | — | D10 résolue (hotfix sécurité hors-sprint) | ✅ Complet | Vulnérabilité D10 corrigée. `scripts/rehash-plaintext-passwords.mjs` créé + exécuté (idempotent, garde-fou 5s + log par candidate) → 1 user re-hashé (`usr_ebutsana_full_access_20260321`, ex-passwordHash 16 chars plain-text → scrypt salt:hash). `verifyPassword` modifié (`backend/auth-server.mjs:236-241`) : suppression du fallback `plainTextPassword === storedPasswordHash` → refus + `console.warn` si stored sans `:`. Backend redémarré, E2E login admin OK (HTTP 200 + token). DB vérifiée : 0 password plain-text restant. **D10b ouverte** : le password admin d'origine reste exposé dans l'historique git (commit `6c4d9a3` et messages session). Re-hash ferme le vecteur DB-compromise, pas le vecteur git-history. **Rotation manuelle du password admin requise hors-session** pour fermer complètement D10. Hash commit : `43ec271`. |
 | 2026-05-18 | — | D10b résolue | ✅ Complet | Rotation password admin effectuée hors-session via UI NEOX (Settings > Modifier mot de passe). Voie d'attaque git-history fermée : le password présent dans l'historique git n'est plus le password actif. Nouveau password stocké hors-repo. Dossier sécurité D10/D10b complètement clos. |
+| 2026-05-19 | 5 | 5.1 — Migration Milestone | ✅ Complet | `model Milestone` (12 cols, 4 idx, 2 FK : `projectId` CASCADE, `ownerId` SET NULL) + `model MilestoneDependency` (self-relation M:N, 4 idx dont UNIQUE, 2 FK : `milestoneId` CASCADE, `dependsOnId` RESTRICT). Migration `20260519_add_milestones` appliquée via `prisma db execute` + `migrate resolve --applied`. Structure DB vérifiée `\d` postgres. Backup pré-migration 1.1 MB stocké hors-repo. D12 ajoutée (`completionPct` Int sans CHECK DB → mitigation UX en 5.3). Hash `f1c8f3f`. |
+| 2026-05-19 | 5 | 5.2 — Décision tests Phase RBAC | 📌 Décision tracée | Phase RBAC skipped dans la suite tests 5.2. Raison : `assertModuleAccess` est partagé avec tous les handlers PM, déjà couvert transversalement par Sprint 3 (durcissement RBAC + suppression heuristiques string). Tester RBAC sur milestones = doublon. Pas une dette — à inclure dans un sprint dédié "Tests RBAC cross-modules" si un audit le rend nécessaire. |
 
 ---
 
