@@ -171,10 +171,10 @@
 **Statut : ⏸️ Bloqué — attendre Sprint 1 migrations validées**
 
 ### Tâche 5.1 — Migration Prisma Milestone
-- [ ] Générer la migration et montrer le SQL AVANT application
-- [ ] Créer `model Milestone` avec dépendances self-relation
-- [ ] Ajouter la relation inverse dans `model Project`
-- [ ] Appliquer la migration
+- [x] Générer la migration et montrer le SQL AVANT application
+- [x] Créer `model Milestone` avec dépendances self-relation
+- [x] Ajouter la relation inverse dans `model Project`
+- [x] Appliquer la migration (`20260519_add_milestones`, vérifié `\d` postgres)
 
 ### Tâche 5.2 — Routes backend Milestone
 - [ ] Implémenter `GET /api/v1/projects/:id/milestones`
@@ -286,6 +286,7 @@
 | D10 | ✅ Résolue 2026-05-18 (hotfix dédié) | `auth-server.mjs:236-240` : `verifyPassword` faisait un fallback **plain-text equality** si le hash stocké ne contient pas `:`. 1 compte admin avait son `passwordHash` stocké en clair. | **Résolu** : (1) `scripts/rehash-plaintext-passwords.mjs` créé et exécuté → 1 user re-hashé au format scrypt (`usr_ebutsana_full_access_20260321`) ; (2) `verifyPassword` modifié : refuse + `console.warn` si stored sans `:` (plus de fallback plain-text) ; (3) E2E login admin OK post-fix (HTTP 200 + token). Hash commit : voir journal du jour. Audit auth complet (token revocation, password policy, rate limiting) reste hors-scope, à planifier sprint sécurité dédié. |
 | D10b | ✅ Résolue 2026-05-18 (rotation manuelle effectuée via UI Settings > Modifier mot de passe) | Password admin d'origine exposé dans l'historique git (commit `6c4d9a3` détaillant D10 + messages de session). Re-hash D10 fermait la voie DB→password, pas la voie git-history→password. | **Résolu** : rotation manuelle du password admin effectuée via l'UI NEOX. Le password présent dans l'historique git n'est plus le password actif → vecteur git-history neutralisé. Nouveau password stocké hors-repo. |
 | D11 | Sprint 4 (Tâche 4.1) | View `awaiting_qa_approval` exposée en URL via `useSearchParams` dans `WorkItemsPage.tsx`. Bookmarks pré-Sprint-4 (`?view=pending-qa`) ne matchent plus → fallback silencieux sur `'all'`. UX confusante pour utilisateurs ayant bookmark. | À résoudre par mapping rétro-compat dans `WorkItemsPage.tsx` (parse URL) ou suppression du bookmark côté UX docs. Pas bloquant. |
+| D12 | Sprint 5 (Tâche 5.1) | `Milestone.completionPct` (Int) sans `CHECK` DB (0-100). Validation uniquement au boundary route (5.2 whitelist + range). Cohérent convention repo (`Project.status`, `WorkItem.status` sans `CHECK`). Risque : bypass validation via SQL direct ou script. Mitigation UX prévue côté frontend (5.3) via `<input type="number" min="0" max="100" step="1">`. | À traiter dans sweep de hardening DB futur (`CHECK` constraints across PM tables). |
 
 ---
 
