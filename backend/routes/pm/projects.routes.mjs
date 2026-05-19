@@ -16,6 +16,7 @@ import {
   removeProjectMember,
   fetchProjectScope,
   updateProjectScope,
+  getProjectById,
 } from '../../services/pm/projectCrud.service.mjs';
 
 /**
@@ -50,7 +51,7 @@ export async function handlePmProjectRoutes(ctx) {
   // return false so the main flow keeps dispatching. This prevents the
   // try/catch below from swallowing errors that belong to other modules.
   const hasMatch =
-    (projectMatch && (method === 'PATCH' || method === 'DELETE')) ||
+    (projectMatch && (method === 'GET' || method === 'PATCH' || method === 'DELETE')) ||
     (workItemsMatch && method === 'POST') ||
     (workItemMatch && (method === 'PATCH' || method === 'DELETE')) ||
     (membersMatch && (method === 'GET' || method === 'POST')) ||
@@ -60,6 +61,14 @@ export async function handlePmProjectRoutes(ctx) {
   if (!hasMatch) return false;
 
   try {
+    if (projectMatch && method === 'GET') {
+      const [, projectId] = projectMatch;
+      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const project = await getProjectById(ctx.prisma, projectId);
+      json(res, 200, { project });
+      return true;
+    }
+
     if (projectMatch && method === 'PATCH') {
       const [, projectId] = projectMatch;
       const body = await ctx.parseBody(ctx.req);

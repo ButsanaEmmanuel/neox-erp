@@ -32,7 +32,7 @@ function deriveTelecomStatusFromState(baseStatus, stateLike = {}, rowLike = {}) 
   return 'finance_pending';
 }
 
-function computeKpis(workItems = []) {
+export function computeKpis(workItems = []) {
   const doneStates = new Set(['done', 'complete', 'finance_synced']);
   const qaStates = new Set(['pending-qa', 'awaiting_qa_approval']);
   const today = new Date();
@@ -431,6 +431,41 @@ export async function listProjectsForUser(prisma, input = {}) {
   const projects = rows.map((row) => mapProject(row, stateByWorkItemId));
   const workItems = projects.flatMap((project) => project.workItems || []);
   return { projects, workItems };
+}
+
+export async function getProjectById(prisma, projectId) {
+  const row = await prisma.project.findFirst({
+    where: { id: projectId, isDeleted: false },
+    include: {
+      manager: { select: { id: true, name: true, email: true } },
+      clientAccount: { select: { id: true, name: true } },
+      members: {
+        where: { isDeleted: false },
+        include: {
+          user: { select: { id: true, name: true, email: true, isActive: true } },
+        },
+      },
+      workItems: { where: { isDeleted: false } },
+    },
+  });
+  if (!row) {
+    const err = new Error(`Project '${projectId}' not found.`);
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const workItemIds = (row.workItems || []).map((item) => item.id);
+  const stateRows = workItemIds.length > 0
+    ? await prisma.projectItemState.findMany({
+      where: {
+        projectId,
+        workItemId: { in: workItemIds },
+      },
+    })
+    : [];
+  const stateByWorkItemId = new Map(stateRows.map((state) => [state.workItemId, state]));
+
+  return mapProject(row, stateByWorkItemId);
 }
 
 export async function getEngineeringDashboard(prisma, input = {}) {

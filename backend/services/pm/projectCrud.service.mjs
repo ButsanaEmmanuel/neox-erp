@@ -7,6 +7,8 @@
 //   - Business errors throw `Error` with `err.statusCode` set (400/404/409).
 //   - Activity logs go to ProjectItemActivity for work-item lifecycle events.
 
+export { getProjectById } from '../projects/projectCollaboration.service.mjs';
+
 const ALLOWED_PROJECT_FIELDS = new Set([
   'name', 'clientName', 'clientAccountId', 'status', 'projectMode',
   'isTelecomProject', 'bulkImportRequired', 'purchaseOrder', 'projectCategory',
