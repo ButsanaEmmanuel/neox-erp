@@ -142,7 +142,7 @@
 
 ## SPRINT 4 — KPIs, Dashboard & Reporting
 **Objectif : Une seule source de vérité pour les KPIs — le backend.**
-**Statut : 🔄 En cours — 6/10 tâches (60%)**
+**Statut : ✅ Terminé — 10/10 tâches (100%)**
 
 > **Périmètre actualisé 2026-05-18** (cf. journal de progression entrée du jour) : 4.1 élargie à 6 sites frontend après audit DB, 4.2 scindée en audit + exec conditionnelle au verdict SSE.
 
@@ -155,12 +155,12 @@
 - [x] Vérifier la cohérence des chiffres entre ancienne et nouvelle implémentation (DB audit + tsc zéro erreur + grep défensif vide)
 
 ### Tâche 4.2-audit — Cartographier la couverture SSE PM
-- [ ] Livrable : `docs/NEOX_PM_SSE_AUDIT.md` listant événements émis vs mutations sans émission
-- [ ] Verdict explicite : couverture suffisante pour retirer le polling, OUI/NON
+- [x] Livrable : `docs/NEOX_PM_SSE_AUDIT.md` listant événements émis vs mutations sans émission (3 émetteurs, 12 mutations, 2/12 = 17% couverture)
+- [x] Verdict explicite : couverture **insuffisante** (17%) → polling à conserver
 
-### Tâche 4.2-exec — Supprimer le polling (conditionnel)
-- [ ] Si verdict 4.2-audit = OUI : supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx` (l.733)
-- [ ] Si verdict 4.2-audit = NON : documenter le gap, pousser l'exec en Sprint 6 scope, cocher la case comme "reportée"
+### Tâche 4.2-exec — Supprimer le polling (conditionnel) — REPORTÉE
+- [x] ~~Si verdict 4.2-audit = OUI : supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx` (l.733)~~ — N/A (verdict NON)
+- [x] Verdict NON acté : 9 émetteurs SSE à ajouter en Sprint 6 (liste exhaustive dans `NEOX_PM_SSE_AUDIT.md` section 6). Polling 15s conservé comme filet. 4.2-exec à rejouer après Sprint 6 si couverture ≥ 90%.
 
 **✅ Sprint 4 terminé quand : toutes les cases ci-dessus sont cochées**
 
@@ -247,7 +247,8 @@
 | 2026-05-18 | 4 | 4.1 — Unifier les KPIs | ✅ Complet | **Tâche 4.1 fermée — 6/6 sous-cases, Sprint 4 = 6/10 (60%)**. 7 fichiers touchés (1 nouveau `telecomSummary.service.ts`, 6 modifiés). Variante (b1) re-fetch ciblé pessimiste : `addWorkItem`/`deleteWorkItem` appellent `fetchProjectById` après mutation → KPIs backend toujours frais. Statuts kebab-case `pending-qa`/`pending-acceptance` supprimés du type union, du `COLOR_MAP`, du store, des composants (`ProjectOverview`, `WorkItemDrawer`, `WorkItemsPage`). Helper `withTelecomSummary` local au store (4 call sites) + helper externe `computeTelecomSummary` exporté. `recalcProjectKpis` (49 lignes) supprimé. Vérifications : `tsc --noEmit` zéro erreur, grep défensif `recalcProjectKpis|'pending-qa'|'pending-acceptance'` zéro résultat. Dette D7 ouverte sur `importWorkItems` (ids locaux + pas de re-fetch). |
 | 2026-05-19 | — | Validation γ Sprint 4 (preview E2E) | 🟡 Partielle | Validation E2E via Claude Preview MCP : preview headless Chrome + dev server `npm run dev` + backend `npm run auth:api` lancés depuis `nervous-mclaren-8105f6/.claude/launch.json` (npm `--prefix ../angry-sinoussi-faf92c`). Login admin OK, `/api/v1/projects?userId=...` retourne 200 avec 1 project (Helios One) + 100 workItems. Test direct `PATCH /details` avec payload minimal : 200 OK. Reproduit le 500 de l'Image 1 en envoyant `ticketNumber: 'abc'` (string) → Prisma upsert rejected. **4.1 est saine**, pas de régression. Deux dettes critiques découvertes : D9 (`/details` accepte input non validé → 500), D10 (**plain-text password admin en DB + fallback plain-text dans `verifyPassword`** — vulnérabilité sécurité majeure). Points γ 3, 4, 6 à tester avant clôture validation. |
 | 2026-05-19 | — | γ 3/4 bloqués par route GET manquante | 🔴 Régression latente activée | Test E2E révèle : `GET /api/v1/projects/:id` retourne 404 — endpoint jamais routé sur cette branche (dette D1 architecture parallèle). 4.1 a légitimement appelé `fetchProjectById` (existant dans `projectApi.service.ts` depuis Sprint 2 Tâche 2.2) mais le backend correspondant n'a jamais été porté. **Pas une régression de 4.1** (le code 4.1 est sain), c'est un bug latent activé par 4.1. |
-| 2026-05-19 | — | Pré-requis Sprint 4.1 — GET endpoint | ✅ Complet | Route `GET /api/v1/projects/:id` ajoutée. Fonction `getProjectById(prisma, projectId)` créée dans `projectCollaboration.service.mjs` (réutilise `mapProject` privé + `mapWorkItem` + `computeKpis` — où les dépendances vivent déjà), re-exportée depuis `projectCrud.service.mjs` (1 ligne), importée et utilisée dans le handler GET de `pm/projects.routes.mjs`. Export `computeKpis` rendu public au passage (utile pour futurs consommateurs cross-service). E2E validé : POST work-item → 201, GET project → kpis frais incrémentés (100→101), DELETE → 200, GET → kpis décrémentés (101→100). γ 3 et γ 4 désormais validés. γ 6 : `view` est dans URL via `useSearchParams` → bookmarks kebab-case → fallback `'all'` silencieux → acté D11. Dette D1 marginalement résolue (route manquante portée). |
+| 2026-05-19 | — | Pré-requis Sprint 4.1 — GET endpoint | ✅ Complet | Route `GET /api/v1/projects/:id` ajoutée. Fonction `getProjectById(prisma, projectId)` créée dans `projectCollaboration.service.mjs` (réutilise `mapProject` privé + `mapWorkItem` + `computeKpis` — où les dépendances vivent déjà), re-exportée depuis `projectCrud.service.mjs` (1 ligne), importée et utilisée dans le handler GET de `pm/projects.routes.mjs`. Export `computeKpis` rendu public au passage (utile pour futurs consommateurs cross-service). E2E validé : POST work-item → 201, GET project → kpis frais incrémentés (100→101), DELETE → 200, GET → kpis décrémentés (101→100). γ 3 et γ 4 désormais validés. γ 6 : `view` est dans URL via `useSearchParams` → bookmarks kebab-case → fallback `'all'` silencieux → acté D11. Dette D1 marginalement résolue (route manquante portée). Hash `cb334c0`. |
+| 2026-05-19 | 4 | 4.2-audit + 4.2-exec | ✅ Complet | **Sprint 4 fermé à 10/10 (100%)**. Audit SSE livré dans `docs/NEOX_PM_SSE_AUDIT.md` : 3 émetteurs backend (`work_item_updated`, `notification_created`, `project_import_completed`), 12 mutations PM identifiées, couverture **2/12 = 17%**. Frontend (`useRealtimeSync.ts`) écoute exactement les 2 événements PM émis (zéro bruit, zéro attente vaine). **Verdict 4.2-exec : NON** — retirer le polling 15s casserait 83% des cas (project CRUD, work-item CRUD simple, members, scope). Polling conservé. 4.2-exec reportée Sprint 6 avec liste exhaustive de 9 émetteurs à ajouter (priorité haute/moyenne). Sprint 5 (Milestones) débloqué. |
 
 ---
 
