@@ -1,5 +1,5 @@
 import { apiRequest } from '../../lib/apiClient';
-import { Project, ProjectMember, ProjectScope, WorkItem } from '../../types/pm';
+import { Milestone, Project, ProjectMember, ProjectScope, WorkItem } from '../../types/pm';
 
 export async function fetchProjectsWithWorkItems(
   userId: string,
@@ -98,4 +98,59 @@ export async function deleteWorkItem(projectId: string, itemId: string): Promise
   await apiRequest<void>(`/api/v1/projects/${projectId}/work-items/${itemId}`, {
     method: 'DELETE',
   });
+}
+
+// ── Milestones (Sprint 5 — Task 5.3) ──────────────────────────────────────
+
+export async function fetchProjectMilestones(projectId: string): Promise<Milestone[]> {
+  const { milestones } = await apiRequest<{ milestones: Milestone[] }>(
+    `/api/v1/projects/${projectId}/milestones`,
+  );
+  return milestones;
+}
+
+export async function createMilestone(
+  projectId: string,
+  data: {
+    title: string;
+    dueDate: string;
+    description?: string;
+    status?: 'planned' | 'in_progress' | 'done' | 'blocked';
+    ownerId?: string | null;
+    completionPct?: number;
+    dependsOnIds?: string[];
+  },
+): Promise<Milestone> {
+  const { milestone } = await apiRequest<{ milestone: Milestone }>(
+    `/api/v1/projects/${projectId}/milestones`,
+    { method: 'POST', body: data },
+  );
+  return milestone;
+}
+
+export async function updateMilestone(
+  projectId: string,
+  milestoneId: string,
+  data: Partial<{
+    title: string;
+    dueDate: string;
+    description: string;
+    status: 'planned' | 'in_progress' | 'done' | 'blocked';
+    ownerId: string | null;
+    completionPct: number;
+    dependsOnIds: string[];
+  }>,
+): Promise<Milestone> {
+  const { milestone } = await apiRequest<{ milestone: Milestone }>(
+    `/api/v1/projects/${projectId}/milestones/${milestoneId}`,
+    { method: 'PATCH', body: data },
+  );
+  return milestone;
+}
+
+export async function deleteMilestone(projectId: string, milestoneId: string): Promise<void> {
+  await apiRequest<void>(
+    `/api/v1/projects/${projectId}/milestones/${milestoneId}`,
+    { method: 'DELETE' },
+  );
 }

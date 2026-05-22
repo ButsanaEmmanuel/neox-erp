@@ -10,6 +10,7 @@ import {
   TelecomImportBatch,
   TelecomImportRow,
   WorkItemStatus,
+  Milestone,
 } from '../../types/pm';
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
 import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser } from '../../services/pm/projectCollaborationBackend.service';
@@ -32,6 +33,8 @@ interface ProjectStore {
   activities: ProjectActivity[];
   telecomImportBatches: TelecomImportBatch[];
   projectMembers: Record<string, ProjectMember[]>;
+  milestones: Record<string, Milestone[]>;
+  milestonesLoading: Record<string, boolean>;
 
   setActiveProject: (id: string | null) => void;
   replaceProjectDataset: (projects: Project[], workItems: WorkItem[]) => void;
@@ -54,6 +57,33 @@ interface ProjectStore {
   fetchProjectMembers: (projectId: string) => Promise<void>;
   addProjectMember: (projectId: string, data: { userId: string; role: string }) => Promise<void>;
   removeProjectMember: (projectId: string, userId: string) => Promise<void>;
+  fetchProjectMilestones: (projectId: string) => Promise<void>;
+  createMilestone: (
+    projectId: string,
+    data: {
+      title: string;
+      dueDate: string;
+      description?: string;
+      status?: 'planned' | 'in_progress' | 'done' | 'blocked';
+      ownerId?: string | null;
+      completionPct?: number;
+      dependsOnIds?: string[];
+    },
+  ) => Promise<void>;
+  updateMilestone: (
+    projectId: string,
+    milestoneId: string,
+    data: Partial<{
+      title: string;
+      dueDate: string;
+      description: string;
+      status: 'planned' | 'in_progress' | 'done' | 'blocked';
+      ownerId: string | null;
+      completionPct: number;
+      dependsOnIds: string[];
+    }>,
+  ) => Promise<void>;
+  deleteMilestone: (projectId: string, milestoneId: string) => Promise<void>;
 }
 
 const MOCK_PROJECTS: Project[] = [];
@@ -81,6 +111,8 @@ export const useProjectStore = create<ProjectStore>()(
         activities: MOCK_ACTIVITIES,
         telecomImportBatches: [],
         projectMembers: {},
+        milestones: {},
+        milestonesLoading: {},
 
         setActiveProject: (id: string | null) => set({ activeProjectId: id }),
 
@@ -377,6 +409,57 @@ export const useProjectStore = create<ProjectStore>()(
               ...state.activities,
             ],
           })),
+
+        fetchProjectMilestones: async (projectId) => {
+          set((state) => ({ milestonesLoading: { ...state.milestonesLoading, [projectId]: true } }));
+          try {
+            const milestones = await projectApi.fetchProjectMilestones(projectId);
+            set((state) => ({
+              milestones: { ...state.milestones, [projectId]: milestones },
+              milestonesLoading: { ...state.milestonesLoading, [projectId]: false },
+            }));
+          } catch (error) {
+            set((state) => ({ milestonesLoading: { ...state.milestonesLoading, [projectId]: false } }));
+            throw error;
+          }
+        },
+
+        createMilestone: async (projectId, data) => {
+          const created = await projectApi.createMilestone(projectId, data);
+          set((state) => {
+            const next = [...(state.milestones[projectId] ?? []), created].sort((a, b) => {
+              if (!a.dueDate) return 1;
+              if (!b.dueDate) return -1;
+              return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+            });
+            return { milestones: { ...state.milestones, [projectId]: next } };
+          });
+        },
+
+        updateMilestone: async (projectId, milestoneId, data) => {
+          const updated = await projectApi.updateMilestone(projectId, milestoneId, data);
+          set((state) => {
+            const list = state.milestones[projectId] ?? [];
+            const next = list
+              .map((m) => (m.id === milestoneId ? updated : m))
+              .sort((a, b) => {
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+              });
+            return { milestones: { ...state.milestones, [projectId]: next } };
+          });
+        },
+
+        deleteMilestone: async (projectId, milestoneId) => {
+          await projectApi.deleteMilestone(projectId, milestoneId);
+          set((state) => ({
+            milestones: {
+              ...state.milestones,
+              [projectId]: (state.milestones[projectId] ?? []).filter((m) => m.id !== milestoneId),
+            },
+          }));
+        },
 
         addScopeItem: async (projectId, type, text) => {
           const project = get().projects.find((p) => p.id === projectId);

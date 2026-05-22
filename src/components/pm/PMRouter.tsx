@@ -9,6 +9,7 @@ import ProjectOverview from './ProjectOverview';
 import ProjectScope from './ProjectScope';
 import ProjectDocuments from './ProjectDocuments';
 import WorkItemsPage from './WorkItemsPage';
+import MilestonesPage from './MilestonesPage';
 import ImportWizard from './ImportWizard';
 import ProjectsIndex from './ProjectsIndex';
 import ProjectSwitcher from './ProjectSwitcher';
@@ -84,6 +85,7 @@ const ProjectWorkspace: React.FC = () => {
                     <Route path="overview" element={<span className="text-sm font-medium text-muted">Overview</span>} />
                     <Route path="scope" element={<span className="text-sm font-medium text-muted">Project Scope</span>} />
                     <Route path="work-items" element={<span className="text-sm font-medium text-muted">Work Items</span>} />
+                    <Route path="milestones" element={<span className="text-sm font-medium text-muted">Milestones</span>} />
                     <Route path="documents" element={<span className="text-sm font-medium text-muted">Documents</span>} />
                     <Route path="imports" element={<span className="text-sm font-medium text-muted">Data Imports</span>} />
                 </Routes>
@@ -99,6 +101,7 @@ const ProjectWorkspace: React.FC = () => {
                     <Route path="overview" element={<ProjectOverview />} />
                     <Route path="scope" element={<ProjectScope />} />
                     <Route path="work-items" element={<WorkItemsPage />} />
+                    <Route path="milestones" element={<MilestonesPage />} />
                     <Route path="documents" element={<ProjectDocuments />} />
                     <Route path="imports" element={<ImportWizard />} />
                     <Route path="/" element={<Navigate to="overview" replace />} />

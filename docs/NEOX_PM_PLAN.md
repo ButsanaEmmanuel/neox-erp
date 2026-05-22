@@ -183,12 +183,12 @@
 - [x] Implémenter `DELETE /api/v1/projects/:id/milestones/:mId` (soft delete) — code écrit, en attente couverture tests 5.2
 
 ### Tâche 5.3 — Composant MilestonesPage.tsx
-- [ ] Créer `src/components/pm/MilestonesPage.tsx`
-- [ ] Timeline view avec Framer Motion
-- [ ] Indicateur de dépendances visuelles
-- [ ] Completion % éditable inline
-- [ ] États : loading, empty, error
-- [ ] Brancher dans `PMRouter.tsx`
+- [x] Créer `src/components/pm/MilestonesPage.tsx`
+- [x] Timeline view avec Framer Motion
+- [x] Indicateur de dépendances visuelles
+- [x] Completion % éditable inline
+- [x] États : loading, empty, error
+- [x] Brancher dans `PMRouter.tsx`
 
 **✅ Sprint 5 terminé quand : toutes les cases ci-dessus sont cochées**
 
@@ -254,6 +254,7 @@
 | 2026-05-19 | 5 | 5.1 — Migration Milestone | ✅ Complet | `model Milestone` (12 cols, 4 idx, 2 FK : `projectId` CASCADE, `ownerId` SET NULL) + `model MilestoneDependency` (self-relation M:N, 4 idx dont UNIQUE, 2 FK : `milestoneId` CASCADE, `dependsOnId` RESTRICT). Migration `20260519_add_milestones` appliquée via `prisma db execute` + `migrate resolve --applied`. Structure DB vérifiée `\d` postgres. Backup pré-migration 1.1 MB stocké hors-repo. D12 ajoutée (`completionPct` Int sans CHECK DB → mitigation UX en 5.3). Hash `f1c8f3f`. |
 | 2026-05-19 | 5 | 5.2 — Décision tests Phase RBAC | 📌 Décision tracée | Phase RBAC skipped dans la suite tests 5.2. Raison : `assertModuleAccess` est partagé avec tous les handlers PM, déjà couvert transversalement par Sprint 3 (durcissement RBAC + suppression heuristiques string). Tester RBAC sur milestones = doublon. Pas une dette — à inclure dans un sprint dédié "Tests RBAC cross-modules" si un audit le rend nécessaire. |
 | 2026-05-22 | 5 | 5.2 — Couverture tests | ✅ Complet | Test runner `backend/tests/pm-milestones-task-5-2.test.mjs` (47/47 ✓) en 8 phases : Setup (3), POST happy (6), POST validations 400 (10), PATCH deps + cycles (9, dont 4.6 chaîne 4-deep non-cyclique pour faux positif), PATCH updates (8), DELETE soft + rollback avec count avant/après en DB (7), Phase 7 RBAC skip (0, console.log + journal 2026-05-19), Cleanup intégrité (4). Pattern seed/teardown calqué sur `pm-financials-task-1-2`. Couverture : auto-référence, cycle 2/3-nodes, REPLACE semantics, deps cross-project, soft-delete blocage par actifs (MILESTONE_BLOCKED), filtrage défensif deps vers cibles soft-deleted, idempotency 404. **Tâche 5.2 fermée à 4/4. Sprint 5 = 8/14 (57%).** Sprint 5 reste bloqué Tâche 5.3 (frontend MilestonesPage). |
+| 2026-05-22 | 5 | 5.3 — MilestonesPage frontend | ✅ Complet | **Sprint 5 fermé à 14/14 (100%).** 5 fichiers touchés. **Types** (`src/types/pm.ts`) : `MilestoneStatus` union 4 valeurs, `MilestoneDependencyEdge` (id + objet imbriqué `dependsOn`), `Milestone` interface complète (12 champs + `dependencies[]`). **Service API** (`src/services/pm/projectApi.service.ts`) : +4 fonctions `fetchProjectMilestones`/`createMilestone`/`updateMilestone`/`deleteMilestone`, unwrap `{ milestones }`/`{ milestone }` cohérent Sprint 4.1. **Store** (`src/store/pm/useProjectStore.ts`) : slice `milestones: Record<projectId, Milestone[]>` + `milestonesLoading`, 4 actions backend-autoritatives (no fallback silencieux, no id local, `throw error` après reset loading flag), sort défensif par `dueDate` avec garde-fou `null` (cf. type non-null actuel mais défense contre régression future). **Page** (`src/components/pm/MilestonesPage.tsx`, ~530 L) : vertical timeline avec rail à gauche + dots colorés par status, sous-composants `MilestoneCard`/`CompletionPopover` (Headless UI Popover, input number 0-100 + Save)/`MilestoneFormModal` (create/edit, multi-select deps en checkboxes)/`DependenciesModal` (readonly, status badge par dep)/`DeleteMilestoneModal` (gère 409 MILESTONE_BLOCKED en affichant le message backend qui contient les noms des blockers). Framer Motion subtil (`AnimatePresence` + `layout` pour reorder, durée 0.18). Tokens tailwind sémantiques (`bg-app`/`bg-card`/`bg-surface`/`text-primary`/`text-muted`), status colors `emerald`/`amber`/`rose`/`muted`. Pas de SVG inter-deps (badge "depends on N" cliquable → modal). **Router** (`src/components/pm/PMRouter.tsx`) : +1 import, +2 Routes (header label + body). `tsc --noEmit` zéro erreur après chaque fichier. `npm run dev` boot OK (Vite ready 6312ms, HTTP 200 sur `/`). Dettes ajoutées : **D13** (sous-tâches WorkItem+Milestone, rollup `completionPct` post-Sprint 6) ; **D14** (payload 409 sans `blockers[]` structuré — message brut suffit, à structurer en sprint hardening API). |
 
 ---
 
@@ -290,6 +291,8 @@
 | D10b | ✅ Résolue 2026-05-18 (rotation manuelle effectuée via UI Settings > Modifier mot de passe) | Password admin d'origine exposé dans l'historique git (commit `6c4d9a3` détaillant D10 + messages de session). Re-hash D10 fermait la voie DB→password, pas la voie git-history→password. | **Résolu** : rotation manuelle du password admin effectuée via l'UI NEOX. Le password présent dans l'historique git n'est plus le password actif → vecteur git-history neutralisé. Nouveau password stocké hors-repo. |
 | D11 | Sprint 4 (Tâche 4.1) | View `awaiting_qa_approval` exposée en URL via `useSearchParams` dans `WorkItemsPage.tsx`. Bookmarks pré-Sprint-4 (`?view=pending-qa`) ne matchent plus → fallback silencieux sur `'all'`. UX confusante pour utilisateurs ayant bookmark. | À résoudre par mapping rétro-compat dans `WorkItemsPage.tsx` (parse URL) ou suppression du bookmark côté UX docs. Pas bloquant. |
 | D12 | Sprint 5 (Tâche 5.1) | `Milestone.completionPct` (Int) sans `CHECK` DB (0-100). Validation uniquement au boundary route (5.2 whitelist + range). Cohérent convention repo (`Project.status`, `WorkItem.status` sans `CHECK`). Risque : bypass validation via SQL direct ou script. Mitigation UX prévue côté frontend (5.3) via `<input type="number" min="0" max="100" step="1">`. | À traiter dans sweep de hardening DB futur (`CHECK` constraints across PM tables). |
+| D13 | Sprint 5 (Tâche 5.3) | Sous-tâches (WorkItem + Milestone) : aucun `parentId` self-relation sur `WorkItem` ni sur `Milestone`. Empêche la hiérarchie parent/enfants et le rollup automatique de `completionPct`. | Prévoir migration Prisma `parentId String?` + relation `children[]` sur les deux modèles. `completionPct` parent = moyenne pondérée des enfants (calculé backend, read-only frontend). UI : liste indentée collapsible avec barre de progression agrégée. Scope : tous les types de projet. À traiter après Sprint 6 (SSE). |
+| D14 | Sprint 5 (Tâche 5.3) | Erreur 409 `MILESTONE_BLOCKED` : le service compose les noms des blockers dans `error.message` mais ne sérialise pas un array structuré `blockers[]` dans le payload JSON. Frontend `DeleteMilestoneModal` affiche le message brut (qui contient déjà les noms) — fonctionnel mais peu structuré. | À structurer en sprint hardening API : attacher `err.details = { blockers: [{ id, title }] }` côté service, ajouter au payload dans le handler, consommer côté UI pour rendu plus riche (liens cliquables vers les blockers). |
 
 ---
 

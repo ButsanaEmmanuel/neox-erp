@@ -284,4 +284,39 @@ export interface TelecomImportBatch {
   error_summary?: string;
 }
 
+// ── Milestones (Sprint 5) ─────────────────────────────────────────────────
+// Backend source : prisma model Milestone + MilestoneDependency.
+// Routes : GET/POST /api/v1/projects/:id/milestones,
+//          PATCH/DELETE /api/v1/projects/:id/milestones/:mId
+// Voir backend/services/pm/milestones.service.mjs.
+
+export type MilestoneStatus = 'planned' | 'in_progress' | 'done' | 'blocked';
+
+export interface MilestoneDependencyEdge {
+  milestoneId: string;
+  dependsOnId: string;
+  dependsOn: {
+    id: string;
+    title: string;
+    status: MilestoneStatus;
+    dueDate: string;
+  };
+}
+
+export interface Milestone {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string | null;
+  dueDate: string;
+  status: MilestoneStatus;
+  ownerId?: string | null;
+  completionPct: number;
+  isDeleted: boolean;
+  deletedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  dependencies: MilestoneDependencyEdge[];
+}
+
 
