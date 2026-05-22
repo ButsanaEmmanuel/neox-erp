@@ -359,12 +359,16 @@ export async function updateProjectScope(prisma, projectId, data, actor) {
   if (invalidKey) {
     const err = new Error(`Invalid field: ${invalidKey}`);
     err.statusCode = 400;
+    err.code = 'INVALID_SCOPE_FIELD';
+    err.field = invalidKey;
     throw err;
   }
   const invalidType = Object.entries(data).find(([, v]) => !Array.isArray(v));
   if (invalidType) {
     const err = new Error(`Field must be an array: ${invalidType[0]}`);
     err.statusCode = 400;
+    err.code = 'INVALID_SCOPE_FIELD';
+    err.field = invalidType[0];
     throw err;
   }
   return prisma.projectScope.upsert({

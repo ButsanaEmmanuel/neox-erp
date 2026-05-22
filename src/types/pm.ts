@@ -123,7 +123,7 @@ export interface ProjectScope {
   deliverables: Deliverable[];
   outOfScope: OutOfScopeItem[];
   assumptions: Assumption[];
-  constraints?: ScopeBaseItem[];
+  constraints: ScopeBaseItem[];
 }
 
 export interface TelecomImportedFields {

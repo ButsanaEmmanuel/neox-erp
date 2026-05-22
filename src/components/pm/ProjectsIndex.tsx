@@ -196,7 +196,7 @@ const CreateProjectDrawer: React.FC<ProjectDrawerProps> = ({ isOpen, onClose, on
             creatorUserId: user?.id,
             creatorDisplayName: user?.name || user?.email,
 
-            scope: { objectives: [], deliverables: [], outOfScope: [], assumptions: [] }
+            scope: { objectives: [], deliverables: [], outOfScope: [], assumptions: [], constraints: [] }
         });
 
         onClose();

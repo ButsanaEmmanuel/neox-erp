@@ -111,6 +111,7 @@ const ProjectScope: React.FC = () => {
                 deliverables: [],
                 outOfScope: [],
                 assumptions: [],
+                constraints: [],
             },
         });
     };
