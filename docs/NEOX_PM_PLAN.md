@@ -218,9 +218,9 @@
 - [x] `node --check` zéro erreur sur les 3 `.mjs` modifiés
 
 ### Tâche 6.2 — Listeners SSE frontend
-- [ ] Étendre `src/hooks/useRealtimeSync.ts` pour les 12 événements
-- [ ] Mapping ciblé : `milestone_*` → `fetchProjectMilestones(projectId)`, `project_member_*` → `fetchProjectMembers(projectId)`, tous les autres → `loadProjectsForUser(userId)`
-- [ ] `tsc --noEmit` zéro erreur
+- [x] Étendre `src/hooks/useRealtimeSync.ts` pour les 12 événements
+- [x] Mapping ciblé : `milestone_*` → `fetchProjectMilestones(projectId)`, `project_member_*` → `fetchProjectMembers(projectId)`, tous les autres → `loadProjectsForUser(userId)`
+- [x] `tsc --noEmit` zéro erreur
 
 ### Tâche 6.3 — Validation couverture + suppression polling
 - [ ] Mettre à jour `docs/NEOX_PM_SSE_AUDIT.md` avec la nouvelle couverture (12 + 3 existants / 15 = 100%)
