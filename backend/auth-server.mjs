@@ -16,7 +16,9 @@ import {
 } from './services/projects/projectItemDetails.service.mjs';
 import {
   bulkImportTelecomWorkItems,
+  createProjectWorkItem,
   createProjectForUser,
+  deleteProjectWorkItem,
   getEngineeringDashboard,
   listProjectsForUser,
   listUserTeamNotifications,
@@ -1057,6 +1059,43 @@ const server = http.createServer(async (req, res) => {
       if (!allowed) return json(res, 403, { message: 'HRM bulk import is restricted to HR/Admin.' });
       const result = await bulkUpsertHrmEmployees(prisma, body, actor);
       return json(res, 201, result);
+    }
+
+    const projectWorkItemsCollectionMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items$/);
+    if (method === 'POST' && projectWorkItemsCollectionMatch) {
+      const [, projectId] = projectWorkItemsCollectionMatch;
+      const body = await parseBody(req);
+      await assertModuleAccess(prisma, url, 'project', body);
+      const actor = parseActor(body);
+      const result = await createProjectWorkItem(prisma, {
+        projectId,
+        actorUserId: actor.actorUserId,
+        actorDisplayName: actor.actorDisplayName,
+        title: body.title,
+        type: body.type,
+        status: body.status,
+        priority: body.priority,
+        assignee: body.assignee,
+        assignee_id: body.assignee_id,
+        planned_start_date: body.planned_start_date,
+        planned_end_date: body.planned_end_date,
+        description: body.description,
+        parent_id: body.parent_id,
+      });
+      return json(res, 201, result);
+    }
+    const projectWorkItemMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)$/);
+    if (method === 'DELETE' && projectWorkItemMatch) {
+      const [, projectId, workItemId] = projectWorkItemMatch;
+      const body = await parseBody(req);
+      const actor = parseActor(body);
+      const result = await deleteProjectWorkItem(prisma, {
+        projectId,
+        workItemId,
+        actorUserId: actor.actorUserId,
+        actorDisplayName: actor.actorDisplayName,
+      });
+      return json(res, 200, result);
     }
 
     if (method === 'POST' && pathname === '/api/v1/hrm/access/backfill-defaults') {

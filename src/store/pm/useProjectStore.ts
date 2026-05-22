@@ -73,7 +73,11 @@ function recalcProjectKpis(projects: Project[], workItems: WorkItem[]): Project[
     const done = pItems.filter((wi) => wi.status === 'done' || wi.status === 'complete' || wi.status === 'finance_synced').length;
     const qa = pItems.filter((wi) => wi.status === 'pending-qa').length;
     const pendingAcceptance = pItems.filter((wi) => wi.status === 'pending-acceptance').length;
-    const overdue = pItems.filter((wi) => wi.status !== 'done' && wi.plannedDate && wi.plannedDate < todayStr).length;
+    const overdue = pItems.filter((wi) => {
+      if (wi.status === 'done' || wi.status === 'complete' || wi.status === 'finance_synced') return false;
+      const plannedEnd = wi.planned_end_date || wi.planned_start_date || wi.plannedDate;
+      return Boolean(plannedEnd && plannedEnd < todayStr);
+    }).length;
 
     const delayedItems = pItems.filter((wi) => wi.schedule_status === 'delayed' || wi.is_delayed).length;
     const earlyItems = pItems.filter((wi) => wi.schedule_status === 'early').length;

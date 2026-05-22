@@ -151,14 +151,25 @@ export interface TelecomManualFields {
 export interface WorkItem {
   id: string;
   projectId: string;
+  parent_id?: string | null;
+  parentId?: string | null;
+  parentItemId?: string | null;
+  parentWorkItemId?: string | null;
   title: string;
   type: WorkItemType;
   status: WorkItemStatus;
   priority: 'low' | 'medium' | 'high';
   assignee?: string; // Employee ID or Name
+  assignee_id?: string;
+  assignee_role_title?: string;
+  assignee_department?: string;
+  assignee_avatar?: string;
+  progress?: number;
 
   // Dates
   plannedDate?: string;
+  planned_start_date?: string;
+  planned_end_date?: string;
   forecastDate?: string;
   actualDate?: string;
   schedule_status?: 'pending' | 'on_time' | 'delayed' | 'early';

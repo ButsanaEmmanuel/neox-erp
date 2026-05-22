@@ -83,6 +83,13 @@ export async function createProjectInBackend(payload: CreateProjectBackendInput)
   });
 }
 
+export async function deleteStandardProjectInBackend(projectId: string, payload?: { actorUserId?: string; actorDisplayName?: string }) {
+  return apiRequest<{ success: boolean }>(`/api/v1/projects/${projectId}`, {
+    method: 'DELETE',
+    body: payload || {},
+  });
+}
+
 export async function bulkImportTelecomWorkItemsInBackend(params: {
   projectId: string;
   fileName: string;
@@ -103,6 +110,55 @@ export async function bulkImportTelecomWorkItemsInBackend(params: {
       rows: params.rows,
       actorUserId: params.actorUserId,
       actorDisplayName: params.actorDisplayName,
+    },
+  });
+}
+
+export async function deleteProjectWorkItemInBackend(params: {
+  projectId: string;
+  workItemId: string;
+  actorUserId?: string;
+  actorDisplayName?: string;
+}) {
+  return apiRequest<{ success: boolean }>(`/api/v1/projects/${params.projectId}/work-items/${params.workItemId}`, {
+    method: 'DELETE',
+    body: {
+      actorUserId: params.actorUserId,
+      actorDisplayName: params.actorDisplayName,
+    },
+  });
+}
+
+export async function createProjectWorkItemInBackend(params: {
+  projectId: string;
+  actorUserId?: string;
+  actorDisplayName?: string;
+  title: string;
+  type: string;
+  status: string;
+  priority: string;
+  assignee?: string;
+  assignee_id?: string;
+  planned_start_date?: string;
+  planned_end_date?: string;
+  description?: string;
+  parent_id?: string | null;
+}) {
+  return apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${params.projectId}/work-items`, {
+    method: 'POST',
+    body: {
+      actorUserId: params.actorUserId,
+      actorDisplayName: params.actorDisplayName,
+      title: params.title,
+      type: params.type,
+      status: params.status,
+      priority: params.priority,
+      assignee: params.assignee,
+      assignee_id: params.assignee_id,
+      planned_start_date: params.planned_start_date,
+      planned_end_date: params.planned_end_date,
+      description: params.description,
+      parent_id: params.parent_id,
     },
   });
 }

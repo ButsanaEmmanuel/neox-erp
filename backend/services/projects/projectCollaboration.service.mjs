@@ -42,8 +42,9 @@ function computeKpis(workItems = []) {
   const pendingQA = workItems.filter((wi) => qaStates.has(String(wi.status || '').toLowerCase())).length;
   const pendingAcceptance = workItems.filter((wi) => String(wi.status || '').toLowerCase() === 'awaiting_signed_acceptance').length;
   const overdue = workItems.filter((wi) => {
-    if (!wi.plannedDate) return false;
-    const planned = new Date(wi.plannedDate);
+    const plannedEnd = wi.planned_end_date || wi.plannedDate;
+    if (!plannedEnd) return false;
+    const planned = new Date(plannedEnd);
     if (Number.isNaN(planned.getTime())) return false;
     planned.setHours(0, 0, 0, 0);
     return planned < today && !doneStates.has(String(wi.status || '').toLowerCase());
@@ -116,17 +117,25 @@ function mapWorkItem(row, state) {
       isFinanciallyEligible: effectiveEligibility,
     }, row)
     : row.status;
+  const plannedStartDate = toIsoDateOnly(row.plannedStartDate) || planningAuditDate || toIsoDateOnly(row.plannedDate);
+  const plannedEndDate = toIsoDateOnly(row.plannedEndDate) || toIsoDateOnly(row.plannedDate) || plannedStartDate;
 
   return {
     id: row.id,
     projectId: row.projectId,
+    parent_id: row.parentItemId || row.parentWorkItemId || undefined,
+    parentId: row.parentItemId || row.parentWorkItemId || undefined,
+    parentWorkItemId: row.parentItemId || row.parentWorkItemId || undefined,
     import_batch_id: row.importBatchId || undefined,
     title: row.title,
     type: row.type,
     status: effectiveStatus,
     priority: row.priority,
-    assignee: row.assignee || undefined,
+    assignee: row.assignee || row.assigneeUser?.name || row.assigneeUser?.email || undefined,
+    assignee_id: row.assigneeId || row.assigneeUser?.id || undefined,
     plannedDate: toIsoDateOnly(row.plannedDate) || planningAuditDate,
+    planned_start_date: plannedStartDate,
+    planned_end_date: plannedEndDate,
     actualDate: toIsoDate(row.actualDate),
     qaStatus: effectiveQaStatus || undefined,
     qaDate: toIsoDate(row.qaDate),
@@ -369,6 +378,11 @@ export async function listProjectsForUser(prisma, input = {}) {
       },
       workItems: {
         where: { isDeleted: false },
+        include: {
+          assigneeUser: {
+            select: { id: true, name: true, email: true, jobTitle: true },
+          },
+        },
       },
     },
     orderBy: [{ updatedAt: 'desc' }],
@@ -433,6 +447,139 @@ export async function listProjectsForUser(prisma, input = {}) {
   const projects = rows.map((row) => mapProject(row, stateByWorkItemId));
   const workItems = projects.flatMap((project) => project.workItems || []);
   return { projects, workItems };
+}
+
+export async function deleteProjectWorkItem(prisma, input = {}) {
+  const projectId = String(input.projectId || '').trim();
+  const workItemId = String(input.workItemId || '').trim();
+  const actorUserId = String(input.actorUserId || '').trim() || null;
+  const actorDisplayName = String(input.actorDisplayName || 'System').trim() || 'System';
+  if (!projectId) throw new Error('projectId is required.');
+  if (!workItemId) throw new Error('workItemId is required.');
+
+  const txId = `project-work-item-delete-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  const deleted = await prisma.$transaction(async (tx) => {
+    const existing = await tx.workItem.findFirst({
+      where: { id: workItemId, projectId, isDeleted: false },
+      select: { id: true, title: true, projectId: true },
+    });
+    if (!existing) {
+      const err = new Error('Work item not found.');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const now = new Date();
+    await tx.workItem.update({
+      where: { id: workItemId },
+      data: {
+        isDeleted: true,
+        deletedAt: now,
+      },
+    });
+
+    await tx.workItem.updateMany({
+      where: { parentItemId: workItemId, isDeleted: false },
+      data: { parentItemId: null },
+    });
+
+    await tx.projectItemState.deleteMany({ where: { projectId, workItemId } });
+    await tx.projectItemActivity.create({
+      data: {
+        entityType: 'project_item',
+        entityId: workItemId,
+        projectId,
+        workItemId,
+        actorUserId,
+        actorDisplayName,
+        actionType: 'work_item_deleted',
+        message: `${actorDisplayName} deleted work item ${existing.title}`,
+        eventSource: 'api',
+      },
+    });
+    await tx.auditLog.create({
+      data: {
+        txId,
+        userId: actorUserId,
+        module: 'projects',
+        entity: 'work_item',
+        entityId: workItemId,
+        actionType: 'work_item_deleted',
+        newValueJson: { projectId, workItemId, title: existing.title },
+        metaJson: { actor: actorDisplayName },
+      },
+    });
+
+    return { id: existing.id, title: existing.title, projectId: existing.projectId };
+  });
+
+  return { success: true, deleted };
+}
+
+export async function createProjectWorkItem(prisma, input = {}) {
+  const projectId = String(input.projectId || '').trim();
+  if (!projectId) throw new Error('projectId is required.');
+  const title = String(input.title || '').trim();
+  if (!title) throw new Error('title is required.');
+
+  const parentId = String(input.parent_id || input.parentId || input.parentWorkItemId || '').trim() || null;
+  const actorUserId = String(input.actorUserId || '').trim() || null;
+  const actorDisplayName = String(input.actorDisplayName || 'System').trim() || 'System';
+
+  const toDateOrNull = (value) => {
+    if (!value) return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, isDeleted: false },
+    select: { id: true },
+  });
+  if (!project) throw new Error('Project not found.');
+
+  const baseData = {
+    projectId,
+    title,
+    type: String(input.type || 'task'),
+    status: String(input.status || 'backlog'),
+    priority: String(input.priority || 'medium'),
+    assignee: input.assignee ? String(input.assignee) : null,
+    assigneeId: input.assignee_id ? String(input.assignee_id) : null,
+    plannedDate: toDateOrNull(input.planned_start_date || input.plannedDate || null),
+    plannedStartDate: toDateOrNull(input.planned_start_date || null),
+    plannedEndDate: toDateOrNull(input.planned_end_date || null),
+    description: input.description ? String(input.description) : null,
+  };
+
+  let created;
+  if (parentId) {
+    try {
+      created = await prisma.workItem.create({ data: { ...baseData, parentItemId: parentId } });
+    } catch {
+      created = await prisma.workItem.create({ data: { ...baseData, parentWorkItemId: parentId } });
+    }
+  } else {
+    created = await prisma.workItem.create({ data: baseData });
+  }
+
+  try {
+    await prisma.projectItemActivity.create({
+      data: {
+        entityType: 'project_item',
+        entityId: created.id,
+        projectId,
+        workItemId: created.id,
+        actorUserId,
+        actorDisplayName,
+        actionType: 'task_created',
+        message: `${actorDisplayName} created work item ${title}`,
+        eventSource: 'api',
+      },
+    });
+  } catch {}
+
+  return { workItem: mapWorkItem(created) };
 }
 
 export async function getEngineeringDashboard(prisma, input = {}) {
@@ -654,11 +801,11 @@ export async function notifyTeam(prisma, input = {}) {
   }[actionType] || actionType.replaceAll('_', ' ');
   const defaultDetails =
     actionType === 'work_item_updated'
-      ? `${actorDisplayName} ${readableAction}${workItemTitle ? ` "${workItemTitle}"` : workItemId ? ` ${workItemId}` : ''}`
+      ? `${actorDisplayName} updated "${workItemTitle || workItemId || 'work item'}"`
       : actionType === 'task_created'
-      ? `${actorDisplayName} ${readableAction}${workItemTitle ? ` "${workItemTitle}"` : ''}`
+      ? `${actorDisplayName} created "${workItemTitle || 'work item'}"`
       : actionType === 'import_completed'
-      ? `${actorDisplayName} ${readableAction} (${Number(meta.created || 0)} created, ${Number(meta.failed || 0)} failed)`
+      ? `${actorDisplayName} completed telecom import (${Number(meta.created || 0)} created, ${Number(meta.failed || 0)} failed)`
       : `${actorDisplayName} ${readableAction} on ${project.name}`;
   const deepLink = String(
     input.link
@@ -1199,7 +1346,14 @@ export async function createProjectForUser(prisma, input = {}) {
         where: { isDeleted: false },
         include: { user: { select: { id: true, name: true, email: true, isActive: true } } },
       },
-      workItems: { where: { isDeleted: false } },
+      workItems: {
+        where: { isDeleted: false },
+        include: {
+          assigneeUser: {
+            select: { id: true, name: true, email: true, jobTitle: true },
+          },
+        },
+      },
     },
   });
 

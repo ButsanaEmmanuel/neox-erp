@@ -10,7 +10,23 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const ENV_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+const BROWSER_ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+const IS_LOCAL_BROWSER =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+function isLocalHostUrl(value: string): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+const SAFE_ENV_API_BASE_URL =
+  !IS_LOCAL_BROWSER && isLocalHostUrl(ENV_API_BASE_URL) ? '' : ENV_API_BASE_URL;
+const API_BASE_URL = SAFE_ENV_API_BASE_URL || BROWSER_ORIGIN;
 const API_TIMEOUT_MS = 12000;
 const API_RETRY_ATTEMPTS = 2;
 let pendingRequestCount = 0;
@@ -98,6 +114,9 @@ export async function apiRequest<T>(
         return payload as T;
       } catch (error) {
         clearTimeout(timeout);
+        if (error instanceof ApiError) {
+          throw error;
+        }
         const err = error as Error;
         if (err instanceof ApiError) {
           throw err;

@@ -7,11 +7,15 @@ import { WorkItem, WorkItemType, WorkItemStatus } from '../../types/pm';
 import { evaluateFinancialEligibility } from '../../services/pm/telecomCalculation.service';
 import { ACCEPTANCE_MANUAL_FIELDS, formatManualFieldValue, ManualFieldDef, OPERATIONAL_MANUAL_FIELDS } from '../../services/pm/manualFieldCatalog';
 import { deleteProjectItemFileFromBackend, fetchProjectItemActivities, fetchProjectItemFiles, getProjectItemFileDownloadUrl, saveProjectItemDetailsToBackend, uploadProjectItemFileToBackend, BackendActivity, BackendFile } from '../../services/pm/projectItemBackend.service';
-import { notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
+import { createProjectWorkItemInBackend, notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
 import { useAuth } from '../../contexts/AuthContext';
+import { fetchHrmBootstrapApi } from '../../services/hrmApi';
+import { Department, EmploymentProfile } from '../../types/hrm';
+import { buildHierarchyProgressMap, hasChildrenInHierarchy } from '../../services/pm/workItemProgress.service';
 
 interface WorkItemDrawerProps {
   workItemId: string | null;
+  initialValues?: Partial<WorkItem> | null;
   onClose: () => void;
 }
 
@@ -78,6 +82,18 @@ function formatDisplayDate(value?: string): string {
   return `${day}/${month}/${year}`;
 }
 
+function normalizeDepartmentName(departments: Department[], departmentId?: string): string {
+  if (!departmentId) return '';
+  const found = departments.find((dep) => dep.id === departmentId);
+  return String(found?.name || '').trim();
+}
+
+function isEligibleDepartment(rawDepartment: string): boolean {
+  const normalized = String(rawDepartment || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return ['project', 'engineering', 'management'].some((token) => normalized.includes(token));
+}
+
 function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<string, string | number | boolean | null> {
   const next: Record<string, string | number | boolean | null> = {
     ...((item.operational_manual_fields || {}) as Record<string, string | number | boolean | null>),
@@ -110,13 +126,16 @@ function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<st
   return next;
 }
 
-const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) => {
+const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, initialValues, onClose }) => {
   const { user } = useAuth();
   const { workItems, addWorkItem, updateWorkItem, activeProjectId, projects } = useProjectStore();
   const existingItem = workItems.find((i) => i.id === workItemId);
   const isNew = workItemId === 'new';
   const project = projects.find((p) => p.id === activeProjectId);
   const isTelecom = Boolean(project?.isTelecomProject || project?.projectMode === 'telecom_multi_site' || existingItem?.type === 'site');
+  const isParentItem = Boolean(existingItem?.id && hasChildrenInHierarchy(workItems, existingItem.id));
+  const progressById = useMemo(() => buildHierarchyProgressMap(workItems.filter((item) => item.projectId === activeProjectId)), [workItems, activeProjectId]);
+  const computedProgress = existingItem?.id ? progressById.get(existingItem.id) : undefined;
 
   const [activeTab, setActiveTab] = useState<'details' | 'activity' | 'files'>('details');
   const [manualGroup, setManualGroup] = useState<ManualGroup>('operational');
@@ -127,6 +146,10 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
   const [activityRows, setActivityRows] = useState<BackendActivity[]>([]);
   const [filesRows, setFilesRows] = useState<BackendFile[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
+  const [employees, setEmployees] = useState<EmploymentProfile[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
+  const [showAssigneeOptions, setShowAssigneeOptions] = useState(false);
 
   const [formData, setFormData] = useState<Partial<WorkItem>>({
     title: '',
@@ -135,7 +158,12 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
     status: 'backlog',
     priority: 'medium',
     assignee: '',
+    assignee_id: '',
+    assignee_role_title: '',
+    assignee_department: '',
     plannedDate: format(new Date(), 'yyyy-MM-dd'),
+    planned_start_date: format(new Date(), 'yyyy-MM-dd'),
+    planned_end_date: format(new Date(), 'yyyy-MM-dd'),
     ticket_number: undefined,
     operational_manual_fields: {},
     acceptance_manual_fields: {},
@@ -150,10 +178,16 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
         status: isTelecom ? 'needs_manual_completion' : 'backlog',
         priority: 'medium',
         assignee: '',
+        assignee_id: '',
+        assignee_role_title: '',
+        assignee_department: '',
         plannedDate: format(new Date(), 'yyyy-MM-dd'),
+        planned_start_date: format(new Date(), 'yyyy-MM-dd'),
+        planned_end_date: format(new Date(), 'yyyy-MM-dd'),
         ticket_number: undefined,
         operational_manual_fields: {},
         acceptance_manual_fields: {},
+        ...initialValues,
       });
       setActivityRows([]);
       setFilesRows([]);
@@ -164,12 +198,31 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
         operational_manual_fields: existingItem.operational_manual_fields || {},
         acceptance_manual_fields: existingItem.acceptance_manual_fields || {},
       });
+      setAssigneeQuery(existingItem.assignee || '');
       setTicketInput(formatDecimalInput(existingItem.ticket_number));
     }
     setSelectedFieldKey('');
     setSelectedFieldValue('');
     setManualFieldsError(null);
-  }, [workItemId, existingItem, isNew, isTelecom]);
+  }, [workItemId, existingItem, isNew, isTelecom, initialValues]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetchHrmBootstrapApi({ take: 500 })
+      .then((response) => {
+        if (!mounted) return;
+        setEmployees(response.employees || []);
+        setDepartments(response.departments || []);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setEmployees([]);
+        setDepartments([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const projectId = existingItem?.projectId || activeProjectId || '';
 
@@ -238,6 +291,59 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
     normalizeDateInput(formData.imported_fields?.planned_start_date) ||
     '';
   const plannedDateReadOnly = isTelecom && Boolean(displayedPlannedDate);
+  const plannedStartDate = formData.planned_start_date || displayedPlannedDate || '';
+  const plannedEndDate = formData.planned_end_date || displayedPlannedDate || '';
+  const isDateRangeInvalid = Boolean(plannedStartDate && plannedEndDate && plannedStartDate > plannedEndDate);
+
+  const eligibleAssignees = useMemo(() => {
+    return employees
+      .map((emp) => {
+        const departmentName = normalizeDepartmentName(departments, emp.departmentId);
+        const fallbackDepartment = String((emp as unknown as Record<string, unknown>).departmentName || (emp as unknown as Record<string, unknown>).department || '').trim();
+        const resolvedDepartment = departmentName || fallbackDepartment;
+        return {
+          id: emp.id,
+          fullName: String(emp.name || '').trim(),
+          roleTitle: String(emp.roleTitle || '').trim(),
+          department: resolvedDepartment,
+          status: String(emp.status || '').toLowerCase(),
+          avatar: emp.avatarColor,
+        };
+      })
+      .filter((emp) => emp.fullName && emp.status === 'active' && isEligibleDepartment(emp.department));
+  }, [employees, departments]);
+
+  const filteredAssignees = useMemo(() => {
+    const query = assigneeQuery.trim().toLowerCase();
+    if (!query) return eligibleAssignees;
+    return eligibleAssignees.filter((emp) =>
+      `${emp.fullName} ${emp.roleTitle} ${emp.department}`.toLowerCase().includes(query)
+    );
+  }, [eligibleAssignees, assigneeQuery]);
+
+  useEffect(() => {
+    if (!formData.assignee || formData.assignee_id || eligibleAssignees.length === 0) return;
+    const match = eligibleAssignees.find((emp) => emp.fullName.toLowerCase() === String(formData.assignee || '').trim().toLowerCase());
+    if (!match) return;
+    setFormData((prev) => ({
+      ...prev,
+      assignee_id: match.id,
+      assignee_role_title: match.roleTitle,
+      assignee_department: match.department,
+      assignee_avatar: match.avatar || prev.assignee_avatar,
+    }));
+  }, [formData.assignee, formData.assignee_id, eligibleAssignees]);
+
+  const hasRequiredFields = Boolean(
+    formData.title &&
+    formData.type &&
+    formData.status &&
+    formData.priority &&
+    formData.assignee_id &&
+    plannedStartDate &&
+    plannedEndDate
+  );
+  const canSave = hasRequiredFields && !isDateRangeInvalid;
 
   const availableFieldDefs = useMemo(() => {
     const source = manualGroup === 'operational' ? OPERATIONAL_MANUAL_FIELDS : ACCEPTANCE_MANUAL_FIELDS;
@@ -349,9 +455,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
   };
 
   const handleSave = async () => {
-    if (!formData.title || !activeProjectId) return;
+    if (!formData.title || !activeProjectId || !canSave) return;
     const normalizedTicket = parseDecimalInput(ticketInput);
-    const nextFormData = { ...formData, ticket_number: normalizedTicket };
+    const nextFormData = {
+      ...formData,
+      ticket_number: normalizedTicket,
+      planned_start_date: plannedStartDate,
+      planned_end_date: plannedEndDate,
+      plannedDate: plannedStartDate,
+    };
     console.info('[WorkItemDrawer] Save requested', {
       workItemId,
       projectId: activeProjectId,
@@ -362,13 +474,33 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
       ticket_number: nextFormData.ticket_number,
     });
     if (isNew) {
-      addWorkItem({
-        ...(nextFormData as Omit<WorkItem, 'id'>),
-        projectId: activeProjectId,
-        status: nextFormData.status || 'backlog',
-        type: (nextFormData.type as WorkItemType) || 'task',
-        priority: nextFormData.priority || 'medium',
-      });
+      try {
+        const created = await createProjectWorkItemInBackend({
+          projectId: activeProjectId,
+          actorUserId: user?.id,
+          actorDisplayName: user?.name,
+          title: String(nextFormData.title || '').trim(),
+          type: String(nextFormData.type || 'task'),
+          status: String(nextFormData.status || 'backlog'),
+          priority: String(nextFormData.priority || 'medium'),
+          assignee: nextFormData.assignee || undefined,
+          assignee_id: nextFormData.assignee_id || undefined,
+          planned_start_date: nextFormData.planned_start_date || undefined,
+          planned_end_date: nextFormData.planned_end_date || undefined,
+          description: nextFormData.description || undefined,
+          parent_id: (nextFormData.parent_id || nextFormData.parentId || nextFormData.parentWorkItemId || null) as string | null,
+        });
+        const { id: _createdId, ...createdWithoutId } = created.workItem || ({} as WorkItem);
+        addWorkItem(createdWithoutId as Omit<WorkItem, 'id'>);
+      } catch {
+        addWorkItem({
+          ...(nextFormData as Omit<WorkItem, 'id'>),
+          projectId: activeProjectId,
+          status: nextFormData.status || 'backlog',
+          type: (nextFormData.type as WorkItemType) || 'task',
+          priority: nextFormData.priority || 'medium',
+        });
+      }
       if (activeProjectId) {
         void notifyProjectTeam(activeProjectId, {
           actionType: 'task_created',
@@ -518,6 +650,11 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                   </div>
                 </div>
                 <input type="text" value={formData.title} onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))} placeholder="Enter item title..." className="w-full bg-transparent border-none p-0 text-3xl font-bold text-primary leading-tight focus:ring-0 placeholder:text-muted" />
+                {isParentItem && (
+                  <p className="mt-1 text-[11px] text-muted">
+                    Calculated from child items{typeof computedProgress === 'number' ? ` - ${Math.round(computedProgress)}%` : ''}
+                  </p>
+                )}
               </div>
               <button onClick={onClose} className="p-2 hover:bg-surface rounded-lg text-muted hover:text-primary transition-colors"><X size={20} /></button>
             </div>
@@ -528,10 +665,57 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
               {activeTab === 'details' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="text-xs text-muted">Assignee</label><input type="text" value={formData.assignee || ''} onChange={(e) => setFormData((prev) => ({ ...prev, assignee: e.target.value }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary" /></div>
+                    <div className="relative">
+                      <label className="text-xs text-muted">Assignee</label>
+                      <input
+                        type="text"
+                        value={assigneeQuery}
+                        onFocus={() => setShowAssigneeOptions(true)}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setAssigneeQuery(value);
+                          setFormData((prev) => ({ ...prev, assignee: value, assignee_id: '' }));
+                        }}
+                        placeholder="Search by name, title, department"
+                        className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                      />
+                      {formData.assignee && !formData.assignee_id && (
+                        <p className="mt-1 text-[11px] text-amber-300">Please select an assignee from HR results.</p>
+                      )}
+                      {showAssigneeOptions && (
+                        <div className="absolute z-30 mt-1 w-full max-h-56 overflow-auto rounded-lg border border-border/70 bg-card shadow-xl">
+                          {filteredAssignees.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-muted">No eligible staff found. Add staff in HR under Project, Engineering, or Management.</p>
+                          ) : (
+                            filteredAssignees.map((emp) => (
+                              <button
+                                key={emp.id}
+                                type="button"
+                                className="w-full text-left px-3 py-2 hover:bg-surface/80 border-b border-border/40 last:border-b-0"
+                                onClick={() => {
+                                  setFormData((prev) => ({
+                                    ...prev,
+                                    assignee: emp.fullName,
+                                    assignee_id: emp.id,
+                                    assignee_role_title: emp.roleTitle,
+                                    assignee_department: emp.department,
+                                    assignee_avatar: emp.avatar || prev.assignee_avatar,
+                                  }));
+                                  setAssigneeQuery(emp.fullName);
+                                  setShowAssigneeOptions(false);
+                                }}
+                              >
+                                <p className="text-xs text-primary font-medium">{emp.fullName}</p>
+                                <p className="text-[11px] text-muted">{emp.roleTitle || '-'} • {emp.department || '-'}</p>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div><label className="text-xs text-muted">Type</label><select value={formData.type} onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as WorkItemType }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="task">Task</option><option value="milestone">Milestone</option><option value="deliverable">Deliverable</option><option value="issue">Issue</option><option value="site">Site</option></select></div>
                     <div>
-                      <label className="text-xs text-muted">Planned Date</label>
+                      <label className="text-xs text-muted">Planned Start Date</label>
                       <div className="relative">
                         <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
                         {plannedDateReadOnly ? (
@@ -545,15 +729,65 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                         ) : (
                           <input
                             type="date"
-                            value={displayedPlannedDate}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, plannedDate: e.target.value }))}
+                            value={plannedStartDate}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, planned_start_date: e.target.value }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg pl-9 pr-3 py-2 text-xs text-primary"
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted">Planned End Date</label>
+                      <div className="relative">
+                        <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none" />
+                        {plannedDateReadOnly ? (
+                          <input
+                            type="text"
+                            value={formatDisplayDate(displayedPlannedDate)}
+                            readOnly
+                            placeholder="DD/MM/YYYY"
+                            className="w-full mt-1 rounded-lg pl-9 pr-3 py-2 text-xs bg-surface border border-border/70 text-secondary cursor-not-allowed"
+                          />
+                        ) : (
+                          <input
+                            type="date"
+                            value={plannedEndDate}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, planned_end_date: e.target.value }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg pl-9 pr-3 py-2 text-xs text-primary"
                           />
                         )}
                       </div>
                     </div>
                     <div><label className="text-xs text-muted">Priority</label><select value={formData.priority} onChange={(e) => setFormData((prev) => ({ ...prev, priority: e.target.value as any }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
+                    <div>
+                      <label className="text-xs text-muted">Execution Status</label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as WorkItemStatus }))}
+                        className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                      >
+                        {isTelecom ? (
+                          <>
+                            <option value="needs_manual_completion">Needs Manual Completion</option>
+                            <option value="awaiting_qa_approval">Awaiting QA Approval</option>
+                            <option value="awaiting_signed_acceptance">Awaiting Signed Acceptance</option>
+                            <option value="finance_pending">Finance Pending</option>
+                            <option value="finance_synced">Finance Synced</option>
+                            <option value="complete">Completed</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="pending">Pending</option>
+                            <option value="in-progress">In Progress</option>
+                            <option value="done">Completed</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
                   </div>
+                  {isDateRangeInvalid && (
+                    <p className="text-xs text-rose-400 -mt-4">The planned end date cannot be earlier than the planned start date.</p>
+                  )}
 
                   {isTelecom && (
                     <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-5 space-y-4">
@@ -689,7 +923,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
               )}
             </div>
 
-            <div className="p-6 border-t border-border/60 bg-card flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-muted hover:text-primary hover:bg-surface transition-colors">Cancel</button>{activeTab === 'details' && <button onClick={() => void handleSave()} disabled={!formData.title} className="px-6 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isNew ? 'Create Item' : 'Save Changes'}</button>}</div>
+            <div className="p-6 border-t border-border/60 bg-card flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-muted hover:text-primary hover:bg-surface transition-colors">Cancel</button>{activeTab === 'details' && <button onClick={() => void handleSave()} disabled={!canSave} className="px-6 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isNew ? 'Create Item' : 'Save Changes'}</button>}</div>
           </motion.div>
         </>
       )}

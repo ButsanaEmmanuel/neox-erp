@@ -71,6 +71,7 @@ model User {
   managedHrmProfiles HrmEmploymentProfile[] @relation("HrmProfileManager")
   ownedCrmDeals      CrmDeal[]              @relation("CrmDealOwner")
   ownedClientAccounts ClientAccount[]       @relation("CrmClientOwner")
+  assignedWorkItems  WorkItem[]             @relation("WorkItemAssignee")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -480,13 +481,17 @@ model ProjectMember {
 model WorkItem {
   id               String   @id @default(cuid())
   projectId        String
+  parentWorkItemId String?
   importBatchId    String?
   title            String
   type             String   @default("task")
   status           String   @default("todo")
   priority         String   @default("medium")
   assignee         String?
+  assigneeId       String?
   plannedDate      DateTime?
+  plannedStartDate DateTime?
+  plannedEndDate   DateTime?
   actualDate       DateTime?
   qaStatus         String?  @default("pending")
   qaDate           DateTime?
@@ -513,10 +518,15 @@ model WorkItem {
   deletedAt        DateTime?
 
   project          Project  @relation(fields: [projectId], references: [id])
+  assigneeUser     User?    @relation("WorkItemAssignee", fields: [assigneeId], references: [id])
+  parentWorkItem   WorkItem? @relation("WorkItemHierarchy", fields: [parentWorkItemId], references: [id])
+  childWorkItems   WorkItem[] @relation("WorkItemHierarchy")
   importBatch      ProjectImportBatch? @relation(fields: [importBatchId], references: [id])
 
   @@index([projectId])
+  @@index([parentWorkItemId])
   @@index([importBatchId])
+  @@index([assigneeId])
   @@index([financeSyncStatus])
   @@index([isDeleted])
 }

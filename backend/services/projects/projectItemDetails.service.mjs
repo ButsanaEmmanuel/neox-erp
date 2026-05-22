@@ -532,19 +532,37 @@ export async function saveProjectItemDetails(prisma, input) {
       });
 
       const userChanges = activities.filter((entry) => entry.eventSource === 'user');
+      const actor = input.actorDisplayName || 'User';
+      const target = workItem.title || input.workItemId;
+
       const userChangeSummary = userChanges.slice(0, 3).map((entry) => {
-        const label = humanizeFieldName(entry.fieldName);
+        const label = (humanizeFieldName(entry.fieldName) || entry.fieldName).replace(' Status', '');
+        const newValue = String(entry.newValueJson ?? 'pending').toLowerCase();
+        const oldValue = String(entry.oldValueJson ?? 'pending').toLowerCase();
+
         if (entry.fieldName === 'qa_status' || entry.fieldName === 'acceptance_status') {
-          return `${label}: ${String(entry.oldValueJson ?? 'pending')} → ${String(entry.newValueJson ?? 'pending')}`;
+          if (newValue === 'approved') return `approved ${label}`;
+          if (newValue === 'rejected') return `rejected ${label}`;
+          return `changed ${label} from ${oldValue} to ${newValue}`;
         }
-        if (entry.fieldName === 'ticket_number' || entry.fieldName === 'contractor_payable_amount') {
-          return `${label}: ${String(entry.newValueJson ?? '-')}`;
+        if (entry.fieldName === 'ticket_number') {
+          return `set ticket #${entry.newValueJson}`;
         }
-        return `${label} updated`;
+        if (entry.fieldName === 'contractor_payable_amount') {
+          return `updated payable amount to ${entry.newValueJson}`;
+        }
+        return `updated ${label}`;
       });
-      const detailsText = userChangeSummary.length > 0
-        ? `${input.actorDisplayName || 'User'} updated ${workItem.title || input.workItemId}: ${userChangeSummary.join('; ')}`
-        : `${input.actorDisplayName || 'User'} updated ${workItem.title || input.workItemId}`;
+
+      let detailsText = '';
+      if (userChangeSummary.length === 1) {
+        detailsText = `${actor} ${userChangeSummary[0]} for ${target}`;
+      } else if (userChangeSummary.length > 1) {
+        const last = userChangeSummary.pop();
+        detailsText = `${actor} ${userChangeSummary.join(', ')} and ${last} for ${target}`;
+      } else {
+        detailsText = `${actor} updated ${target}`;
+      }
 
       await notifyTeam(tx, {
         projectId: input.projectId,
