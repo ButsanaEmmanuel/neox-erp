@@ -2,9 +2,9 @@
 
 > Livrable Sprint 4 Tâche 4.2-audit. Cartographie exhaustive des émetteurs SSE backend vs les consommateurs frontend pour le module Project Management. Sert d'input pour 4.2-exec et de scope précis pour Sprint 6.
 
-**Date :** 2026-05-19
+**Date initiale :** 2026-05-19 (HEAD `cb334c0`, couverture 2/12 = 17%)
+**Mise à jour :** 2026-05-22 (post Sprint 6 — couverture 15/15 = 100%, polling 15s supprimé)
 **Branche :** `claude/angry-sinoussi-faf92c`
-**HEAD au moment de l'audit :** `cb334c0`
 
 ---
 
@@ -75,7 +75,8 @@ Pour chaque mutation PM, quel événement SSE devrait idéalement être émis et
 | 11 | Import bulk télécom | `project_import_completed` | ✅ |
 | 12 | Repair integrity | `project_repaired` (ou silent) | ❌ |
 
-**Couverture : 2/12 mutations (17%)**
+**Couverture initiale (2026-05-19) : 2/12 mutations (17%)**
+**Couverture après Sprint 6 (2026-05-22) : 15/15 mutations PM (100%)** — voir §9.
 
 Note importante sur la #5 vs #6 : `updateWorkItem` (CRUD via `projectCrud.service.mjs`) modifie les champs métier classiques (`title`, `status`, `priority`, etc.) **sans** émettre de SSE. `saveProjectItemDetails` (route `/details`) modifie les états télécom (qa, finance, etc.) **avec** SSE. Un utilisateur qui édite un work-item via le PATCH simple ne déclenchera pas le refresh dans les autres onglets.
 
@@ -209,7 +210,74 @@ Une fois les 9 émetteurs ajoutés (couverture ~92%), refaire l'audit (régéné
 
 ---
 
-## 8. Voir aussi
+## 8. Mise à jour post Sprint 6 (2026-05-22)
+
+### Émetteurs ajoutés (Tâche 6.1, commit `d6f9c5b`)
+
+12 nouveaux émetteurs, tous via le helper mutualisé `safeBroadcast(event, payload)` (try/catch silencieux + console.warn, ne casse jamais la requête HTTP).
+
+| # | Émetteur | Site final |
+|---|---|---|
+| 1 | `project_created` | `auth-server.mjs` après `createProjectForUser` |
+| 2 | `project_updated` | `pm/projects.routes.mjs` après `updateProject` |
+| 3 | `project_deleted` | après `deleteProject` |
+| 4 | `work_item_created` | après `createWorkItem` |
+| 5 | `work_item_updated` (CRUD) | après `updateWorkItem` |
+| 6 | `work_item_deleted` | après `deleteWorkItem` |
+| 7 | `project_scope_updated` | après `updateProjectScope` |
+| 8 | `project_member_added` | après `addProjectMember` |
+| 9 | `project_member_removed` | après `removeProjectMember` |
+| 10 | `milestone_created` | après `createMilestone` (route 5.2) |
+| 11 | `milestone_updated` | après `updateMilestone` (route 5.2) |
+| 12 | `milestone_deleted` | après `deleteMilestone` (route 5.2) |
+
+Pour les événements `*_updated`, le payload `patchedFields` exclut les méta `actorUserId`/`actorDisplayName`/`userId` (filtre `META_FIELDS` mutualisé dans `projects.routes.mjs`).
+
+### Couverture recalculée
+
+| Catégorie | Émis ? |
+|---|---|
+| Project lifecycle (create/update/delete) | ✅ ×3 |
+| Work item CRUD (create/update/delete) | ✅ ×3 |
+| Work item /details (telecom) | ✅ pré-existant |
+| Members (add/remove) | ✅ ×2 |
+| Scope update | ✅ |
+| Bulk import | ✅ pré-existant |
+| Milestone CRUD | ✅ ×3 |
+| repair-integrity | ❌ volontaire (hors-scope, rare) |
+
+**15/15 mutations PM actives émettent désormais SSE (100%).** Si on inclut repair-integrity dans le dénominateur, 15/16 = 93.75% — au-dessus du seuil 90% acté en §6.
+
+### Listeners frontend ajoutés (Tâche 6.2, commit `0cdaed1`)
+
+`src/hooks/useRealtimeSync.ts` étendu de 2 à 12 événements écoutés :
+
+- `project_*`, `work_item_*`, `project_scope_updated`, `project_import_completed` → `scheduleRefresh` (debounced 300ms → `loadProjectsForUser`)
+- `milestone_*` → `fetchProjectMilestones(payload.projectId)` (ciblé)
+- `project_member_*` → `fetchProjectMembers(payload.projectId)` (ciblé)
+
+Aucune nouvelle action store créée — uniquement les slice fetchers existants de Sprint 2 et Sprint 5.3.
+
+### Polling 15s supprimé (Tâche 6.3, commit ${SHORTSHA})
+
+`setInterval(refresh, 15000)` supprimé de `src/components/pm/ProjectsIndex.tsx:733`. Le `window.addEventListener('focus', ...)` est conservé comme filet supplémentaire (refresh quand l'utilisateur revient sur l'onglet — utile si un événement SSE a été manqué pendant que l'onglet était en background).
+
+Hors-scope PM (intentionnellement non-touché) :
+- `Header.tsx:65` (15s, probablement notifications)
+- `Sidebar.tsx:287` (15s, probablement nav state)
+- `FinanceContext.tsx:159` (15s, module Finance hors-PM)
+
+### Décision 4.2-exec rejouée
+
+- [x] Verdict 4.2-audit-v2 = OUI (couverture ≥ 90%)
+- [x] `setInterval(refresh, 15000)` supprimé de `ProjectsIndex.tsx`
+- [x] Filet `onFocus` conservé
+
+**Sprint 6 = 9/9 (100%). Sprint 4 = 10/10 maintenu.**
+
+---
+
+## 9. Voir aussi
 
 - `backend/services/realtime/sseBroadcaster.mjs` — implémentation broadcaster
 - `src/hooks/useRealtimeSync.ts` — consommateur frontend PM

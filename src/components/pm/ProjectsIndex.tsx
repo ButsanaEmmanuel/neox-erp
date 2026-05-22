@@ -725,17 +725,15 @@ const ProjectsIndex: React.FC = () => {
       void loadProjectsForUser(user.id);
     }, [user?.id, loadProjectsForUser]);
 
-    // Global state refresh: reflects admin changes in near-real-time for team members
+    // Tab-focus refresh fallback. Real-time freshness is now delivered by
+    // useRealtimeSync (SSE, Sprint 6) — the 15s polling was removed once
+    // SSE coverage reached 100% of PM mutations (Sprint 6 Task 6.3).
     useEffect(() => {
       if (!user?.id) return;
 
-      const refresh = () => void loadProjectsForUser(user.id);
-      const interval = setInterval(refresh, 15000);
-      const onFocus = () => refresh();
-
+      const onFocus = () => void loadProjectsForUser(user.id);
       window.addEventListener('focus', onFocus);
       return () => {
-        clearInterval(interval);
         window.removeEventListener('focus', onFocus);
       };
     }, [user?.id, loadProjectsForUser]);

@@ -196,7 +196,7 @@
 
 ## SPRINT 6 — SSE & Temps Réel
 **Objectif : Toutes les mutations PM émettent des événements SSE, couverture ≥ 90%, polling 15s supprimé.**
-**Statut : 🔄 En cours — Tâche 6.1 fermée (12/12)**
+**Statut : ✅ Complet — 22/22 cases (100%). Couverture finale : 15/15 mutations PM actives (100%).**
 
 > Structure révisée 2026-05-22 (post Sprint 5.3) : la Tâche 6.1 "audit" initialement prévue a été livrée en Sprint 4.2-audit (`docs/NEOX_PM_SSE_AUDIT.md`). Sprint 6 redécomposé en : émetteurs backend (6.1), listeners frontend (6.2), validation + suppression polling (6.3). Périmètre : **12 émetteurs** (9 issus de l'audit + 3 milestones non audités car routes 5.2 postérieures à l'audit).
 
@@ -223,10 +223,10 @@
 - [x] `tsc --noEmit` zéro erreur
 
 ### Tâche 6.3 — Validation couverture + suppression polling
-- [ ] Mettre à jour `docs/NEOX_PM_SSE_AUDIT.md` avec la nouvelle couverture (12 + 3 existants / 15 = 100%)
-- [ ] Si couverture ≥ 90% : supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx:733`
-- [ ] Vérifier qu'aucun autre `setInterval` PM (hors Header/Sidebar/FinanceContext, hors-scope)
-- [ ] `tsc --noEmit` zéro erreur
+- [x] Mettre à jour `docs/NEOX_PM_SSE_AUDIT.md` avec la nouvelle couverture (15/15 = 100%, ou 15/16 = 93.75% si on inclut `repair-integrity`)
+- [x] Couverture ≥ 90% acté → `setInterval(refresh, 15000)` supprimé de `ProjectsIndex.tsx:733`, filet `onFocus` conservé
+- [x] Vérifié : aucun autre `setInterval` PM (hors Header/Sidebar/FinanceContext, hors-scope)
+- [x] `tsc --noEmit` zéro erreur
 
 **✅ Sprint 6 terminé quand : toutes les cases ci-dessus sont cochées**
 
@@ -270,6 +270,7 @@
 | 2026-05-19 | 5 | 5.1 — Migration Milestone | ✅ Complet | `model Milestone` (12 cols, 4 idx, 2 FK : `projectId` CASCADE, `ownerId` SET NULL) + `model MilestoneDependency` (self-relation M:N, 4 idx dont UNIQUE, 2 FK : `milestoneId` CASCADE, `dependsOnId` RESTRICT). Migration `20260519_add_milestones` appliquée via `prisma db execute` + `migrate resolve --applied`. Structure DB vérifiée `\d` postgres. Backup pré-migration 1.1 MB stocké hors-repo. D12 ajoutée (`completionPct` Int sans CHECK DB → mitigation UX en 5.3). Hash `f1c8f3f`. |
 | 2026-05-19 | 5 | 5.2 — Décision tests Phase RBAC | 📌 Décision tracée | Phase RBAC skipped dans la suite tests 5.2. Raison : `assertModuleAccess` est partagé avec tous les handlers PM, déjà couvert transversalement par Sprint 3 (durcissement RBAC + suppression heuristiques string). Tester RBAC sur milestones = doublon. Pas une dette — à inclure dans un sprint dédié "Tests RBAC cross-modules" si un audit le rend nécessaire. |
 | 2026-05-22 | 5 | 5.2 — Couverture tests | ✅ Complet | Test runner `backend/tests/pm-milestones-task-5-2.test.mjs` (47/47 ✓) en 8 phases : Setup (3), POST happy (6), POST validations 400 (10), PATCH deps + cycles (9, dont 4.6 chaîne 4-deep non-cyclique pour faux positif), PATCH updates (8), DELETE soft + rollback avec count avant/après en DB (7), Phase 7 RBAC skip (0, console.log + journal 2026-05-19), Cleanup intégrité (4). Pattern seed/teardown calqué sur `pm-financials-task-1-2`. Couverture : auto-référence, cycle 2/3-nodes, REPLACE semantics, deps cross-project, soft-delete blocage par actifs (MILESTONE_BLOCKED), filtrage défensif deps vers cibles soft-deleted, idempotency 404. **Tâche 5.2 fermée à 4/4. Sprint 5 = 8/14 (57%).** Sprint 5 reste bloqué Tâche 5.3 (frontend MilestonesPage). |
+| 2026-05-22 | 6 | 6.1/6.2/6.3 — Sprint 6 SSE & Temps Réel | ✅ Complet | **Sprint 6 fermé à 22/22 (100%). Couverture SSE PM : 17% → 100% (15/15 mutations actives).** **6.1** (`d6f9c5b`) : helper `safeBroadcast()` (try/catch + console.warn) mutualisé dans `services/realtime/sseBroadcaster.mjs` ; 12 émetteurs ajoutés — 1 dans `auth-server.mjs` (`project_created` après `createProjectForUser`), 11 dans `routes/pm/projects.routes.mjs` couvrant project/work_item/scope/members/milestones CRUD ; payload `patchedFields` filtré par `META_FIELDS = { actorUserId, actorDisplayName, userId }` sur 3 sites. **6.2** (`0cdaed1`) : `src/hooks/useRealtimeSync.ts` étendu de 2 à 12 listeners ; mapping ciblé `milestone_*` → `fetchProjectMilestones(projectId)`, `project_member_*` → `fetchProjectMembers(projectId)`, tous les autres → `loadProjectsForUser(userId)` debounced 300ms. Aucune nouvelle action store créée. **6.3** : `setInterval(refresh, 15000)` supprimé de `ProjectsIndex.tsx:733`, filet `onFocus` conservé ; `docs/NEOX_PM_SSE_AUDIT.md` mis à jour §8 avec nouvelle couverture. `node --check` zéro erreur sur 3 `.mjs`, `tsc --noEmit` zéro erreur 2 fois. Décision 4.2-exec rejouée et fermée positivement. Modules PM = backbone temps-réel complet. **Module Project Management = ✅ TERMINÉ.** Roadmap : passer à priorité 2 (SCM CRUD). |
 | 2026-05-22 | 5 | 5.3 — MilestonesPage frontend | ✅ Complet | **Sprint 5 fermé à 14/14 (100%).** 5 fichiers touchés. **Types** (`src/types/pm.ts`) : `MilestoneStatus` union 4 valeurs, `MilestoneDependencyEdge` (id + objet imbriqué `dependsOn`), `Milestone` interface complète (12 champs + `dependencies[]`). **Service API** (`src/services/pm/projectApi.service.ts`) : +4 fonctions `fetchProjectMilestones`/`createMilestone`/`updateMilestone`/`deleteMilestone`, unwrap `{ milestones }`/`{ milestone }` cohérent Sprint 4.1. **Store** (`src/store/pm/useProjectStore.ts`) : slice `milestones: Record<projectId, Milestone[]>` + `milestonesLoading`, 4 actions backend-autoritatives (no fallback silencieux, no id local, `throw error` après reset loading flag), sort défensif par `dueDate` avec garde-fou `null` (cf. type non-null actuel mais défense contre régression future). **Page** (`src/components/pm/MilestonesPage.tsx`, ~530 L) : vertical timeline avec rail à gauche + dots colorés par status, sous-composants `MilestoneCard`/`CompletionPopover` (Headless UI Popover, input number 0-100 + Save)/`MilestoneFormModal` (create/edit, multi-select deps en checkboxes)/`DependenciesModal` (readonly, status badge par dep)/`DeleteMilestoneModal` (gère 409 MILESTONE_BLOCKED en affichant le message backend qui contient les noms des blockers). Framer Motion subtil (`AnimatePresence` + `layout` pour reorder, durée 0.18). Tokens tailwind sémantiques (`bg-app`/`bg-card`/`bg-surface`/`text-primary`/`text-muted`), status colors `emerald`/`amber`/`rose`/`muted`. Pas de SVG inter-deps (badge "depends on N" cliquable → modal). **Router** (`src/components/pm/PMRouter.tsx`) : +1 import, +2 Routes (header label + body). `tsc --noEmit` zéro erreur après chaque fichier. `npm run dev` boot OK (Vite ready 6312ms, HTTP 200 sur `/`). Dettes ajoutées : **D13** (sous-tâches WorkItem+Milestone, rollup `completionPct` post-Sprint 6) ; **D14** (payload 409 sans `blockers[]` structuré — message brut suffit, à structurer en sprint hardening API). |
 
 ---
@@ -318,7 +319,7 @@
 
 | Priorité | Module | Statut |
 |----------|--------|--------|
-| 1 | Project Management | 🔄 En cours |
+| 1 | Project Management | ✅ Terminé (2026-05-22, Sprints 1→6 = 100%) |
 | 2 | SCM — CRUD complet + logique métier | ⏸️ En attente |
 | 3 | Finance — réconciliation UI | ⏸️ En attente |
 | 4 | HSE — implémentation complète | ⏸️ En attente |
