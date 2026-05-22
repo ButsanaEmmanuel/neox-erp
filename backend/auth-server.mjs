@@ -412,6 +412,36 @@ function parseActorFromUrl(url) {
   };
 }
 
+// ── Boundary validation helpers (D9) ───────────────────────────────────────
+// Inline, minimal alternative to Zod (Zod not installed — see Sprint 7
+// decision (B)). Used today by PATCH /pm/.../work-items/.../details. If Zod
+// is adopted later, migrate these consumers to schema objects and drop these.
+function detailsValidationError(field, expected) {
+  const err = new Error(`Field '${field}' must be ${expected}.`);
+  err.statusCode = 400;
+  err.code = 'INVALID_FIELD_TYPE';
+  err.field = field;
+  return err;
+}
+function assertOptionalNumber(value, field) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw detailsValidationError(field, 'a finite number, null, or absent');
+  }
+}
+function assertOptionalString(value, field) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string') {
+    throw detailsValidationError(field, 'a string, null, or absent');
+  }
+}
+function assertOptionalPlainObject(value, field) {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw detailsValidationError(field, 'a plain object, null, or absent');
+  }
+}
+
 async function resolvePermissionSetForRequest(prismaClient, url, body = null) {
   const queryUserId = String(url.searchParams.get('userId') || '').trim();
   const bodyUserId = String(body?.actorUserId || body?.userId || '').trim();
@@ -1851,6 +1881,21 @@ const server = http.createServer(async (req, res) => {
     if (method === 'PATCH' && detailMatch) {
       const [, projectId, workItemId] = detailMatch;
       const body = await parseBody(req);
+      // D9 — boundary validation: reject type mismatches with 400 before
+      // the Prisma upsert can throw a generic 500. Helpers live at module
+      // scope above (assertOptional* + detailsValidationError).
+      try {
+        assertOptionalNumber(body.poUnitPrice, 'poUnitPrice');
+        assertOptionalNumber(body.ticketNumber, 'ticketNumber');
+        assertOptionalNumber(body.contractorPayableAmount, 'contractorPayableAmount');
+        assertOptionalString(body.qaStatus, 'qaStatus');
+        assertOptionalString(body.acceptanceStatus, 'acceptanceStatus');
+        assertOptionalPlainObject(body.importedFields, 'importedFields');
+        assertOptionalPlainObject(body.operationalManualFields, 'operationalManualFields');
+        assertOptionalPlainObject(body.acceptanceManualFields, 'acceptanceManualFields');
+      } catch (err) {
+        return json(res, err.statusCode || 400, { error: err.message, code: err.code, field: err.field });
+      }
       const actor = parseActor(body);
       const saved = await saveProjectItemDetails(prisma, {
         projectId,
