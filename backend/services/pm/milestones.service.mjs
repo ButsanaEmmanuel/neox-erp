@@ -350,13 +350,21 @@ export async function deleteMilestone(prisma, projectId, milestoneId) {
     select: { milestoneId: true, milestone: { select: { title: true } } },
   });
   if (blockers.length) {
-    const names = blockers
-      .map((b) => `${b.milestone?.title || '?'} (${b.milestoneId})`)
+    const blockersList = blockers.map((b) => ({
+      id: b.milestoneId,
+      title: b.milestone?.title || '?',
+    }));
+    const names = blockersList
+      .map((b) => `${b.title} (${b.id})`)
       .join(', ');
-    throw conflict(
+    const err = conflict(
       `Cannot delete: still blocks ${blockers.length} active milestone(s): ${names}`,
       'MILESTONE_BLOCKED'
     );
+    // D14 — attach structured payload so the handler can forward it
+    // (see backend/routes/pm/projects.routes.mjs catch block).
+    err.blockers = blockersList;
+    throw err;
   }
 
   await prisma.milestone.update({

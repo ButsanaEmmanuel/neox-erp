@@ -234,6 +234,9 @@ export async function handlePmProjectRoutes(ctx) {
     }
     const payload = { error: err?.message || 'Internal error' };
     if (err?.code) payload.code = err.code;
+    // D14 — forward structured details when present (e.g. MILESTONE_BLOCKED).
+    if (Array.isArray(err?.blockers)) payload.blockers = err.blockers;
+    if (err?.field) payload.field = err.field;
     json(res, status, payload);
     return true;
   }

@@ -94,6 +94,7 @@ const MilestonesPage: React.FC = () => {
   const [depsModalFor, setDepsModalFor] = useState<Milestone | null>(null);
   const [deleting, setDeleting] = useState<Milestone | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteBlockers, setDeleteBlockers] = useState<Array<{ id: string; title: string }> | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -268,15 +269,27 @@ const MilestonesPage: React.FC = () => {
         <DeleteMilestoneModal
           milestone={deleting}
           error={deleteError}
-          onClose={() => { setDeleting(null); setDeleteError(null); }}
+          blockers={deleteBlockers}
+          onClose={() => { setDeleting(null); setDeleteError(null); setDeleteBlockers(null); }}
           onConfirm={async () => {
             try {
               await deleteMilestone(id, deleting.id);
               setDeleting(null);
               setDeleteError(null);
+              setDeleteBlockers(null);
             } catch (err) {
+              // D14 — extract structured blockers[] from ApiError payload when present.
+              if (err instanceof ApiError && err.payload && typeof err.payload === 'object') {
+                const p = err.payload as { code?: string; blockers?: Array<{ id: string; title: string }> };
+                if (p.code === 'MILESTONE_BLOCKED' && Array.isArray(p.blockers)) {
+                  setDeleteBlockers(p.blockers);
+                  setDeleteError(err.message);
+                  return;
+                }
+              }
               const msg = err instanceof Error ? err.message : 'Delete failed';
               setDeleteError(msg);
+              setDeleteBlockers(null);
             }
           }}
         />
@@ -697,11 +710,13 @@ const DependenciesModal: React.FC<{
 const DeleteMilestoneModal: React.FC<{
   milestone: Milestone;
   error: string | null;
+  blockers: Array<{ id: string; title: string }> | null;
   onClose: () => void;
   onConfirm: () => Promise<void>;
-}> = ({ milestone, error, onClose, onConfirm }) => {
+}> = ({ milestone, error, blockers, onClose, onConfirm }) => {
   const [busy, setBusy] = useState(false);
-  const isBlocked = error?.toLowerCase().includes('still blocks');
+  // D14 — prefer the structured blockers[] payload over message-sniffing.
+  const isBlocked = (blockers?.length ?? 0) > 0;
 
   return (
     <Modal
@@ -734,17 +749,36 @@ const DeleteMilestoneModal: React.FC<{
         <p className="text-[13px] text-secondary">
           <span className="font-medium text-primary">{milestone.title}</span> will be soft-deleted and hidden from the timeline.
         </p>
-        {error && (
+        {isBlocked ? (
+          <>
+            <div className="px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[12px] flex items-start gap-2">
+              <AlertCircle size={14} className="mt-0.5 flex-none" />
+              <span>
+                Still blocks <strong>{blockers!.length}</strong> active milestone
+                {blockers!.length > 1 ? 's' : ''}:
+              </span>
+            </div>
+            <ul className="space-y-1.5 pl-1">
+              {blockers!.map((b) => (
+                <li
+                  key={b.id}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-surface border border-border/60 text-[12px] text-primary"
+                >
+                  <Link2 size={12} className="text-muted flex-none" />
+                  <span className="truncate">{b.title}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[12px] text-muted">
+              Remove or reassign these dependents first, then try again.
+            </p>
+          </>
+        ) : error ? (
           <div className="px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[12px] flex items-start gap-2">
             <AlertCircle size={14} className="mt-0.5 flex-none" />
             <span className="break-words">{error}</span>
           </div>
-        )}
-        {isBlocked && (
-          <p className="text-[12px] text-muted">
-            Remove or reassign the dependent milestones first, then try again.
-          </p>
-        )}
+        ) : null}
       </div>
     </Modal>
   );
