@@ -11,12 +11,24 @@ import WorkItemDrawer from './WorkItemDrawer';
 
 const ITEMS_PER_PAGE = 10;
 
+// D11 — retro-compat for pre-Sprint-4 bookmarks. View names switched from
+// kebab-case to snake_case in Sprint 4.1; old bookmarks fell through the
+// matchesView ternary and silently showed "all" items.
+const LEGACY_VIEW_MAP: Record<string, string> = {
+  'pending-qa': 'awaiting_qa_approval',
+  'pending-acceptance': 'awaiting_signed_acceptance',
+};
+function normalizeView(raw: string | null): string {
+  if (!raw) return 'all';
+  return LEGACY_VIEW_MAP[raw] ?? raw;
+}
+
 const WorkItemsPage: React.FC = () => {
   const { workItems, activeProjectId, projects, retryFinanceSync, deleteWorkItem, updateWorkItem } = useProjectStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const initialView = (searchParams.get('view') as any) || 'all';
+  const initialView = normalizeView(searchParams.get('view'));
   const [view, setView] = useState<string>(initialView);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
