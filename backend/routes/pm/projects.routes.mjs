@@ -24,6 +24,12 @@ import {
   updateMilestone,
   deleteMilestone,
 } from '../../services/pm/milestones.service.mjs';
+import { safeBroadcast } from '../../services/realtime/sseBroadcaster.mjs';
+
+// SSE payload hygiene : exclude auth metadata fields from patchedFields,
+// they are not part of the business state mutated by the request.
+const META_FIELDS = new Set(['actorUserId', 'actorDisplayName', 'userId']);
+const patchedFieldsOf = (body) => Object.keys(body || {}).filter((k) => !META_FIELDS.has(k));
 
 /**
  * Route a request to the appropriate PM project handler.
@@ -84,6 +90,7 @@ export async function handlePmProjectRoutes(ctx) {
       const body = await ctx.parseBody(ctx.req);
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const project = await updateProject(ctx.prisma, projectId, body);
+      safeBroadcast('project_updated', { projectId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { project });
       return true;
     }
@@ -93,6 +100,7 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       const actor = ctx.parseActorFromUrl(ctx.url);
       await deleteProject(ctx.prisma, projectId, actor);
+      safeBroadcast('project_deleted', { projectId });
       json(res, 200, { ok: true });
       return true;
     }
@@ -103,6 +111,7 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
       const workItem = await createWorkItem(ctx.prisma, projectId, body, actor);
+      safeBroadcast('work_item_created', { projectId, workItemId: workItem.id, type: workItem.type });
       json(res, 201, { workItem });
       return true;
     }
@@ -113,6 +122,7 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
       const workItem = await updateWorkItem(ctx.prisma, projectId, itemId, body, actor);
+      safeBroadcast('work_item_updated', { projectId, workItemId: itemId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { workItem });
       return true;
     }
@@ -122,6 +132,7 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       const actor = ctx.parseActorFromUrl(ctx.url);
       await deleteWorkItem(ctx.prisma, projectId, itemId, actor);
+      safeBroadcast('work_item_deleted', { projectId, workItemId: itemId });
       json(res, 200, { ok: true });
       return true;
     }
@@ -139,6 +150,7 @@ export async function handlePmProjectRoutes(ctx) {
       const body = await ctx.parseBody(ctx.req);
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const member = await addProjectMember(ctx.prisma, projectId, body);
+      safeBroadcast('project_member_added', { projectId, userId: member.userId, roleCode: member.roleCode });
       json(res, 201, { member });
       return true;
     }
@@ -147,6 +159,7 @@ export async function handlePmProjectRoutes(ctx) {
       const [, projectId, userId] = memberMatch;
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       await removeProjectMember(ctx.prisma, projectId, userId);
+      safeBroadcast('project_member_removed', { projectId, userId });
       json(res, 200, { ok: true });
       return true;
     }
@@ -165,6 +178,7 @@ export async function handlePmProjectRoutes(ctx) {
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
       const scope = await updateProjectScope(ctx.prisma, projectId, body, actor);
+      safeBroadcast('project_scope_updated', { projectId });
       json(res, 200, scope);
       return true;
     }
@@ -182,6 +196,7 @@ export async function handlePmProjectRoutes(ctx) {
       const body = await ctx.parseBody(ctx.req);
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const milestone = await createMilestone(ctx.prisma, projectId, body);
+      safeBroadcast('milestone_created', { projectId, milestoneId: milestone.id });
       json(res, 201, { milestone });
       return true;
     }
@@ -191,6 +206,7 @@ export async function handlePmProjectRoutes(ctx) {
       const body = await ctx.parseBody(ctx.req);
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const milestone = await updateMilestone(ctx.prisma, projectId, milestoneId, body);
+      safeBroadcast('milestone_updated', { projectId, milestoneId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { milestone });
       return true;
     }
@@ -199,6 +215,7 @@ export async function handlePmProjectRoutes(ctx) {
       const [, projectId, milestoneId] = milestoneMatch;
       await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       await deleteMilestone(ctx.prisma, projectId, milestoneId);
+      safeBroadcast('milestone_deleted', { projectId, milestoneId });
       json(res, 200, { ok: true });
       return true;
     }

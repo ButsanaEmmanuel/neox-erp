@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { registerClient as sseRegisterClient, connectedClientCount } from './services/realtime/sseBroadcaster.mjs';
+import { registerClient as sseRegisterClient, connectedClientCount, safeBroadcast } from './services/realtime/sseBroadcaster.mjs';
 import { PrismaClient } from '@prisma/client';
 import {
   deleteProjectItemFile,
@@ -896,6 +896,7 @@ const server = http.createServer(async (req, res) => {
         creatorUserId: actor.actorUserId || body.creatorUserId,
         creatorDisplayName: actor.actorDisplayName || body.creatorDisplayName,
       });
+      safeBroadcast('project_created', { projectId: project.id, name: project.name, managerId: project.managerId });
       return json(res, 201, { project });
     }
 

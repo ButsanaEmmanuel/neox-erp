@@ -195,22 +195,38 @@
 ---
 
 ## SPRINT 6 — SSE & Temps Réel
-**Objectif : Toutes les mutations PM émettent des événements SSE.**
-**Statut : ⏸️ Bloqué — attendre Sprint 2 complet**
+**Objectif : Toutes les mutations PM émettent des événements SSE, couverture ≥ 90%, polling 15s supprimé.**
+**Statut : 🔄 En cours — Tâche 6.1 fermée (12/12)**
 
-### Tâche 6.1 — Auditer useRealtimeSync
-- [ ] Lister tous les événements PM émis côté backend
-- [ ] Lister tous les événements PM consommés côté frontend
-- [ ] Documenter les gaps dans ce fichier
+> Structure révisée 2026-05-22 (post Sprint 5.3) : la Tâche 6.1 "audit" initialement prévue a été livrée en Sprint 4.2-audit (`docs/NEOX_PM_SSE_AUDIT.md`). Sprint 6 redécomposé en : émetteurs backend (6.1), listeners frontend (6.2), validation + suppression polling (6.3). Périmètre : **12 émetteurs** (9 issus de l'audit + 3 milestones non audités car routes 5.2 postérieures à l'audit).
 
-### Tâche 6.2 — Émettre les événements depuis les nouvelles routes
-- [ ] `project:updated` depuis PATCH /projects/:id
-- [ ] `project:deleted` depuis DELETE /projects/:id
-- [ ] `workitem:created` depuis POST /work-items
-- [ ] `workitem:updated` depuis PATCH /work-items/:id
-- [ ] `workitem:deleted` depuis DELETE /work-items/:id
-- [ ] `scope:updated` depuis PATCH /scope
-- [ ] `milestone:updated` depuis PATCH /milestones/:id
+### Tâche 6.1 — Émetteurs SSE backend (12)
+- [x] Helper mutualisé `safeBroadcast(event, payload)` ajouté dans `services/realtime/sseBroadcaster.mjs` (try/catch silencieux + console.warn)
+- [x] `project_created` — `auth-server.mjs` après `createProjectForUser` (payload `{ projectId, name, managerId }`)
+- [x] `project_updated` — `pm/projects.routes.mjs` après `updateProject` (`{ projectId, patchedFields }`)
+- [x] `project_deleted` — après `deleteProject` (`{ projectId }`)
+- [x] `work_item_created` — après `createWorkItem` (`{ projectId, workItemId, type }`)
+- [x] `work_item_updated` — après `updateWorkItem` (`{ projectId, workItemId, patchedFields }`)
+- [x] `work_item_deleted` — après `deleteWorkItem` (`{ projectId, workItemId }`)
+- [x] `project_scope_updated` — après `updateProjectScope` (`{ projectId }`)
+- [x] `project_member_added` — après `addProjectMember` (`{ projectId, userId, roleCode }`)
+- [x] `project_member_removed` — après `removeProjectMember` (`{ projectId, userId }`)
+- [x] `milestone_created` — après `createMilestone` (`{ projectId, milestoneId }`)
+- [x] `milestone_updated` — après `updateMilestone` (`{ projectId, milestoneId, patchedFields }`)
+- [x] `milestone_deleted` — après `deleteMilestone` (`{ projectId, milestoneId }`)
+- [x] `patchedFields` filtré par `META_FIELDS = { actorUserId, actorDisplayName, userId }` (3 sites concernés)
+- [x] `node --check` zéro erreur sur les 3 `.mjs` modifiés
+
+### Tâche 6.2 — Listeners SSE frontend
+- [ ] Étendre `src/hooks/useRealtimeSync.ts` pour les 12 événements
+- [ ] Mapping ciblé : `milestone_*` → `fetchProjectMilestones(projectId)`, `project_member_*` → `fetchProjectMembers(projectId)`, tous les autres → `loadProjectsForUser(userId)`
+- [ ] `tsc --noEmit` zéro erreur
+
+### Tâche 6.3 — Validation couverture + suppression polling
+- [ ] Mettre à jour `docs/NEOX_PM_SSE_AUDIT.md` avec la nouvelle couverture (12 + 3 existants / 15 = 100%)
+- [ ] Si couverture ≥ 90% : supprimer `setInterval(refresh, 15000)` dans `ProjectsIndex.tsx:733`
+- [ ] Vérifier qu'aucun autre `setInterval` PM (hors Header/Sidebar/FinanceContext, hors-scope)
+- [ ] `tsc --noEmit` zéro erreur
 
 **✅ Sprint 6 terminé quand : toutes les cases ci-dessus sont cochées**
 

@@ -85,6 +85,22 @@ export function broadcast(eventType, payload = {}) {
 }
 
 /**
+ * Same as broadcast() but swallows any error (e.g. JSON.stringify on a
+ * non-serialisable payload).  Use this in HTTP handlers where an SSE
+ * emission must never break the response.
+ *
+ * @param {string} eventType
+ * @param {object} payload
+ */
+export function safeBroadcast(eventType, payload = {}) {
+  try {
+    broadcast(eventType, payload);
+  } catch (e) {
+    console.warn('[SSE] safeBroadcast failed silently:', eventType, e?.message);
+  }
+}
+
+/**
  * Broadcast an event only to users subscribed to a specific project.
  * Falls back to broadcasting to everyone (lightweight notification).
  *
