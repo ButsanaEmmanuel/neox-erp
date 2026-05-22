@@ -180,7 +180,7 @@
 - [x] Implémenter `GET /api/v1/projects/:id/milestones`
 - [x] Implémenter `POST /api/v1/projects/:id/milestones`
 - [x] Implémenter `PATCH /api/v1/projects/:id/milestones/:mId`
-- [ ] Implémenter `DELETE /api/v1/projects/:id/milestones/:mId` (soft delete) — code écrit, en attente couverture tests 5.2
+- [x] Implémenter `DELETE /api/v1/projects/:id/milestones/:mId` (soft delete) — code écrit, en attente couverture tests 5.2
 
 ### Tâche 5.3 — Composant MilestonesPage.tsx
 - [ ] Créer `src/components/pm/MilestonesPage.tsx`
@@ -253,6 +253,7 @@
 | 2026-05-18 | — | D10b résolue | ✅ Complet | Rotation password admin effectuée hors-session via UI NEOX (Settings > Modifier mot de passe). Voie d'attaque git-history fermée : le password présent dans l'historique git n'est plus le password actif. Nouveau password stocké hors-repo. Dossier sécurité D10/D10b complètement clos. |
 | 2026-05-19 | 5 | 5.1 — Migration Milestone | ✅ Complet | `model Milestone` (12 cols, 4 idx, 2 FK : `projectId` CASCADE, `ownerId` SET NULL) + `model MilestoneDependency` (self-relation M:N, 4 idx dont UNIQUE, 2 FK : `milestoneId` CASCADE, `dependsOnId` RESTRICT). Migration `20260519_add_milestones` appliquée via `prisma db execute` + `migrate resolve --applied`. Structure DB vérifiée `\d` postgres. Backup pré-migration 1.1 MB stocké hors-repo. D12 ajoutée (`completionPct` Int sans CHECK DB → mitigation UX en 5.3). Hash `f1c8f3f`. |
 | 2026-05-19 | 5 | 5.2 — Décision tests Phase RBAC | 📌 Décision tracée | Phase RBAC skipped dans la suite tests 5.2. Raison : `assertModuleAccess` est partagé avec tous les handlers PM, déjà couvert transversalement par Sprint 3 (durcissement RBAC + suppression heuristiques string). Tester RBAC sur milestones = doublon. Pas une dette — à inclure dans un sprint dédié "Tests RBAC cross-modules" si un audit le rend nécessaire. |
+| 2026-05-22 | 5 | 5.2 — Couverture tests | ✅ Complet | Test runner `backend/tests/pm-milestones-task-5-2.test.mjs` (47/47 ✓) en 8 phases : Setup (3), POST happy (6), POST validations 400 (10), PATCH deps + cycles (9, dont 4.6 chaîne 4-deep non-cyclique pour faux positif), PATCH updates (8), DELETE soft + rollback avec count avant/après en DB (7), Phase 7 RBAC skip (0, console.log + journal 2026-05-19), Cleanup intégrité (4). Pattern seed/teardown calqué sur `pm-financials-task-1-2`. Couverture : auto-référence, cycle 2/3-nodes, REPLACE semantics, deps cross-project, soft-delete blocage par actifs (MILESTONE_BLOCKED), filtrage défensif deps vers cibles soft-deleted, idempotency 404. **Tâche 5.2 fermée à 4/4. Sprint 5 = 8/14 (57%).** Sprint 5 reste bloqué Tâche 5.3 (frontend MilestonesPage). |
 
 ---
 
