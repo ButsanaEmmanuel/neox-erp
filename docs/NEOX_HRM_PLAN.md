@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🔵 Planifié — démarrage après validation de ce document
+**Statut global :** 🟡 En cours — HRM-1.0 fermé (2026-05-23), HRM-1.1 prochaine étape
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -271,9 +271,10 @@ system.settings.write
 
 ---
 
-### HRM-1.0 — Nettoyage pré-sprint (Migrations & dettes PM)
+### HRM-1.0 — Nettoyage pré-sprint (Migrations & dettes PM) ✅
 
 **Objectif :** Environnement propre avant d'ajouter des modèles HRM.
+**Statut :** ✅ Fermé 2026-05-23 — commits `48dc0af` (T3) + `0d66980` (T1) + cette mise à jour du plan (T2).
 
 #### Tâches
 
@@ -308,9 +309,59 @@ Commit : refactor(hrm): port recruitmentOnboarding to ESM
 ```
 
 **Critères de sortie HRM-1.0**
-- [ ] Migration FK exécutée sans erreur sur DB dev
-- [ ] Schéma HRM audité, delta documenté
-- [ ] Plus aucun fichier `.ts` dans `backend/`
+- [x] Migration FK générée — `prisma/migrations/20260523_fk_restrict_cleanup/` (à appliquer sur DB dev via `npx prisma migrate dev`)
+- [x] Schéma HRM audité, delta documenté — voir *Notes d'audit HRM-1.0* ci-dessous
+- [x] Plus aucun fichier `.ts` dans `backend/` (4 fichiers portés, pas 1 — voir notes)
+
+#### Notes d'audit HRM-1.0 (ajoutées 2026-05-23)
+
+**FK RESTRICT — T1 réalisé (commit `0d66980`)**
+- `ProjectScope.projectId` : CASCADE → RESTRICT
+- `Milestone.projectId` : CASCADE → RESTRICT
+- `ProjectMember.projectId` : default → RESTRICT
+- `ProjectMember.userId` : default → RESTRICT
+- `WorkItem.projectId` : default → RESTRICT
+- ⚠️ **`ProjectDocument` listé au plan T1 n'existe pas dans `prisma/schema.prisma`** — référence erronée du plan, à retirer ou clarifier si le modèle doit être créé plus tard.
+- Volontairement non touchés : `Milestone.ownerId` (SetNull), `MilestoneDependency.*` (Cascade/Restrict déjà cohérents), `WorkItem.importBatchId` (SetNull), `ProjectImportBatch.parentProjectId` (déjà RESTRICT).
+
+**Port ESM — T3 réalisé (commit `48dc0af`)**
+Le plan ne nommait que `recruitmentOnboarding.service.ts`, mais l'audit a découvert **4 fichiers `.ts`** dans `backend/` :
+- `backend/services/security/password.service.ts`
+- `backend/services/auth/firstLogin.service.ts`
+- `backend/services/notifications/welcomeEmail.service.ts`
+- `backend/services/hrm/recruitmentOnboarding.service.ts`
+
+Tous portés en `.mjs` (aucun n'était importé par du runtime `.mjs` — dead code à l'exécution, mais nécessaires pour le flow HRM-2.1). `README_ONBOARDING_WORKFLOW.md` mis à jour avec les nouveaux chemins.
+
+**Delta schéma HRM vs plan**
+
+| Domaine | État réel constaté | Action plan |
+|---|---|---|
+| `Permission` | ✅ Existe (L214 — actuellement 3 champs `module`/`resource`/`action` dénormalisés, pas de clé atomique) | HRM-1.1 : ajouter `key` unique format `module.resource.action` |
+| `Role` (L183) | ✅ Existe avec `code`, `name`, `isActive`, `isDeleted`, `deletedAt` | HRM-1.1 : ajouter `label`, `isSystem`, `description` |
+| `UserRole` (L198) | ✅ Existe avec `validFrom`/`validTo` (pattern temporel — unicité `(userId, roleId, validFrom)`) — divergent du plan qui suppose unicité `(userId, roleId)` | HRM-1.1 : ajouter `assignedBy`, conserver le modèle temporel existant (ne PAS casser la migration) |
+| `RolePermission` (L227) | ✅ Existe avec `roleId`, `permissionId`, `scopeType`, `scopeValue` | Aucune action — conforme |
+| `UserPermissionSet` (L81) | ✅ Existe avec `(userId, module, resource, action, effect)` | HRM-1.1 (décision Hybride retenue 2026-05-23) : étendre avec `assignedBy`, `reason`, `expiresAt`, et `permissionId String?` optionnel — **PAS** de nouveau modèle `UserPermissionOverride` |
+| `HrmEmploymentProfile` (L117) | ✅ Riche (29 champs, manager FK, compensation, statuses) | Aucune extension requise pour HRM-1 |
+| `HrmCredentialProvisioning` (L161) | ✅ Présent (utilisé par recrutement → onboarding) | Aucune action |
+| `AccessProvisioning` (L1519) | ✅ Présent (lien candidate ↔ user) | Aucune action |
+| `RecruitmentCandidate` (L1495) | ✅ Minimal (fullName, email, statusCode, recruitmentDepartmentId) | HRM-2.1 : étendre avec `jobPostingId`, `stage`, `interviewDate`, `offerDate`, `offerAmount`, `rejectionReason` |
+| `TimesheetEntry` (L1453) | ✅ Existe — un jour à la fois (`workDate`, `hours`), pas de notion semaine/approbation | HRM-2.5 : ajouter `approvedByUserId`, `approvedAt`, `weekStartDate`, `submittedAt` |
+| Modèles Leave | ❌ Aucun | HRM-1.5 : créer `LeavePolicy`, `LeaveBalance`, `LeaveRequest` |
+| Modèles Training | ❌ Aucun | HRM-2.3 : créer `TrainingCourse`, `TrainingEnrollment` |
+| Modèles Onboarding/Offboarding | ❌ Aucun (seul `OnboardingChecklist` existait via le service `.ts` porté, mais pas en DB) | HRM-2.2 : créer 8 modèles miroir |
+| Modèles Policies/Cases | ❌ Aucun | HRM-2.4 : créer `HrmPolicy`, `PolicyAcknowledgement`, `HrmCase` |
+
+**Décision architecture RBAC (mémoire `project-hrm-rbac-decision`)**
+- Approche **Hybride** retenue 2026-05-23 : étendre `UserPermissionSet` (`+ assignedBy`, `+ reason`, `+ expiresAt`, `+ permissionId?`) au lieu de créer le `UserPermissionOverride` listé au plan. Évite le doublon avec un modèle déjà utilisé et prépare la migration douce vers la clé `Permission.key` atomique.
+- Le `rbac.service.mjs` (HRM-1.2) résoudra les overrides en lisant `UserPermissionSet` : match par `permissionId` si présent, sinon fallback sur le triplet `(module, resource, action)`.
+
+**RBAC frontend — `src/lib/rbac.ts` (préparation HRM-1.2)**
+7 strings de rôle hardcodées à éradiquer : `'hr'`, `'manager'`, `'staff'` (type `HRMRole`) et `'ADMIN'`, `'MANAGER'`, `'CONTRIBUTOR'`, `'OBSERVER'` (type `AuthorityLevel`). De plus, `MODULE_OWNER_DEPARTMENTS` couple en dur des IDs `'dept-hr'`/`'dept-eng'`/etc. — à remplacer par une résolution DB en HRM-1.2.
+
+**Confirmations structurelles**
+- ✅ `backend/routes/` existe en tant que dossier séparé d'`auth-server.mjs` — les futures routes HRM iront bien dans `backend/routes/hrm/`.
+- ✅ `backend/services/hrm/` contient maintenant 3 fichiers `.mjs` (`hrmDirectory` 1252L, `payrollEngine` 895L, `recruitmentOnboarding` ~140L).
 
 ---
 
