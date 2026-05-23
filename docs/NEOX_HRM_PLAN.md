@@ -907,11 +907,11 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🔵 Planifié
+**Statut :** 🟡 En cours — HRM-2.1 fermé 2026-05-23. HRM-2.2 → HRM-2.7 à venir.
 
 ---
 
-### HRM-2.1 — Recruitment complet
+### HRM-2.1 — Recruitment complet ✅
 
 **Objectif :** Pipeline candidats fonctionnel end-to-end.
 
@@ -972,10 +972,27 @@ Commit : feat(hrm): recruitment pipeline + hire flow — ref HRM-2.1
 ```
 
 **Critères de sortie HRM-2.1**
-- [ ] Créer une offre, ajouter des candidats, avancer les stages
-- [ ] "Marquer embauché" crée l'employé et déclenche l'onboarding
-- [ ] Vue kanban ou liste par stage fonctionnelle
-- [ ] Transaction rollback testé (voir HRM-2.7)
+- [x] Créer une offre, ajouter des candidats, avancer les stages — `JobPostingList` (création inline) + `RecruitmentPage` kanban drag-drop, transitions `sourced→screening→interview→offer` testées avec auto-stamping de `interviewDate`/`offerDate`
+- [x] "Marquer embauché" crée l'employé et déclenche l'onboarding — `PUT /api/v1/hrm/recruitment/candidates/:id/hire` délègue à `transitionCandidateToOnboarding` (HRM-1.0) qui crée User + HrmEmploymentProfile + UserRole + AccessProvisioning + audit + DomainEvent en transaction. `statusCode` candidat passe à `onboarding`.
+- [x] Vue kanban ou liste par stage fonctionnelle — kanban 6 colonnes drag-drop conservé, statut `onboarding` server replié dans la colonne `hired` côté UI
+- [x] Transaction rollback testé — `node backend/tests/hrm/hrm-recruitment.test.mjs` (alias `npm run test:hrm-recruitment`) couvre : pipeline transitions, refus stage→hired/rejected, hire matérialise les 4 entités liées, idempotence (409 + hiredUserId), **rollback** (hire avec email déjà pris → user.create P2002 → candidate reste `offer`, aucun AccessProvisioning leaké), reject avec rejectionReason, posting lifecycle (delete refusé si candidats actifs)
+
+#### Notes HRM-2.1 (ajoutées 2026-05-23)
+
+**Architecture** :
+- 1 nouveau modèle (`JobPosting`) + extensions additives sur `RecruitmentCandidate` : `jobPostingId`, `interviewDate`, `offerDate`, `offerAmount`/`offerCurrency`, `rejectionReason`. Migration `20260523_recruitment_job_postings` défensive, deploy (DH6 toujours en place).
+- 11 routes `/api/v1/hrm/recruitment/*` toutes gatées `assertPermission` dès le premier commit. Hire et reject ont leurs propres routes ; le PUT générique `/stage` refuse explicitement `hired`/`rejected` (409 avec message de redirection) — un seul chemin pour les transitions terminales.
+
+**Delta plan** :
+- Le plan listait un champ `stage` séparé sur `RecruitmentCandidate`, mais `statusCode` joue déjà ce rôle dans `recruitmentOnboarding.service.mjs`. Ajouter `stage` aurait créé une duplication. `statusCode` reste la source unique de vérité (sourced → screening → interview → offer → hired → onboarding → rejected).
+- Le plan référait à `WorkItemAssigneeSelect.tsx (existant)` — n'existait pas, créé en HRM-1.4. Pour HRM-2.1, le composant `CandidateHiredModal` (498L) existant a été **conservé** : son `onConfirm` appelle maintenant la nouvelle API. Les champs riches du modal (departmentId/hiringManagerId/templateId/offerComp) ne sont **pas encore persistés** côté DB — ils seront branchés sur les templates en HRM-2.2 (Onboarding/Offboarding).
+
+**Migration `can()` → `usePermissions()` — 2/10** :
+- `LeavePage` (HRM-1.5) ✓
+- `RecruitmentPage` (HRM-2.1) ✓
+- Reste : 8 pages HRM (`HRMRouter`, `TrainingPage`, `WeekHeader`, `TimesheetsPage`, `PoliciesPage`, `OnboardingPage`, `CasesPage`, `OffboardingPage`) — au fur et à mesure des sous-tâches HRM-2.
+
+**Commits HRM-2.1** : `89f6a35` (schema), `c58135e` (backend), `5fb54da` (frontend + can migration), `<ce commit>` (tests + plan).
 
 ---
 
