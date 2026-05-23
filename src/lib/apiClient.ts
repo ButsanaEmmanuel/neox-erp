@@ -43,7 +43,7 @@ function emitNetworkActivity() {
   );
 }
 
-type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 
 export async function apiRequest<T>(
   path: string,

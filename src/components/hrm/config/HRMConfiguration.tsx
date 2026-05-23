@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Building2, FileText, Settings, GitBranch, Search, Filter, Plus, Download } from 'lucide-react';
+import { Building2, FileText, Settings, GitBranch, Search, Filter, Plus, Download, Shield, UserCog } from 'lucide-react';
 import PageHeader from '../../ui/PageHeader';
 import HRMImportModal from '../import/HRMImportModal';
 import DepartmentList from './DepartmentList';
 import TemplateList from './TemplateList';
 import AutomationRules from './AutomationRules';
 import DepartmentModal from './DepartmentModal';
+import RolesPage from '../rbac/RolesPage';
+import UserPermissionsPage from '../rbac/UserPermissionsPage';
 import type { Department } from '../../../types/hrm';
 
-type ConfigTab = 'departments' | 'onboarding' | 'offboarding' | 'automation';
+type ConfigTab = 'departments' | 'onboarding' | 'offboarding' | 'automation' | 'roles' | 'user-permissions';
 
 const HRMConfiguration: React.FC = () => {
     const [activeTab, setActiveTab] = useState<ConfigTab>('departments');
@@ -22,6 +24,8 @@ const HRMConfiguration: React.FC = () => {
         { id: 'onboarding', label: 'Onboarding Templates', icon: <FileText size={14} /> },
         { id: 'offboarding', label: 'Offboarding Templates', icon: <LogOutIcon size={14} /> },
         { id: 'automation', label: 'Automation Rules', icon: <GitBranch size={14} /> },
+        { id: 'roles', label: 'Roles', icon: <Shield size={14} /> },
+        { id: 'user-permissions', label: 'User Permissions', icon: <UserCog size={14} /> },
     ];
 
     return (
@@ -94,6 +98,8 @@ const HRMConfiguration: React.FC = () => {
                 {activeTab === 'onboarding' && <TemplateList type="onboarding" searchQuery={searchQuery} />}
                 {activeTab === 'offboarding' && <TemplateList type="offboarding" searchQuery={searchQuery} />}
                 {activeTab === 'automation' && <AutomationRules />}
+                {activeTab === 'roles' && <RolesPage />}
+                {activeTab === 'user-permissions' && <UserPermissionsPage />}
             </div>
 
             <HRMImportModal
