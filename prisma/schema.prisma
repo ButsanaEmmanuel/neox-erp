@@ -79,20 +79,27 @@ model User {
 }
 
 model UserPermissionSet {
-  id          String   @id @default(cuid())
-  userId      String
-  module      String
-  resource    String
-  action      String
-  effect      String   @default("allow")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String      @id @default(cuid())
+  userId       String
+  module       String
+  resource     String
+  action       String
+  effect       String      @default("allow")
+  permissionId String?
+  assignedBy   String?
+  reason       String?
+  expiresAt    DateTime?
+  isActive     Boolean     @default(true)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
-  user        User     @relation(fields: [userId], references: [id])
+  user         User        @relation(fields: [userId], references: [id])
+  permission   Permission? @relation(fields: [permissionId], references: [id])
 
   @@unique([userId, module, resource, action])
   @@index([userId, module, isActive])
+  @@index([permissionId])
+  @@index([expiresAt])
 }
 
 model ResourceStakeholder {
@@ -184,6 +191,9 @@ model Role {
   id           String           @id @default(cuid())
   code         String           @unique
   name         String
+  label        String
+  description  String?
+  isSystem     Boolean          @default(false)
   isActive     Boolean          @default(true)
   isDeleted    Boolean          @default(false)
   createdAt    DateTime         @default(now())
@@ -193,12 +203,14 @@ model Role {
   permissions  RolePermission[]
 
   @@index([isDeleted])
+  @@index([isSystem])
 }
 
 model UserRole {
   id         String    @id @default(cuid())
   userId     String
   roleId     String
+  assignedBy String?
   validFrom  DateTime  @default(now())
   validTo    DateTime?
   createdAt  DateTime  @default(now())
@@ -209,19 +221,24 @@ model UserRole {
   @@unique([userId, roleId, validFrom])
   @@index([userId])
   @@index([roleId])
+  @@index([userId, validTo])
 }
 
 model Permission {
-  id          String               @id @default(cuid())
-  module      String
-  resource    String
-  action      String
-  isActive    Boolean              @default(true)
-  createdAt   DateTime             @default(now())
-  roleLinks   RolePermission[]
-  transitions WorkflowTransition[]
+  id            String               @id @default(cuid())
+  key           String               @unique
+  module        String
+  resource      String
+  action        String
+  description   String?
+  isActive      Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  roleLinks     RolePermission[]
+  transitions   WorkflowTransition[]
+  userOverrides UserPermissionSet[]
 
   @@unique([module, resource, action])
+  @@index([module])
 }
 
 model RolePermission {
