@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🟡 En cours — HRM-1.0, HRM-1.1, HRM-1.2, HRM-1.3, HRM-1.4 fermés (D5/D6/D15 closes côté runtime). HRM-1.5 prochaine étape. Migration des 10 consumers `can()` UI en HRM-1.3 post (non bloquante).
+**Statut global :** ✅ **Sprint HRM-1 fermé** — toutes les tâches HRM-1.0 → HRM-1.5 livrées (D5, D6, D15 closes). Migration des 9 consumers `can()` UI restants en post (non bloquante, 1 commit/page).
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -734,7 +734,7 @@ Quand des champs explicites (`contractor_email`, `contractor_first_name`, `contr
 
 ---
 
-### HRM-1.5 — Leave Management complet
+### HRM-1.5 — Leave Management complet ✅
 
 **Objectif :** Module congés end-to-end — le sous-module RH le plus demandé.
 
@@ -854,25 +854,52 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 ```
 
 **Critères de sortie HRM-1.5**
-- [ ] Employé peut soumettre une demande de congé
-- [ ] Manager voit les demandes en attente, approuve/rejette
-- [ ] Soldes mis à jour en temps réel après action
-- [ ] Calcul correct des jours (weekends exclus)
-- [ ] Vue calendrier affiche les congés approuvés de l'équipe
-- [ ] Admin peut créer/modifier des politiques de congé
-- [ ] États vides, chargement, et erreurs gérés sur chaque vue
+- [x] Employé peut soumettre une demande de congé — `POST /api/v1/hrm/leave/requests` + `LeaveRequestModal` (preview live des jours travaillés, picker policy auto-chargé)
+- [x] Manager voit les demandes en attente, approuve/rejette — `PendingApprovalsPanel` (tab "Approvals" visible si `hrm.leave.execute`) + `PUT /api/v1/hrm/leave/requests/:id/approve|reject`
+- [x] Soldes mis à jour en temps réel après action — toutes les transitions (submit/approve/reject/cancel) tournent dans `prisma.$transaction()` ; UI rafraîchit via `reloadMine()` post-action
+- [x] Calcul correct des jours (weekends exclus) — `calculateLeaveDays()` testé (Mon-Wed=3, Sat-Sun=0, Fri-Mon=2, single weekday=1)
+- [x] Vue calendrier affiche les congés approuvés de l'équipe — `LeaveCalendar` (vue mensuelle Monday-first, approved + pending, badge nombre/jour, navigation prev/today/next)
+- [x] Admin peut créer/modifier des politiques de congé — `LeavePolicyManager` (tab "Policies" visible si `hrm.leave.admin`) + CRUD `/api/v1/hrm/leave/policies`
+- [x] États vides, chargement, et erreurs gérés sur chaque vue — skeleton loaders, empty CTAs, retry banner sur chaque composant (LeavePage, PendingApprovals, PolicyManager, Calendar)
+- [x] Tests passent — `node backend/tests/hrm/hrm-leave.test.mjs` (alias `npm run test:hrm-leave`) — unit `calculateLeaveDays` + 4 cas intégration : INSUFFICIENT_BALANCE 422, approve transitionne pending→used en tx, cancel restitue solde, overlap → 409 CONFLICT + rejected libère la période
+
+#### Notes HRM-1.5 (ajoutées 2026-05-23)
+
+**Architecture** :
+- 3 modèles Prisma (`LeavePolicy`, `LeaveBalance`, `LeaveRequest`) + 3 relations inverses sur `User`.
+- Migration `20260523_leave_management` défensive (CREATE TABLE IF NOT EXISTS + DO $$ FK guards), appliquée via `prisma migrate deploy` (DH6 toujours bloquante pour `migrate dev`).
+- Toutes les routes gatées par `assertPermission()` dès le premier commit — 13 routes au total, mapping permissions :
+  - GET : `hrm.leave.read`
+  - POST request : `hrm.leave.write`
+  - POST/PUT/DELETE policies + POST balances/initialize : `hrm.leave.admin`
+  - PUT approve/reject : `hrm.leave.execute`
+  - DELETE request (cancel) : owner OR `hrm.leave.execute`
+
+**DH2 (PublicHoliday absent)** :
+- Marqueur clair dans `calculateLeaveDays` (1 ligne à décommenter une fois la table créée) et mention dans le helper text de `LeaveRequestModal`. Aucun blocage actuel.
+
+**Pages migrées vers `usePermissions()`** :
+- `LeavePage.tsx` a été refactorisée — passage de `can()` legacy à `usePermissions().has()`. **1/10 consumers migrés** (suite : 9 autres pages HRM à traiter en HRM-1.3 post, 1 commit par page).
+
+**Lazy balance creation** :
+- `findOrCreateBalance()` crée le solde à la première demande si absent (allocated = `policy.daysPerYear`). `initializeBalances({ year, userId?, policyId? })` reste disponible pour le pré-seeding HR explicit.
+
+**Validation overlap** :
+- Bonus testé : une demande `rejected` ne bloque PAS une nouvelle demande sur les mêmes dates (logique : `statusCode IN ('pending', 'approved')`).
+
+**Commits HRM-1.5** : `7836e20` (schema+migration), `1a71811` (backend service+routes), `1df0955` (frontend 5 composants), `<ce commit>` (tests + plan).
 
 ---
 
 ### Critères de sortie Sprint HRM-1
 
-- [ ] D5 fermée — FK RESTRICT en place
-- [ ] D6 fermée — `rbac.ts` sans hardcode, résolution DB
-- [ ] D15 fermée — assignés télécom → contractors HRM
-- [ ] RBAC UI fonctionnel — rôles, permissions, overrides
-- [ ] Leave management end-to-end fonctionnel
-- [ ] Aucun `any` TypeScript non commenté introduit
-- [ ] Toutes les nouvelles routes protégées par `requirePermission()`
+- [x] D5 fermée — FK RESTRICT en place (commit `0d66980`)
+- [x] D6 fermée — `rbac.ts` runtime sans hardcode, résolution DB ; backend HRM 11 routes branchées via `assertPermission` (commits `6d21c05`, `ff4cdc2`, `3642140`, `4de49e6`). Shim `can()` legacy reste pour 9 pages UI à migrer post-sprint.
+- [x] D15 fermée — assignés télécom → contractors HRM (commits `574517b`, `cee6626`)
+- [x] RBAC UI fonctionnel — rôles, permissions, overrides (commits `1b62305`, `ab5330a`)
+- [x] Leave management end-to-end fonctionnel (commits `7836e20`, `1a71811`, `1df0955`, + tests)
+- [x] Aucun `any` TypeScript non commenté introduit — `tsc --noEmit` exit 0 à chaque commit frontend
+- [x] Toutes les nouvelles routes HRM protégées par `assertPermission()` — toutes les routes HRM-1.3 (RBAC admin), HRM-1.4 (assignables + contractor upsert ouvert), HRM-1.5 (leave) gatées dès le premier commit. PM/Finance routes existantes restent sur `canManageHrmAdministration`/`assertModuleAccess` jusqu'à un sprint dédié.
 
 ---
 

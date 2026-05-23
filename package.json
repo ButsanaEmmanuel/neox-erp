@@ -12,7 +12,8 @@
         "reset:scm": "node scripts/reset-scm-data.mjs",
         "preview": "vite preview",
         "test:telecom": "node backend/tests/telecom-multisite.assert.mjs",
-        "test:project-client-inline": "node backend/tests/project-client-inline.assert.mjs"
+        "test:project-client-inline": "node backend/tests/project-client-inline.assert.mjs",
+        "test:hrm-leave": "node backend/tests/hrm/hrm-leave.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"
