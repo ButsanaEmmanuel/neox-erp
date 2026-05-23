@@ -72,6 +72,9 @@ model User {
   ownedCrmDeals      CrmDeal[]              @relation("CrmDealOwner")
   ownedClientAccounts ClientAccount[]       @relation("CrmClientOwner")
   ownedMilestones    Milestone[]            @relation("MilestoneOwner")
+  leaveRequests      LeaveRequest[]         @relation("LeaveRequestUser")
+  reviewedLeave      LeaveRequest[]         @relation("LeaveReviewer")
+  leaveBalances      LeaveBalance[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1583,7 +1586,77 @@ model DomainEvent {
   @@index([publishedAt])
 }
 
+// ============================================================
+// HRM-1.5 — Leave management
+// ============================================================
 
+model LeavePolicy {
+  id               String         @id @default(cuid())
+  name             String
+  leaveType        String         // "annual" | "sick" | "unpaid" | "maternity" | "paternity" | "other"
+  daysPerYear      Decimal        @db.Decimal(5, 2)
+  carryOverMax     Decimal        @db.Decimal(5, 2) @default(0)
+  requiresApproval Boolean        @default(true)
+  noticeDays       Int            @default(0)
+  isActive         Boolean        @default(true)
+  isDeleted        Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  deletedAt        DateTime?
 
+  leaveBalances    LeaveBalance[]
+  leaveRequests    LeaveRequest[]
 
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([leaveType])
+}
+
+model LeaveBalance {
+  id         String      @id @default(cuid())
+  userId     String
+  policyId   String
+  year       Int
+  allocated  Decimal     @db.Decimal(6, 2)
+  used       Decimal     @db.Decimal(6, 2) @default(0)
+  pending    Decimal     @db.Decimal(6, 2) @default(0)
+  carryOver  Decimal     @db.Decimal(6, 2) @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id])
+  policy     LeavePolicy @relation(fields: [policyId], references: [id])
+
+  @@unique([userId, policyId, year])
+  @@index([userId])
+  @@index([year])
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  userId      String
+  policyId    String
+  startDate   DateTime
+  endDate     DateTime
+  days        Decimal     @db.Decimal(5, 2)
+  reason      String?
+  statusCode  String      @default("pending")
+                          // "pending" | "approved" | "rejected" | "cancelled"
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  reviewNote  String?
+  isDeleted   Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  deletedAt   DateTime?
+
+  user        User        @relation("LeaveRequestUser", fields: [userId], references: [id])
+  policy      LeavePolicy @relation(fields: [policyId], references: [id])
+  reviewer    User?       @relation("LeaveReviewer", fields: [reviewedBy], references: [id])
+
+  @@index([userId, statusCode])
+  @@index([policyId])
+  @@index([startDate, endDate])
+  @@index([isDeleted])
+}
 
