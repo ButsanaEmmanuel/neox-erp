@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 fermés 2026-05-23. HRM-2.3 → HRM-2.7 à venir.
+**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 + HRM-2.3 fermés 2026-05-23. HRM-2.4 → HRM-2.7 à venir.
 
 ---
 
@@ -1094,7 +1094,7 @@ Commit : feat(hrm): onboarding/offboarding checklists — ref HRM-2.2
 
 **Migration `can()` → `usePermissions()` — 4/10** :
 - ✅ LeavePage, RecruitmentPage, OnboardingPage, OffboardingPage
-- Reste : HRMRouter, TrainingPage, WeekHeader, TimesheetsPage, PoliciesPage, CasesPage
+- Reste : HRMRouter, WeekHeader, TimesheetsPage, PoliciesPage, CasesPage (TrainingPage migrée en HRM-2.3)
 
 **Delta plan** :
 - Le plan listait `OnboardingChecklistTask.completedBy String?` ; ajouté avec relation `User?` sur `completedByUserId` + `@@relation("OnboardingTaskCompletedBy")`.
@@ -1162,9 +1162,29 @@ Commit : feat(hrm): training courses + enrollments — ref HRM-2.3
 ```
 
 **Critères de sortie HRM-2.3**
-- [ ] Créer un cours, inscrire des employés
-- [ ] Employé voit ses formations en cours et terminées
-- [ ] Badge "Certifié" sur le profil employé si complété
+- [x] Créer un cours, inscrire des employés — `createCourse` + `enrollUser` (`backend/services/hrm/training.service.mjs`), POST `/api/v1/hrm/training/courses` et `/api/v1/hrm/training/enrollments` gates `hrm.training.write` / `hrm.training.execute` (`backend/routes/hrm/training.routes.mjs`).
+- [x] Employé voit ses formations en cours et terminées — tab Enrollments scopée `forUserId={user.id}` en self-service (sans `hrm.training.execute`), vue globale sinon (`src/components/hrm/training/TrainingPage.tsx`).
+- [x] Badge "Certifié" sur le profil employé si complété — pill `Certifié` + section Certifications dans `src/components/hrm/EmployeeDrawer.tsx`, alimentée par `GET /api/v1/hrm/training/certifications/:userId` (résolution Person→User par email via `assignablesApi`).
+
+**Décisions HRM-2.3**
+- `@@unique([userId, courseId])` enforce au DB la règle "pas de double inscription". Le service lève 409 `ALREADY_ENROLLED` (avec `enrollmentId` + `currentStatus`) avant que la contrainte ne déclenche un P2002.
+- Ré-inscription après annulation : on **revit la ligne existante en place** (statusCode `enrolled`, `cancelledAt = null`) plutôt qu'en créer une nouvelle, pour que `@@unique` tienne sans soft-delete artificiel.
+- Permission split : `read` (catalogue + enrollments + certifications), `write` (CRUD cours), `execute` (enroll / complete / cancel) — déjà seedé en HRM-1.1.
+- `score` est un `Decimal(5,2)` (pas Float comme le DRAFT) pour rester cohérent avec les autres champs monétaires/numériques du schéma.
+- `cancelledAt` + `dueDate` ajoutés au modèle (hors DRAFT) : utiles pour l'UI (rappels) et pour distinguer annulation manuelle d'un soft-delete.
+- `category` ajouté sur `TrainingCourse` (hors DRAFT) pour le filtrage UI (Compliance / Technical / Leadership / Other).
+- `actorFromCtx` du route handler n'a **pas** de fallback `body.userId` car sur un POST enrollment `body.userId` est l'employé cible — l'appelant doit passer `actorUserId` (query string ou body).
+- Migration `can()` → `usePermissions()` : 5/10 pages migrées (`TrainingPage` + les 4 précédentes). Reste : `HRMRouter`, `WeekHeader`, `TimesheetsPage`, `PoliciesPage`, `CasesPage`.
+- `StatusChip` étendu avec `enrolled` (bleu) + `cancelled` (slate) pour la cohérence visuelle avec les autres statuts HRM.
+
+**Tests HRM-2.3** (`backend/tests/hrm/hrm-training.test.mjs` — `npm run test:hrm-training`)
+- ✓ Inscription → statusCode `enrolled`
+- ✓ Double inscription même cours → 409 `ALREADY_ENROLLED` avec `currentStatus`
+- ✓ Annulation puis ré-inscription → même ligne réactivée (pas de duplicate)
+- ✓ Complétion → `completedAt` + `score` + `certificate` stockés, `getUserCertifications` les surface
+- ✓ 403 sans permission `hrm.training.execute` (`assertPermission` testé avec `res` mocké)
+
+**Commits HRM-2.3** : `1a88ccc` (schéma + migration), `fc29dfd` (backend service + routes), `a27b86f` (frontend + can() migration + badge), `<ce commit>` (tests + plan).
 
 ---
 
