@@ -83,6 +83,7 @@ model User {
   offboardingChecklists      OffboardingChecklist[]     @relation("OffboardingUser")
   completedOnboardingTasks   OnboardingChecklistTask[]  @relation("OnboardingTaskCompletedBy")
   completedOffboardingTasks  OffboardingChecklistTask[] @relation("OffboardingTaskCompletedBy")
+  trainingEnrollments        TrainingEnrollment[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1778,6 +1779,59 @@ model OffboardingChecklistTask {
 
   @@index([checklistId])
   @@index([statusCode])
+}
+
+// ============================================================
+// HRM-2.3 — Training catalogue + per-employee enrollments
+// ============================================================
+
+model TrainingCourse {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  provider      String?
+  category      String?
+  durationHours Int?
+  isInternal    Boolean  @default(true)
+  isMandatory   Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  isDeleted     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  enrollments   TrainingEnrollment[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([isMandatory])
+}
+
+model TrainingEnrollment {
+  id          String    @id @default(cuid())
+  userId      String
+  courseId    String
+  statusCode  String    @default("enrolled")  // enrolled | in_progress | completed | cancelled
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+  cancelledAt DateTime?
+  dueDate     DateTime?
+  score       Decimal?  @db.Decimal(5, 2)
+  certificate String?
+  notes       String?
+  isDeleted   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  user        User           @relation(fields: [userId], references: [id])
+  course      TrainingCourse @relation(fields: [courseId], references: [id])
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+  @@index([statusCode])
+  @@index([isDeleted])
 }
 
 // ============================================================
