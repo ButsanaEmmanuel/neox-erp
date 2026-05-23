@@ -89,6 +89,7 @@ model User {
   reportedCases              HrmCase[]                @relation("CaseReporter")
   assignedCases              HrmCase[]                @relation("CaseAssignee")
   authoredCaseEvents         HrmCaseEvent[]           @relation("CaseEventAuthor")
+  approvedTimesheets         TimesheetEntry[]         @relation("TimesheetApprover")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1485,24 +1486,36 @@ model FinanceLedgerMapping {
   @@index([isActive])
 }
 model TimesheetEntry {
-  id            String      @id @default(cuid())
-  userId        String
-  departmentId  String
-  workDate      DateTime
-  hours         Decimal     @db.Decimal(5, 2)
-  description   String?
-  statusCode    String      @default("submitted")
-  isDeleted     Boolean     @default(false)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  deletedAt     DateTime?
+  id               String      @id @default(cuid())
+  userId           String
+  departmentId     String
+  projectId        String?
+  workDate         DateTime
+  weekStartDate    DateTime?   // ISO week (Monday). Service stamps it.
+  hours            Decimal     @db.Decimal(5, 2)
+  description      String?
+  statusCode       String      @default("submitted")  // legacy default — service writes "draft" for new rows
+  submittedAt      DateTime?
+  approvedAt       DateTime?
+  approvedByUserId String?
+  rejectedAt       DateTime?
+  reviewerComment  String?
+  isDeleted        Boolean     @default(false)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  deletedAt        DateTime?
 
-  user          User        @relation(fields: [userId], references: [id])
-  department    Department  @relation(fields: [departmentId], references: [id])
+  user             User        @relation(fields: [userId], references: [id])
+  department       Department  @relation(fields: [departmentId], references: [id])
+  approvedBy       User?       @relation("TimesheetApprover", fields: [approvedByUserId], references: [id])
 
   @@index([userId, workDate])
   @@index([departmentId])
   @@index([isDeleted])
+  @@index([statusCode])
+  @@index([weekStartDate])
+  @@index([approvedByUserId])
+  @@index([projectId])
 }
 
 model PurchaseRequest {
