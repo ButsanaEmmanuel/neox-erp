@@ -9,6 +9,7 @@ import { ACCEPTANCE_MANUAL_FIELDS, formatManualFieldValue, ManualFieldDef, OPERA
 import { deleteProjectItemFileFromBackend, fetchProjectItemActivities, fetchProjectItemFiles, getProjectItemFileDownloadUrl, saveProjectItemDetailsToBackend, uploadProjectItemFileToBackend, BackendActivity, BackendFile } from '../../services/pm/projectItemBackend.service';
 import { notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
 import { useAuth } from '../../contexts/AuthContext';
+import WorkItemAssigneeSelect from './WorkItemAssigneeSelect';
 
 interface WorkItemDrawerProps {
   workItemId: string | null;
@@ -528,7 +529,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
               {activeTab === 'details' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="text-xs text-muted">Assignee</label><input type="text" value={formData.assignee || ''} onChange={(e) => setFormData((prev) => ({ ...prev, assignee: e.target.value }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary" /></div>
+                    <div>
+                      <label className="text-xs text-muted">Assignee</label>
+                      <div className="mt-1">
+                        <WorkItemAssigneeSelect
+                          value={formData.assignee || ''}
+                          onChange={(next) => setFormData((prev) => ({ ...prev, assignee: next }))}
+                        />
+                      </div>
+                    </div>
                     <div><label className="text-xs text-muted">Type</label><select value={formData.type} onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as WorkItemType }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="task">Task</option><option value="milestone">Milestone</option><option value="deliverable">Deliverable</option><option value="issue">Issue</option><option value="site">Site</option></select></div>
                     <div>
                       <label className="text-xs text-muted">Planned Date</label>
