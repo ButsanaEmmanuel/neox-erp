@@ -157,6 +157,9 @@ import { handleHrmRecruitmentRoutes } from './routes/hrm/recruitment.routes.mjs'
 import { handleHrmOnboardingRoutes } from './routes/hrm/onboarding.routes.mjs';
 // HRM route modules (HRM-2.3)
 import { handleHrmTrainingRoutes } from './routes/hrm/training.routes.mjs';
+// HRM route modules (HRM-2.4)
+import { handleHrmPoliciesRoutes } from './routes/hrm/policies.routes.mjs';
+import { handleHrmCasesRoutes } from './routes/hrm/cases.routes.mjs';
 
 // RBAC raw-http gate (HRM-1.2 Commit B)
 import { assertPermission } from './services/auth/rbac.service.mjs';
@@ -955,6 +958,16 @@ const server = http.createServer(async (req, res) => {
       req, res, url, pathname, method, prisma, parseBody, json,
     });
     if (hrmTrainingHandled) return;
+
+    const hrmPoliciesHandled = await handleHrmPoliciesRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmPoliciesHandled) return;
+
+    const hrmCasesHandled = await handleHrmCasesRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmCasesHandled) return;
 
     const pmHandled = await handlePmProjectRoutes({
       req, res, url, pathname, method, prisma,
