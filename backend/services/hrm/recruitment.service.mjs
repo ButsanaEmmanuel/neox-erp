@@ -319,12 +319,27 @@ export async function hireCandidate(prisma, candidateId, input, { actorUserId })
 
   try {
     const result = await transitionCandidateToOnboarding(
-      { candidateId, actorUserId, professionalEmail, companyName, appUrl },
+      {
+        candidateId,
+        actorUserId,
+        professionalEmail,
+        companyName,
+        appUrl,
+        // HRM-2.2 hook — explicit template id from CandidateHiredModal
+        // wins over the dept lookup inside transitionCandidateToOnboarding.
+        onboardingTemplateId: input?.onboardingTemplateId ?? input?.templateId ?? null,
+        startDate: input?.startDate,
+      },
       'onboarding',
     );
     return await getCandidate(prisma, candidateId).then((c) => ({
       candidate: c,
-      provisioning: { userId: result.userId, username: result.username, temporaryPassword: result.temporaryPassword },
+      provisioning: {
+        userId: result.userId,
+        username: result.username,
+        temporaryPassword: result.temporaryPassword,
+      },
+      onboardingChecklistId: result.onboardingChecklistId ?? null,
     }));
   } catch (err) {
     // The underlying service throws plain Error; map well-known ones to HTTP.
