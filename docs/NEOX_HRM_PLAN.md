@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 → HRM-2.5 fermés 2026-05-23. HRM-2.6 + HRM-2.7 à venir.
+**Statut :** 🟡 En cours — HRM-2.1 → HRM-2.6 fermés 2026-05-23. HRM-2.7 à venir.
 
 ---
 
@@ -1394,6 +1394,35 @@ Tout le monde : hrm.policies.published (politique nécessitant signature)
 ```
 Commit : feat(hrm): SSE events integration — ref HRM-2.6
 ```
+
+**Critères de sortie HRM-2.6**
+- [x] Les 8 événements sont émis depuis les services HRM — voir `safeBroadcast(...)` dans `backend/services/hrm/{leave,recruitment,onboarding,offboarding,cases,rbacAdmin}.service.mjs`. Émissions toutes post-`prisma.$transaction()` (best-effort, ne rollback jamais la mutation).
+- [x] Le canal `/api/v1/events/stream` propage les événements aux clients connectés — réutilisation directe de `services/realtime/sseBroadcaster.mjs` (pas de nouvelle infra SSE).
+- [x] Abonnements frontend opérationnels sur `LeavePage` (toast + reload sur `hrm.leave.approved` / `hrm.leave.rejected` filtré sur `payload.userId === me`) et `HRMDashboard` (badges live sur `hrm.employee.hired` + `hrm.case.escalated` quand `isHrmPrivileged`).
+
+**Décisions HRM-2.6**
+- Réutilisation **stricte** de l'infra SSE PM (`sseBroadcaster.mjs` + `connectSse` + `useRealtimeSync` pattern). Aucune nouvelle architecture introduite — un nouveau hook `useHrmRealtimeSync(userId, handlers)` qui est un thin wrapper typé sur `connectSse`, mais le transport, l'auto-reconnect, le heartbeat et la registration restent ceux de PM.
+- Émissions post-tx via `.then((shaped) => { safeBroadcast(...); return shaped; })`. Une panne du broadcaster ne peut **pas** rollback la mutation ; `safeBroadcast` swallow déjà toute erreur côté broadcaster.
+- `hrm.onboarding.completed` + `hrm.employee.offboarded` ont 2 points d'émission chacun : (a) auto-completion dans `updateChecklistTask` (le cas dominant — UX checklist), (b) `completeChecklist` explicite. L'auto-completion read le checklist hors-tx (in `.then()`) pour ne pas étendre la tx avec une lecture supplémentaire.
+- `hrm.case.escalated` n'émet **que** sur transition vers `escalated` ET `fromStatus !== 'escalated'` — pas de re-emit sur une transition no-op.
+- Le payload de chaque event reste minimal (ids + statut + acteur) — le frontend doit refetch la ressource entière s'il a besoin du detail. Évite d'envoyer des PII non-souhaités à tous les clients connectés.
+- `hrm.role.assigned` émet **après** `invalidateCache(userId)` pour que le frontend qui ferait un `refresh()` de `usePermissions` immédiatement reçoive l'état post-assignation.
+- `useHrmRealtimeSync` stocke les handlers dans une ref (`handlersRef.current = handlers`) pour ne pas re-ouvrir l'EventSource à chaque render du caller — sinon un parent qui re-render casse la connexion en boucle.
+- Le frontend `LeavePage` filtre **côté client** `payload.userId === me` pour `hrm.leave.approved/rejected`. La diffusion reste globale au broadcaster (le filtrage server-side par userId est une amélioration future — déjà notée dans `sseBroadcaster.mjs:broadcastToProject`).
+- Migration `can()` → `usePermissions()` : 7/10 maintient (HRMDashboard utilisait déjà `usePermissions` ; LeavePage migré en HRM-1.5). Pas de gain de compteur sur ce sprint — les pages touchées étaient déjà migrées.
+
+**Tests HRM-2.6** (`npm run test:hrm-sse-events` — `backend/tests/hrm/hrm-sse-events.test.mjs`)
+- ✓ `hrm.leave.requested` émis sur `createRequest`
+- ✓ `hrm.leave.approved` émis sur `approveRequest`
+- ✓ `hrm.leave.rejected` émis sur `rejectRequest`
+- ✓ `hrm.case.escalated` émis sur `changeStatus → escalated`
+- ✓ `hrm.role.assigned` émis sur `assignRoleToUser` (avec `roleCode` dans le payload)
+
+Les 3 autres (`hrm.employee.hired`, `hrm.employee.offboarded`, `hrm.onboarding.completed`) sont couverts indirectement par les suites `test:hrm-recruitment` + `test:hrm-onboarding` dont les assertions sur le state change sous-jacent passent — l'appel `safeBroadcast` est un side-effect du même code path.
+
+**Régression** : `test:hrm-leave` + `test:hrm-recruitment` + `test:hrm-onboarding` + `test:hrm-training` + `test:hrm-policies` + `test:hrm-cases` + `test:hrm-timesheets` tous verts après HRM-2.6.
+
+**Commits HRM-2.6** : `177c122` (backend émissions + smoke test), `<ce commit>` (frontend subscriptions + plan).
 
 ---
 

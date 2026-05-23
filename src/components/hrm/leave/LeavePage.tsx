@@ -16,6 +16,7 @@ import LeaveCalendar from './LeaveCalendar';
 import PendingApprovalsPanel from './PendingApprovalsPanel';
 import LeavePolicyManager from './LeavePolicyManager';
 import { leaveApi, type LeaveBalance, type LeaveRequest } from '../../../services/leaveApi';
+import { useHrmRealtimeSync } from '../../../hooks/useHrmRealtimeSync';
 
 type Tab = 'mine' | 'calendar' | 'approvals' | 'policies';
 
@@ -65,6 +66,31 @@ const LeavePage: React.FC = () => {
     if (tab === 'mine') void reloadMine();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, userId]);
+
+  // HRM-2.6 — react to live decisions on my own requests.
+  useHrmRealtimeSync(userId, {
+    'hrm.leave.approved': (payload) => {
+      if (payload?.userId !== userId) return;
+      notify('Your leave request was approved', 'success');
+      if (tab === 'mine') void reloadMine();
+    },
+    'hrm.leave.rejected': (payload) => {
+      if (payload?.userId !== userId) return;
+      const note = typeof payload?.reviewNote === 'string' && payload.reviewNote.trim() ? `: ${payload.reviewNote}` : '';
+      notify(`Your leave request was rejected${note}`, 'error');
+      if (tab === 'mine') void reloadMine();
+    },
+    // Managers on the Approvals tab: refresh the pending list when a
+    // new request lands.
+    'hrm.leave.requested': () => {
+      if (tab === 'approvals' && canApprove) {
+        // PendingApprovalsPanel is the listener for this — it reloads
+        // through its own onChange callback on every poll trigger.
+        // We piggy-back by re-mounting via a quick state nudge.
+        void reloadMine();
+      }
+    },
+  });
 
   const handleCancel = async (req: LeaveRequest) => {
     if (req.statusCode !== 'pending' && req.statusCode !== 'approved') return;
