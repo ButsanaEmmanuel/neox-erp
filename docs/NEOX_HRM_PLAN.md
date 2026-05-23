@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 + HRM-2.3 + HRM-2.4 fermés 2026-05-23. HRM-2.5 → HRM-2.7 à venir.
+**Statut :** 🟡 En cours — HRM-2.1 → HRM-2.5 fermés 2026-05-23. HRM-2.6 + HRM-2.7 à venir.
 
 ---
 
@@ -1094,7 +1094,7 @@ Commit : feat(hrm): onboarding/offboarding checklists — ref HRM-2.2
 
 **Migration `can()` → `usePermissions()` — 4/10** :
 - ✅ LeavePage, RecruitmentPage, OnboardingPage, OffboardingPage
-- Reste : HRMRouter, WeekHeader, TimesheetsPage (PoliciesPage + CasesPage migrées en HRM-2.4, TrainingPage en HRM-2.3) — 6/10
+- Reste : HRMRouter, WeekHeader, WeekEditor (TimesheetsPage migrée en HRM-2.5 — WeekHeader/WeekEditor/WeekSummary devenus dead code à nettoyer ; PoliciesPage + CasesPage en HRM-2.4 ; TrainingPage en HRM-2.3) — 7/10
 
 **Delta plan** :
 - Le plan listait `OnboardingChecklistTask.completedBy String?` ; ajouté avec relation `User?` sur `completedByUserId` + `@@relation("OnboardingTaskCompletedBy")`.
@@ -1334,9 +1334,34 @@ Commit : feat(hrm): timesheets routes completion + payroll link — ref HRM-2.5
 ```
 
 **Critères de sortie HRM-2.5**
-- [ ] Saisie hebdomadaire via WeekEditor fonctionnelle
-- [ ] Soumission → validation manager → transmission payroll
-- [ ] Heures non approuvées exclues du calcul payroll
+- [x] Saisie hebdomadaire via WeekEditor fonctionnelle — refactor de [TimesheetsPage.tsx](src/components/hrm/timesheets/TimesheetsPage.tsx) sur `timesheetsApi` ; chaque cellule éditable POST `/api/v1/hrm/timesheets` en upsert/delete au blur, naviguation des semaines via `?weekStart`. `WeekGrid` local bucket les entries par `projectId` pour rendre la grille hebdo familière.
+- [x] Soumission → validation manager → transmission payroll — PUT `/api/v1/hrm/timesheets/users/:uid/week/:date/submit` côté employé, PUT `/api/v1/hrm/timesheets/users/:uid/week/:date/approve` côté manager (`hrm.timesheets.execute`). L'onglet Approvals liste `/pending` et permet review + approve/reject. Le payroll engine consomme `statusCode = "approved"` ([payrollEngine.service.mjs:404](backend/services/hrm/payrollEngine.service.mjs:404)) — aucune modification engine nécessaire, le branchement est passif.
+- [x] Heures non approuvées exclues du calcul payroll — vérifié dans le test : `checkPayrollExcludesNonApproved` reproduit à l'identique la requête `where: { statusCode: 'approved', workDate: { gte, lte } }` du payroll engine et assert qu'une ligne draft n'apparaît pas + qu'une ligne approuvée apparaît. Si la requête de l'engine drift, le test casse.
+
+**Décisions HRM-2.5**
+- Modèle existant : `TimesheetEntry` avec default `statusCode = "submitted"` (legacy). Migration **additive only** — colonnes nouvelles toutes nullable (`projectId`, `weekStartDate`, `submittedAt`, `approvedAt`, `approvedByUserId`, `rejectedAt`, `reviewerComment`). Le service force `"draft"` à la création des nouvelles lignes ; le default colonne reste `"submitted"` pour ne pas casser d'éventuel writer externe.
+- Backfill : `UPDATE TimesheetEntry SET weekStartDate = date_trunc('week', workDate)` pour que les lectures `where: { weekStartDate }` fonctionnent sur les lignes legacy.
+- Une ligne `TimesheetEntry` = un (userId, workDate, projectId). La "semaine" est une vue dérivée — le service expose `getWeek()` qui agrège par bucket de 7 jours et calcule un `statusCode` rollup (rejected > submitted > approved > draft).
+- Permission `hrm.timesheets.write` requise pour upsert/delete/submit ; `hrm.timesheets.execute` pour approve/reject + listing global. `hrm.cases.read` sans `hrm.timesheets.execute` = scope self-only sur GET `/timesheets` (la route filtre via `getUserPermissions`).
+- Auth des transitions au niveau service (belt + braces) : `submitEntry` vérifie owner, refuse de re-submit une ligne `approved` (409 `ENTRY_APPROVED`), idempotent sur `submitted`. `approveEntry` exige `submitted` (409 `ENTRY_NOT_SUBMITTED` sinon avec `currentStatus`). `rejectEntry` clear l'approver bookkeeping pour repartir propre.
+- `upsertEntry` côté UI : envoyer `hours = 0` déclenche un DELETE plutôt qu'un store. Évite les lignes fantômes.
+- `weekStartOf()` calcule le lundi ISO en UTC (jour 1 = lundi, jour 0 = dimanche shifted to -6). Reproduit dans le test pour la même précision.
+- `actorFromCtx` strict (pas de fallback `body.userId` — `body.userId` est la cible).
+- FK `approvedByUserId` ON DELETE SET NULL — on perd l'attribution mais jamais les heures.
+- Migration `can()` → `usePermissions()` : 7/10 pages (`TimesheetsPage` en plus). Reste : HRMRouter, WeekHeader, plus quelques drawers internes (WeekHeader/WeekEditor/WeekSummary sont devenus du dead code à supprimer dans un sprint suivant — TimesheetsPage les a remplacés).
+
+**Tests HRM-2.5** (`npm run test:hrm-timesheets` — `backend/tests/hrm/hrm-timesheets.test.mjs`)
+- ✓ `upsertEntry` : statusCode `draft` + `weekStartDate` stamped
+- ✓ `submitEntry` : draft → submitted, `submittedAt` stamped
+- ✓ `approveEntry` : submitted → approved, `approvedByUserId` + `approvedAt` stamped
+- ✓ Submit d'une entrée déjà approuvée → 409 `ENTRY_APPROVED`
+- ✓ Approve d'une entrée non soumise → 409 `ENTRY_NOT_SUBMITTED` avec `currentStatus`
+- ✓ Heures non approuvées exclues du calcul payroll (mirror de la query engine)
+- ✓ 403 sans permission `hrm.timesheets.execute` (`assertPermission` testé avec `res` mocké)
+
+**Régression** : `test:hrm-leave` + `test:hrm-recruitment` + `test:hrm-onboarding` + `test:hrm-training` + `test:hrm-policies` + `test:hrm-cases` tous verts après HRM-2.5.
+
+**Commits HRM-2.5** : `00530b9` (schéma + migration), `3e8cd4d` (backend service + routes), `6304ce4` (frontend + can() migration), `<ce commit>` (tests + plan).
 
 ---
 
