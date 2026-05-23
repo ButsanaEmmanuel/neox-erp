@@ -142,6 +142,9 @@ import {
 // PM route modules
 import { handlePmProjectRoutes } from './routes/pm/projects.routes.mjs';
 
+// Auth route modules (HRM-1.2)
+import { handleAuthMeRoutes } from './routes/auth/me.routes.mjs';
+
 function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -901,6 +904,11 @@ const server = http.createServer(async (req, res) => {
       }));
       return json(res, 200, { contracts, pagination: rows.pagination || null });
     }
+
+    const authMeHandled = await handleAuthMeRoutes({
+      req, res, url, pathname, method, json,
+    });
+    if (authMeHandled) return;
 
     const pmHandled = await handlePmProjectRoutes({
       req, res, url, pathname, method, prisma,
