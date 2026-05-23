@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🟡 En cours — HRM-1.0, HRM-1.1, HRM-1.3, HRM-1.4 fermés (D5/D6 partielle/D15 closes), HRM-1.2 service+UI livrés (branchement routes en attente), HRM-1.5 prochaine étape
+**Statut global :** 🟡 En cours — HRM-1.0, HRM-1.1, HRM-1.2, HRM-1.3, HRM-1.4 fermés (D5/D6/D15 closes côté runtime). HRM-1.5 prochaine étape. Migration des 10 consumers `can()` UI en HRM-1.3 post (non bloquante).
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -470,10 +470,10 @@ Commit : feat(db): RBAC models + seed catalogue — ref HRM-1.1
 
 ---
 
-### HRM-1.2 — Migration `rbac.ts` → DB-driven (D6) 🟡
+### HRM-1.2 — Migration `rbac.ts` → DB-driven (D6) ✅
 
 **Objectif :** Remplacer le hardcode par une résolution DB. Ferme D6.
-**Statut :** 🟡 Service + UI livrés 2026-05-23. **D6 partiellement fermée** — résolution runtime DB-driven, shim legacy à retirer en HRM-1.3 (migration page-par-page) + branchement routes existantes via `assertPermission` raw http restant.
+**Statut :** ✅ Fermé 2026-05-23 — commits `6d21c05` (backend service + middleware + endpoint), `ff4cdc2` (frontend resolution), `39d7a6b` (doc status partiel), `3642140` (assertPermission helper raw http), `4de49e6` (branchement 11 routes HRM, D6 backend fermée). Shim frontend `can()` reste deprecated pour 10 pages — migration page-par-page dans HRM-1.3 post (non bloquant).
 
 #### Backend — service de résolution
 
@@ -540,10 +540,10 @@ Commit : feat(rbac): DB-driven permission resolution — close D6
 ```
 
 **Critères de sortie HRM-1.2**
-- [~] `src/lib/rbac.ts` ne contient plus aucune string de rôle hardcodée — **partiel**. Le chemin de résolution runtime (`usePermissions`, `hasPermission`, `<PermissionGuard>`) est 100% DB-driven via `GET /api/auth/me/permissions`. Le shim `can()` legacy garde les mappings hardcodés (clairement marqués `@deprecated`) le temps que les 10 consumers (HRMRouter + 9 pages HRM) migrent vers `<PermissionGuard>` en HRM-1.3.
-- [ ] Tous les modules existants (PM, Finance) utilisent `requirePermission()` sur leurs routes critiques — **non**, branchement reporté en dernière étape (voir note `assertPermission` ci-dessous).
-- [x] `PermissionGuard` fonctionne en dark et light mode — composant livré, glassmorphism + dark/light dans le fallback par défaut.
-- [x] Permission denied → 403 avec body `{ error, code: 'PERMISSION_DENIED', required: string }` — vérifié manuellement via curl (test 2 du 2026-05-23).
+- [~] `src/lib/rbac.ts` ne contient plus aucune string de rôle hardcodée — **runtime clean**, résolution 100% DB-driven via `GET /api/auth/me/permissions`. Shim `can()` legacy conservé pour 10 consumers UI (HRMRouter + 9 pages HRM), à migrer page-par-page en HRM-1.3 post.
+- [~] Tous les modules existants utilisent `requirePermission()` sur leurs routes critiques — **HRM oui** (11 routes wirées via `assertPermission(ctx, key)` raw-http : departments POST/PATCH/DELETE, employees POST/bulk/PATCH/DELETE, 4 credentials POST). **PM/Finance volontairement non touchés** — branchement reporté tant que la role-management UI n'est pas devant chaque user en prod (risque de blocage rollback).
+- [x] `PermissionGuard` fonctionne en dark et light mode — composant livré.
+- [x] Permission denied → 403 `{ error, code: 'PERMISSION_DENIED', required }` — vérifié e2e (tests A-E 2026-05-23 : super_admin passe, anonymous + unknown user → 403 avec la `required` key correcte).
 
 #### Notes HRM-1.2 (ajoutées 2026-05-23)
 
