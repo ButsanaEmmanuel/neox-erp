@@ -22,6 +22,7 @@ model Department {
   timesheets  TimesheetEntry[]
   requests    PurchaseRequest[]
   recruitments RecruitmentCandidate[]
+  jobPostings  JobPosting[]
 
   @@index([isDeleted])
 }
@@ -75,6 +76,7 @@ model User {
   leaveRequests      LeaveRequest[]         @relation("LeaveRequestUser")
   reviewedLeave      LeaveRequest[]         @relation("LeaveReviewer")
   leaveBalances      LeaveBalance[]
+  createdJobPostings JobPosting[]           @relation("JobPostingCreator")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1520,6 +1522,12 @@ model RecruitmentCandidate {
   position                String
   statusCode              String      @default("sourced")
   recruitmentDepartmentId String
+  jobPostingId            String?
+  interviewDate           DateTime?
+  offerDate               DateTime?
+  offerAmount             Decimal?    @db.Decimal(14, 2)
+  offerCurrency           String?
+  rejectionReason         String?
   hiredUserId             String?     @unique
   hiredAt                 DateTime?
   isDeleted               Boolean     @default(false)
@@ -1528,11 +1536,13 @@ model RecruitmentCandidate {
   deletedAt               DateTime?
 
   recruitmentDepartment   Department  @relation(fields: [recruitmentDepartmentId], references: [id])
+  jobPosting              JobPosting? @relation(fields: [jobPostingId], references: [id])
   hiredUser               User?       @relation("CandidateHiredUser", fields: [hiredUserId], references: [id])
   accessProvisionings     AccessProvisioning[]
 
   @@index([statusCode])
   @@index([recruitmentDepartmentId])
+  @@index([jobPostingId])
   @@index([isDeleted])
 }
 
@@ -1584,6 +1594,34 @@ model DomainEvent {
   @@index([txId])
   @@index([eventType])
   @@index([publishedAt])
+}
+
+// ============================================================
+// HRM-2.1 — Recruitment job postings
+// ============================================================
+
+model JobPosting {
+  id              String   @id @default(cuid())
+  title           String
+  departmentId    String
+  description     String
+  requirements    String?
+  statusCode      String   @default("draft")
+                            // "draft" | "open" | "closed" | "filled"
+  closingDate     DateTime?
+  createdByUserId String
+  isDeleted       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  department      Department             @relation(fields: [departmentId], references: [id])
+  createdBy       User                   @relation("JobPostingCreator", fields: [createdByUserId], references: [id])
+  candidates      RecruitmentCandidate[]
+
+  @@index([statusCode])
+  @@index([departmentId])
+  @@index([isDeleted])
 }
 
 // ============================================================
