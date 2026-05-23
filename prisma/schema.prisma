@@ -476,7 +476,7 @@ model ProjectScope {
   updatedAt       DateTime @updatedAt
   updatedByUserId String?
 
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
 }
 
 model Milestone {
@@ -493,7 +493,7 @@ model Milestone {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
 
-  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project         Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
   owner           User?                  @relation("MilestoneOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   dependencies    MilestoneDependency[]  @relation("MilestoneDependent")
   dependents      MilestoneDependency[]  @relation("MilestoneBlocker")
@@ -527,8 +527,8 @@ model ProjectMember {
   createdAt     DateTime    @default(now())
   deletedAt     DateTime?
 
-  project       Project     @relation(fields: [projectId], references: [id])
-  user          User        @relation(fields: [userId], references: [id])
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   department    Department  @relation(fields: [departmentId], references: [id])
 
   @@unique([projectId, userId, roleCode])
@@ -572,7 +572,7 @@ model WorkItem {
   updatedAt        DateTime @updatedAt
   deletedAt        DateTime?
 
-  project          Project  @relation(fields: [projectId], references: [id])
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
   importBatch      ProjectImportBatch? @relation(fields: [importBatchId], references: [id])
 
   @@index([projectId])
