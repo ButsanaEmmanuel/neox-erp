@@ -63,6 +63,44 @@ export function getCacheStats() {
   return { size: cache.size };
 }
 
+// HRM-1.2 — raw-http permission gate, designed for the in-house
+// auth-server.mjs dispatcher style (no Express middleware here).
+//
+// Usage in a route handler:
+//   if (!(await assertPermission(ctx, 'hrm.leave.read'))) return;
+//
+// ctx must expose at minimum:
+//   - userId: string | null      (resolved by the route from query/body)
+//   - res   : http.ServerResponse
+//
+// On deny we write a 403 with the structured body
+// { error, code: 'PERMISSION_DENIED', required } and return false so
+// the caller can short-circuit. On allow we return true and write
+// nothing. Never throws.
+export async function assertPermission(ctx, key) {
+  const userId = ctx?.userId ?? null;
+  const res = ctx?.res ?? null;
+  if (!res) throw new Error('assertPermission requires ctx.res');
+
+  const deny = () => {
+    if (!res.headersSent) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+    }
+    res.end(JSON.stringify({
+      error: 'Permission denied',
+      code: 'PERMISSION_DENIED',
+      required: key,
+    }));
+    return false;
+  };
+
+  if (!userId) return deny();
+
+  const perms = await getUserPermissions(userId);
+  if (!perms.has(key)) return deny();
+  return true;
+}
+
 async function resolveUserPermissions(userId) {
   const now = new Date();
 
