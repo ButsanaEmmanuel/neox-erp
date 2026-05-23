@@ -1,38 +1,16 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { generateTemporaryPassword, hashPassword } from '../security/password.service';
+import { randomUUID } from 'node:crypto';
+import { generateTemporaryPassword, hashPassword } from '../security/password.service.mjs';
 
 const prisma = new PrismaClient();
 
-type TargetStatus = 'hired' | 'onboarding';
-
-interface TransitionToOnboardingInput {
-  candidateId: string;
-  actorUserId: string;
-  professionalEmail: string;
-  companyName: string;
-  appUrl: string;
-}
-
-interface TransitionToOnboardingResult {
-  candidateId: string;
-  userId: string;
-  username: string;
-  temporaryPassword: string;
-}
-
-/**
- * Atomic workflow:
- * 1) Move candidate status to hired/onboarding
- * 2) Create user with temp password hash and force_password_change=true
- * 3) Assign contributor role + recruitment department
- * 4) Write audit logs
- * 5) Queue welcome email event
- */
-export async function transitionCandidateToOnboarding(
-  input: TransitionToOnboardingInput,
-  targetStatus: TargetStatus = 'onboarding',
-): Promise<TransitionToOnboardingResult> {
+// Atomic workflow:
+// 1) Move candidate status to hired/onboarding
+// 2) Create user with temp password hash and force_password_change=true
+// 3) Assign contributor role + recruitment department
+// 4) Write audit logs
+// 5) Queue welcome email event
+export async function transitionCandidateToOnboarding(input, targetStatus = 'onboarding') {
   const normalizedUsername = input.professionalEmail.trim().toLowerCase();
   const temporaryPassword = generateTemporaryPassword();
   const temporaryPasswordHash = hashPassword(temporaryPassword);

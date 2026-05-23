@@ -1,13 +1,11 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 
 const prisma = new PrismaClient();
 
-/**
- * Example worker that consumes hrm.onboarding.access_email.requested events.
- * Replace console transport with real SMTP/provider integration.
- */
-export async function processWelcomeAccessEmailEvents(): Promise<void> {
+// Example worker that consumes hrm.onboarding.access_email.requested events.
+// Replace console transport with real SMTP/provider integration.
+export async function processWelcomeAccessEmailEvents() {
   const pendingEvents = await prisma.domainEvent.findMany({
     where: {
       eventType: 'hrm.onboarding.access_email.requested',
@@ -18,16 +16,8 @@ export async function processWelcomeAccessEmailEvents(): Promise<void> {
   });
 
   for (const event of pendingEvents) {
-    const payload = event.payloadJson as {
-      to: string;
-      companyName: string;
-      appUrl: string;
-      username: string;
-      temporaryPassword: string;
-      instruction: string;
-    };
+    const payload = event.payloadJson;
 
-    // Replace with actual email provider call.
     // eslint-disable-next-line no-console
     console.log('[EMAIL OUTBOUND]', {
       subject: `Bienvenue chez ${payload.companyName} - Vos acces a la plateforme.`,

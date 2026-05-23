@@ -1,18 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { hashPassword } from '../security/password.service';
+import { randomUUID } from 'node:crypto';
+import { hashPassword } from '../security/password.service.mjs';
 
 const prisma = new PrismaClient();
 
-interface CompleteFirstLoginPasswordChangeInput {
-  userId: string;
-  newPassword: string;
-  actorUserId?: string;
-}
-
-export async function completeFirstLoginPasswordChange(
-  input: CompleteFirstLoginPasswordChangeInput,
-): Promise<void> {
+export async function completeFirstLoginPasswordChange(input) {
   const txId = randomUUID();
   const newHash = hashPassword(input.newPassword);
 
