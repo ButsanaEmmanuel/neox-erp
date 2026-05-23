@@ -26,6 +26,8 @@
 // Every status change appends a HrmCaseEvent row so the detail page
 // can render the audit trail.
 
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 class HttpError extends Error {
   constructor(statusCode, code, message, extra = {}) {
     super(message);
@@ -225,6 +227,21 @@ export async function changeStatus(prisma, id, { toStatus, note, actorUserId, ca
       },
     });
 
+    return { updated, fromStatus: c.statusCode };
+  }).then(({ updated, fromStatus }) => {
+    // HRM-2.6 — escalation is the only transition the plan calls out.
+    // Emit it as a discrete event so HR admin dashboards can show a
+    // dot without subscribing to every status change.
+    if (updated.statusCode === 'escalated' && fromStatus !== 'escalated') {
+      safeBroadcast('hrm.case.escalated', {
+        caseId: updated.id,
+        fromStatus,
+        reportedByUserId: updated.reportedByUserId,
+        assignedToUserId: updated.assignedToUserId,
+        priority: updated.priority,
+        escalatedByUserId: actorUserId,
+      });
+    }
     return updated;
   });
 }

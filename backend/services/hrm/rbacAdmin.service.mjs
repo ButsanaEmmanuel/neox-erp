@@ -1,3 +1,5 @@
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 // HRM-1.3 — CRUD service for RBAC administration UI.
 //
 // Used by backend/routes/hrm/rbac.routes.mjs. Every mutation calls
@@ -290,6 +292,13 @@ export async function assignRoleToUser(prisma, userId, roleId, { assignedBy } = 
   });
 
   invalidateCache(userId);
+  safeBroadcast('hrm.role.assigned', {
+    userId,
+    roleId,
+    roleCode: created.role?.code ?? null,
+    assignedBy: assignedBy ?? null,
+    assignmentId: created.id,
+  });
   return created;
 }
 

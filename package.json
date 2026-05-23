@@ -19,7 +19,8 @@
         "test:hrm-training": "node backend/tests/hrm/hrm-training.test.mjs",
         "test:hrm-policies": "node backend/tests/hrm/hrm-policies.test.mjs",
         "test:hrm-cases": "node backend/tests/hrm/hrm-cases.test.mjs",
-        "test:hrm-timesheets": "node backend/tests/hrm/hrm-timesheets.test.mjs"
+        "test:hrm-timesheets": "node backend/tests/hrm/hrm-timesheets.test.mjs",
+        "test:hrm-sse-events": "node backend/tests/hrm/hrm-sse-events.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"

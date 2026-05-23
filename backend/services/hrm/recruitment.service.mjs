@@ -1,3 +1,5 @@
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 // HRM-2.1 — Recruitment pipeline (job postings + candidate pipeline).
 //
 // Hire flow delegates to the HRM-1.0 ported service
@@ -332,7 +334,7 @@ export async function hireCandidate(prisma, candidateId, input, { actorUserId })
       },
       'onboarding',
     );
-    return await getCandidate(prisma, candidateId).then((c) => ({
+    const out = await getCandidate(prisma, candidateId).then((c) => ({
       candidate: c,
       provisioning: {
         userId: result.userId,
@@ -341,6 +343,14 @@ export async function hireCandidate(prisma, candidateId, input, { actorUserId })
       },
       onboardingChecklistId: result.onboardingChecklistId ?? null,
     }));
+    // HRM-2.6 — emit after the hire tx commits.
+    safeBroadcast('hrm.employee.hired', {
+      candidateId,
+      userId: result.userId,
+      hiredByUserId: actorUserId,
+      onboardingChecklistId: result.onboardingChecklistId ?? null,
+    });
+    return out;
   } catch (err) {
     // The underlying service throws plain Error; map well-known ones to HTTP.
     const msg = String(err?.message || '');

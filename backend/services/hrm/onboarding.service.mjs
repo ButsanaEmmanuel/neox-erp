@@ -12,6 +12,8 @@
 // run their writes in a prisma.$transaction so the rolled-up
 // statusCode never drifts from the individual tasks.
 
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 // ============================================================
 // Errors
 // ============================================================
@@ -306,16 +308,35 @@ export async function updateChecklistTask(prisma, { checklistId, taskId, statusC
     });
     const requiredDone = allTasks.filter((t) => t.templateTask.isRequired).every((t) => t.statusCode === 'done');
     const everyDoneOrSkipped = allTasks.every((t) => t.statusCode === 'done' || t.statusCode === 'skipped');
+    let autoCompleted = false;
     if (requiredDone && everyDoneOrSkipped) {
       await tx.onboardingChecklist.update({
         where: { id: checklistId },
         data: { statusCode: 'completed', completedAt: new Date() },
       });
+      autoCompleted = true;
     } else {
       await tx.onboardingChecklist.update({
         where: { id: checklistId },
         data: { statusCode: 'in_progress', completedAt: null },
       });
+    }
+    return { updated, autoCompleted };
+  }).then(({ updated, autoCompleted }) => {
+    // HRM-2.6 — emit once the checklist auto-completes.
+    if (autoCompleted) {
+      void (async () => {
+        const cl = await prisma.onboardingChecklist.findUnique({
+          where: { id: checklistId },
+          select: { userId: true, templateId: true },
+        });
+        safeBroadcast('hrm.onboarding.completed', {
+          checklistId,
+          userId: cl?.userId,
+          templateId: cl?.templateId,
+          completedByUserId: completedByUserId ?? null,
+        });
+      })().catch(() => { /* never throws */ });
     }
     return updated;
   });
@@ -338,6 +359,14 @@ export async function completeChecklist(prisma, id, { completedByUserId } = {}) 
       where: { id },
       data: { statusCode: 'completed', completedAt: new Date() },
     });
+  }).then((cl) => {
+    safeBroadcast('hrm.onboarding.completed', {
+      checklistId: cl.id,
+      userId: cl.userId,
+      templateId: cl.templateId,
+      completedByUserId: completedByUserId ?? null,
+    });
+    return cl;
   });
 }
 

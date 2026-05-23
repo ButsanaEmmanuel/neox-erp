@@ -1,3 +1,5 @@
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 // HRM-1.5 — Leave management business logic.
 //
 // Used by backend/routes/hrm/leave.routes.mjs. All write paths run in
@@ -407,6 +409,19 @@ export async function createRequest(prisma, input, { actorUserId } = {}) {
     }
 
     return requestShape(created);
+  }).then((shaped) => {
+    // HRM-2.6 — emit AFTER the tx commits so a transient broadcaster
+    // failure can never roll back the request.
+    safeBroadcast('hrm.leave.requested', {
+      requestId: shaped.id,
+      userId: shaped.userId,
+      policyId: shaped.policyId,
+      startDate: shaped.startDate,
+      endDate: shaped.endDate,
+      days: shaped.days,
+      statusCode: shaped.statusCode,
+    });
+    return shaped;
   });
 }
 
@@ -444,6 +459,16 @@ export async function approveRequest(prisma, requestId, { reviewerUserId, review
       },
     });
     return requestShape(updated);
+  }).then((shaped) => {
+    safeBroadcast('hrm.leave.approved', {
+      requestId: shaped.id,
+      userId: shaped.userId,
+      reviewerUserId,
+      startDate: shaped.startDate,
+      endDate: shaped.endDate,
+      days: shaped.days,
+    });
+    return shaped;
   });
 }
 
@@ -478,6 +503,14 @@ export async function rejectRequest(prisma, requestId, { reviewerUserId, reviewN
       data: { pending: { decrement: toNumber(r.days) } },
     });
     return requestShape(updated);
+  }).then((shaped) => {
+    safeBroadcast('hrm.leave.rejected', {
+      requestId: shaped.id,
+      userId: shaped.userId,
+      reviewerUserId,
+      reviewNote: nonEmpty(reviewNote) ? reviewNote.trim() : null,
+    });
+    return shaped;
   });
 }
 

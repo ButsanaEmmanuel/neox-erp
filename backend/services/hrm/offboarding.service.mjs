@@ -4,6 +4,8 @@
 // access revocation steps, equipment return, etc.) without conditional
 // branches in a shared helper.
 
+import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
+
 class HttpError extends Error {
   constructor(statusCode, code, message, extra = {}) {
     super(message);
@@ -246,10 +248,27 @@ export async function updateChecklistTask(prisma, { checklistId, taskId, statusC
     });
     const requiredDone = allTasks.filter((t) => t.templateTask.isRequired).every((t) => t.statusCode === 'done');
     const everyDoneOrSkipped = allTasks.every((t) => t.statusCode === 'done' || t.statusCode === 'skipped');
+    let autoCompleted = false;
     if (requiredDone && everyDoneOrSkipped) {
       await tx.offboardingChecklist.update({ where: { id: checklistId }, data: { statusCode: 'completed', completedAt: new Date() } });
+      autoCompleted = true;
     } else {
       await tx.offboardingChecklist.update({ where: { id: checklistId }, data: { statusCode: 'in_progress', completedAt: null } });
+    }
+    return { updated, autoCompleted };
+  }).then(({ updated, autoCompleted }) => {
+    if (autoCompleted) {
+      void (async () => {
+        const cl = await prisma.offboardingChecklist.findUnique({
+          where: { id: checklistId },
+          select: { userId: true, templateId: true },
+        });
+        safeBroadcast('hrm.employee.offboarded', {
+          checklistId,
+          userId: cl?.userId,
+          templateId: cl?.templateId,
+        });
+      })().catch(() => { /* never throws */ });
     }
     return updated;
   });
@@ -265,6 +284,13 @@ export async function completeChecklist(prisma, id) {
     const requiredPending = cl.tasks.filter((t) => t.templateTask.isRequired && t.statusCode !== 'done');
     if (requiredPending.length > 0) throw conflict('Some required tasks are still pending', { pending: requiredPending.length });
     return tx.offboardingChecklist.update({ where: { id }, data: { statusCode: 'completed', completedAt: new Date() } });
+  }).then((cl) => {
+    safeBroadcast('hrm.employee.offboarded', {
+      checklistId: cl.id,
+      userId: cl.userId,
+      templateId: cl.templateId,
+    });
+    return cl;
   });
 }
 
