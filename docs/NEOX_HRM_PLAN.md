@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 + HRM-2.3 fermés 2026-05-23. HRM-2.4 → HRM-2.7 à venir.
+**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 + HRM-2.3 + HRM-2.4 fermés 2026-05-23. HRM-2.5 → HRM-2.7 à venir.
 
 ---
 
@@ -1094,7 +1094,7 @@ Commit : feat(hrm): onboarding/offboarding checklists — ref HRM-2.2
 
 **Migration `can()` → `usePermissions()` — 4/10** :
 - ✅ LeavePage, RecruitmentPage, OnboardingPage, OffboardingPage
-- Reste : HRMRouter, WeekHeader, TimesheetsPage, PoliciesPage, CasesPage (TrainingPage migrée en HRM-2.3)
+- Reste : HRMRouter, WeekHeader, TimesheetsPage (PoliciesPage + CasesPage migrées en HRM-2.4, TrainingPage en HRM-2.3) — 6/10
 
 **Delta plan** :
 - Le plan listait `OnboardingChecklistTask.completedBy String?` ; ajouté avec relation `User?` sur `completedByUserId` + `@@relation("OnboardingTaskCompletedBy")`.
@@ -1268,9 +1268,41 @@ Commit : feat(hrm): policies + cases models + routes + UI — ref HRM-2.4
 ```
 
 **Critères de sortie HRM-2.4**
-- [ ] Publier une politique, employés accusent réception
-- [ ] Créer un cas, l'assigner, changer statut
-- [ ] Historique de statuts visible sur le détail d'un cas
+- [x] Publier une politique, employés accusent réception — `createPolicy` + `publishPolicy` + `acknowledgePolicy` (`backend/services/hrm/policies.service.mjs`), POST/PUT `/api/v1/hrm/policies/*` gates `hrm.policies.write` + `hrm.policies.execute`, POST `/api/v1/hrm/policies/:id/acknowledge` gates `hrm.policies.read` (self-service).
+- [x] Créer un cas, l'assigner, changer statut — `createCase` + `assignCase` + `changeStatus` (`backend/services/hrm/cases.service.mjs`), POST `/api/v1/hrm/cases`, PUT `/api/v1/hrm/cases/:id/{escalate,close,status,assign}`. Frontend UI : [CasesPage.tsx](src/components/hrm/cases/CasesPage.tsx) avec modal d'ouverture et boutons de transition contextuels.
+- [x] Historique de statuts visible sur le détail d'un cas — table `HrmCaseEvent` append-only (status_change | note | assignment) écrite dans la même transaction que le changement de statut. Le drawer de `CasesPage` rend la timeline triée par `createdAt` avec auteur + `from → to` + note.
+
+**Décisions HRM-2.4**
+- `HrmCaseEvent` ajoutée **au-delà de DRAFT_2** pour couvrir le critère "Historique de statuts visible". Un JSON blob sur `HrmCase` aurait empêché les requêtes SQL "qui a fait quoi quand".
+- État machine `HrmCase` : `closed` est terminal (refusé en sortie), `open` ↔ `investigating`, escalades autorisées depuis `open` / `investigating`, `resolved → closed` ou `resolved → investigating` (info nouvelle). Transitions illégales : 409 `ILLEGAL_TRANSITION` avec `{from, to}`.
+- Authorisation des transitions : `hrm.cases.execute` global OU caller = assignee actuel. Le service vérifie les deux conditions ; la route `/:id/status` accepte `hrm.cases.write` au gate puis re-checke côté service (un assignee sans execute peut faire `open → investigating`). `/escalate` et `/close` exigent `hrm.cases.execute` dur côté route.
+- Listing scopé côté route : sans `hrm.cases.execute`, le caller ne voit que les cas qu'il a reportés OU qui lui sont assignés. Le service expose juste `forUserId` ; la route applique la règle en se basant sur le `getUserPermissions` du caller.
+- `PolicyAcknowledgement.@@unique([policyId, userId])` enforce au DB la règle "pas de double accusé de réception". 409 `ALREADY_ACKNOWLEDGED` retourne `acknowledgementId` + `signedAt` pour le toast UI.
+- `listPolicies({ forUserId })` pré-joint l'acknowledgement de l'utilisateur dans la requête principale (badge `Lu / À signer` en une seule round trip — pas de N+1).
+- Re-publier une politique archivée : refusé (409 `POLICY_ARCHIVED`). Cloner en nouvelle version à la place. Re-publier une politique déjà publiée : idempotent.
+- Migration `can()` → `usePermissions()` : 6/10 pages (PoliciesPage + CasesPage en plus). Reste : HRMRouter, WeekHeader, TimesheetsPage, plus quelques drawers internes.
+- `StatusChip` étendu avec `published` / `archived` / `escalated` / `closed` pour la cohérence visuelle.
+- FK actions : Policy `createdByUserId` RESTRICT (authorship), Ack `policyId` CASCADE (ack inutile sans policy), Ack `userId` RESTRICT (audit), Case `reportedByUserId` RESTRICT, Case `assignedToUserId` SET NULL (un cas survit à un assignee qui part).
+
+**Tests HRM-2.4** (`npm run test:hrm-policies` + `npm run test:hrm-cases`)
+
+Policies (`backend/tests/hrm/hrm-policies.test.mjs`) :
+- ✓ `publishPolicy` : draft → published avec `publishedAt` stamped
+- ✓ Double accusé de réception → 409 `ALREADY_ACKNOWLEDGED` avec `acknowledgementId` existant
+- ✓ `archivePolicy` : published → archived avec `archivedAt` stamped + refuse de re-publier (409 `POLICY_ARCHIVED`)
+- ✓ 403 sans permission `hrm.policies.execute` (`assertPermission` testé avec `res` mocké)
+
+Cases (`backend/tests/hrm/hrm-cases.test.mjs`) :
+- ✓ `createCase` : statusCode `open` + écrit un event d'ouverture dans `HrmCaseEvent`
+- ✓ `changeStatus(escalated)` : statusCode `escalated`, `escalatedAt` stamped, event ajouté
+- ✓ `changeStatus(closed)` : statusCode `closed`, `closedAt` stamped, `resolution` récupérée depuis la note
+- ✓ Closed est terminal → 409 `ILLEGAL_TRANSITION` avec `{from: 'closed', to: ...}`
+- ✓ 403 sans permission `hrm.cases.execute`
+- ✓ `listCases({forUserId})` scope correctement : reporter ne voit pas les cas d'un autre, assignee voit les siens
+
+**Régression** : `test:hrm-leave` + `test:hrm-recruitment` + `test:hrm-onboarding` + `test:hrm-training` tous verts après HRM-2.4.
+
+**Commits HRM-2.4** : `eb9b6b4` (schéma + migration), `0df0427` (backend services + routes), `2123c9c` (frontend + can() migration), `<ce commit>` (tests + plan).
 
 ---
 
