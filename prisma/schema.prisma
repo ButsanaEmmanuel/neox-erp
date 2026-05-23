@@ -84,6 +84,11 @@ model User {
   completedOnboardingTasks   OnboardingChecklistTask[]  @relation("OnboardingTaskCompletedBy")
   completedOffboardingTasks  OffboardingChecklistTask[] @relation("OffboardingTaskCompletedBy")
   trainingEnrollments        TrainingEnrollment[]
+  createdPolicies            HrmPolicy[]              @relation("PolicyCreator")
+  policyAcknowledgements     PolicyAcknowledgement[]
+  reportedCases              HrmCase[]                @relation("CaseReporter")
+  assignedCases              HrmCase[]                @relation("CaseAssignee")
+  authoredCaseEvents         HrmCaseEvent[]           @relation("CaseEventAuthor")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1832,6 +1837,97 @@ model TrainingEnrollment {
   @@index([courseId])
   @@index([statusCode])
   @@index([isDeleted])
+}
+
+// ============================================================
+// HRM-2.4 — Policies + Cases (incidents, grievances)
+// ============================================================
+
+model HrmPolicy {
+  id              String   @id @default(cuid())
+  title           String
+  category        String   @default("other")   // conduct | safety | leave | it | other
+  content         String                       // Markdown or external URL
+  version         String   @default("1.0")
+  statusCode      String   @default("draft")   // draft | published | archived
+  publishedAt     DateTime?
+  archivedAt      DateTime?
+  createdByUserId String
+  isDeleted       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  createdBy        User                    @relation("PolicyCreator", fields: [createdByUserId], references: [id])
+  acknowledgements PolicyAcknowledgement[]
+
+  @@index([statusCode])
+  @@index([category])
+  @@index([isDeleted])
+  @@index([createdByUserId])
+}
+
+model PolicyAcknowledgement {
+  id        String   @id @default(cuid())
+  policyId  String
+  userId    String
+  signedAt  DateTime @default(now())
+  note      String?
+
+  policy    HrmPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@unique([policyId, userId])
+  @@index([userId])
+  @@index([policyId])
+}
+
+model HrmCase {
+  id               String   @id @default(cuid())
+  caseType         String   @default("inquiry")    // grievance | incident | disciplinary | inquiry
+  title            String
+  description      String
+  reportedByUserId String
+  assignedToUserId String?
+  statusCode       String   @default("open")       // open | investigating | resolved | escalated | closed
+  priority         String   @default("medium")     // low | medium | high
+  escalatedAt      DateTime?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  resolution       String?
+  isDeleted        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  deletedAt        DateTime?
+
+  reporter         User           @relation("CaseReporter", fields: [reportedByUserId], references: [id])
+  assignee         User?          @relation("CaseAssignee", fields: [assignedToUserId], references: [id])
+  events           HrmCaseEvent[]
+
+  @@index([statusCode])
+  @@index([priority])
+  @@index([caseType])
+  @@index([reportedByUserId])
+  @@index([assignedToUserId])
+  @@index([isDeleted])
+}
+
+model HrmCaseEvent {
+  id           String   @id @default(cuid())
+  caseId       String
+  eventType    String                  // status_change | note | assignment
+  fromStatus   String?
+  toStatus     String?
+  note         String?
+  authorUserId String
+  createdAt    DateTime @default(now())
+
+  case         HrmCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author       User     @relation("CaseEventAuthor", fields: [authorUserId], references: [id])
+
+  @@index([caseId])
+  @@index([authorUserId])
+  @@index([createdAt])
 }
 
 // ============================================================
