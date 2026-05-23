@@ -23,6 +23,8 @@ model Department {
   requests    PurchaseRequest[]
   recruitments RecruitmentCandidate[]
   jobPostings  JobPosting[]
+  onboardingTemplates  OnboardingTemplate[]
+  offboardingTemplates OffboardingTemplate[]
 
   @@index([isDeleted])
 }
@@ -77,6 +79,10 @@ model User {
   reviewedLeave      LeaveRequest[]         @relation("LeaveReviewer")
   leaveBalances      LeaveBalance[]
   createdJobPostings JobPosting[]           @relation("JobPostingCreator")
+  onboardingChecklists       OnboardingChecklist[]      @relation("OnboardingUser")
+  offboardingChecklists      OffboardingChecklist[]     @relation("OffboardingUser")
+  completedOnboardingTasks   OnboardingChecklistTask[]  @relation("OnboardingTaskCompletedBy")
+  completedOffboardingTasks  OffboardingChecklistTask[] @relation("OffboardingTaskCompletedBy")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -1622,6 +1628,156 @@ model JobPosting {
   @@index([statusCode])
   @@index([departmentId])
   @@index([isDeleted])
+}
+
+// ============================================================
+// HRM-2.2 — Onboarding / Offboarding checklists
+// ============================================================
+
+model OnboardingTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  departmentId String?   // null = global template (applies to any department)
+  isActive     Boolean  @default(true)
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  department   Department? @relation(fields: [departmentId], references: [id])
+  tasks        OnboardingTemplateTask[]
+  checklists   OnboardingChecklist[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([departmentId])
+}
+
+model OnboardingTemplateTask {
+  id             String @id @default(cuid())
+  templateId     String
+  title          String
+  description    String?
+  dueOffsetDays  Int    @default(0)
+  assignedRole   String?  // "employee" | "manager" | "hr" | "it"
+  isRequired     Boolean @default(true)
+  order          Int    @default(0)
+
+  template       OnboardingTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  checklistTasks OnboardingChecklistTask[]
+
+  @@index([templateId])
+}
+
+model OnboardingChecklist {
+  id          String   @id @default(cuid())
+  userId      String
+  templateId  String
+  startDate   DateTime
+  statusCode  String   @default("in_progress")  // "in_progress" | "completed"
+  completedAt DateTime?
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  user        User                      @relation("OnboardingUser", fields: [userId], references: [id])
+  template    OnboardingTemplate        @relation(fields: [templateId], references: [id])
+  tasks       OnboardingChecklistTask[]
+
+  @@index([userId])
+  @@index([statusCode])
+  @@index([isDeleted])
+}
+
+model OnboardingChecklistTask {
+  id                String   @id @default(cuid())
+  checklistId       String
+  templateTaskId    String
+  statusCode        String   @default("pending")  // "pending" | "done" | "skipped"
+  completedByUserId String?
+  completedAt       DateTime?
+  note              String?
+
+  checklist         OnboardingChecklist    @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  templateTask      OnboardingTemplateTask @relation(fields: [templateTaskId], references: [id])
+  completedBy       User?                  @relation("OnboardingTaskCompletedBy", fields: [completedByUserId], references: [id])
+
+  @@index([checklistId])
+  @@index([statusCode])
+}
+
+model OffboardingTemplate {
+  id           String   @id @default(cuid())
+  name         String
+  departmentId String?
+  isActive     Boolean  @default(true)
+  isDeleted    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt    DateTime?
+
+  department   Department? @relation(fields: [departmentId], references: [id])
+  tasks        OffboardingTemplateTask[]
+  checklists   OffboardingChecklist[]
+
+  @@index([isActive])
+  @@index([isDeleted])
+  @@index([departmentId])
+}
+
+model OffboardingTemplateTask {
+  id             String @id @default(cuid())
+  templateId     String
+  title          String
+  description    String?
+  dueOffsetDays  Int    @default(0)
+  assignedRole   String?
+  isRequired     Boolean @default(true)
+  order          Int    @default(0)
+
+  template       OffboardingTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  checklistTasks OffboardingChecklistTask[]
+
+  @@index([templateId])
+}
+
+model OffboardingChecklist {
+  id          String   @id @default(cuid())
+  userId      String
+  templateId  String
+  startDate   DateTime
+  statusCode  String   @default("in_progress")
+  completedAt DateTime?
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  user        User                       @relation("OffboardingUser", fields: [userId], references: [id])
+  template    OffboardingTemplate        @relation(fields: [templateId], references: [id])
+  tasks       OffboardingChecklistTask[]
+
+  @@index([userId])
+  @@index([statusCode])
+  @@index([isDeleted])
+}
+
+model OffboardingChecklistTask {
+  id                String   @id @default(cuid())
+  checklistId       String
+  templateTaskId    String
+  statusCode        String   @default("pending")
+  completedByUserId String?
+  completedAt       DateTime?
+  note              String?
+
+  checklist         OffboardingChecklist    @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  templateTask      OffboardingTemplateTask @relation(fields: [templateTaskId], references: [id])
+  completedBy       User?                   @relation("OffboardingTaskCompletedBy", fields: [completedByUserId], references: [id])
+
+  @@index([checklistId])
+  @@index([statusCode])
 }
 
 // ============================================================
