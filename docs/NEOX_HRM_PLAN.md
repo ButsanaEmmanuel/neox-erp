@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🟡 En cours — HRM-1.0 fermé (2026-05-23), HRM-1.1 prochaine étape
+**Statut global :** 🟡 En cours — HRM-1.0 + HRM-1.1 fermés (2026-05-23), HRM-1.2 prochaine étape
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -365,9 +365,10 @@ Tous portés en `.mjs` (aucun n'était importé par du runtime `.mjs` — dead c
 
 ---
 
-### HRM-1.1 — Modèles DB RBAC + Seed
+### HRM-1.1 — Modèles DB RBAC + Seed ✅
 
 **Objectif :** Matérialiser le catalogue de permissions en base.
+**Statut :** ✅ Fermé 2026-05-23 — commit `6aee1e8`.
 
 #### Nouveaux modèles Prisma
 
@@ -455,10 +456,17 @@ Commit : feat(db): RBAC models + seed catalogue — ref HRM-1.1
 ```
 
 **Critères de sortie HRM-1.1**
-- [ ] Migration propre, pas de breaking change sur schéma existant
-- [ ] `prisma db seed` s'exécute sans erreur
-- [ ] Toutes les permissions du catalogue présentes en DB
-- [ ] Rôles prédéfinis avec leurs permissions assignées
+- [x] Migration propre, pas de breaking change sur schéma existant — `20260523_rbac_models_extension` appliquée 2026-05-23
+- [x] Seed s'exécute sans erreur — `node prisma/seed/rbac.seed.mjs` ✅ (97 permissions, 10 rôles, super_admin assigné à `ebutsana@neox.io`)
+- [x] Toutes les permissions du catalogue présentes en DB — 97/97 vérifié
+- [x] Rôles prédéfinis avec leurs permissions assignées — 10/10 (`super_admin` 97, `hr_admin` 44, `hr_officer` 31, `employee_self_service` 7, `project_manager` 23, `project_member` 8, `finance_admin` 16, `finance_officer` 8, `scm_manager` 11, `readonly` 35)
+
+**Notes HRM-1.1 (ajoutées 2026-05-23)**
+- Décision **Hybride** appliquée : `UserPermissionSet` étendu (`+ permissionId?`, `+ assignedBy`, `+ reason`, `+ expiresAt`), aucun nouveau modèle `UserPermissionOverride` créé. Le brouillon du plan §HRM-1.1 listait `UserPermissionOverride` comme nouveau modèle — décision postérieure du DRAFT_1 retenue.
+- `UserRole` **pattern temporel préservé** : `@@unique([userId, roleId, validFrom])` inchangé. Le seed utilise `findFirst({validTo: null})` puis `create` au lieu d'un `upsert` sur clé composite (instable entre relances). `assignedBy` ajouté nullable.
+- `Permission.key` ajoutée + backfillée depuis `module.resource.action` pour les 11 lignes legacy déjà en DB. Aucun conflit de clé.
+- Données legacy préservées : 10 anciennes permissions (`finance.entries.*` et variantes) et 7 anciens rôles non touchés — coexistent sans interférer avec le nouveau catalogue (clés différentes). Cleanup éventuel à traiter séparément si nécessaire.
+- Bug Windows corrigé en cours de route : le détecteur `isDirectRun` du seed utilise désormais `pathToFileURL` pour gérer correctement les chemins avec espaces (`file:///D:/Mon%20mari/...`).
 
 ---
 
