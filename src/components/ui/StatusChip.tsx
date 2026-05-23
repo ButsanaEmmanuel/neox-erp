@@ -43,6 +43,10 @@ const COLOR_MAP: Record<string, string> = {
     error: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
     enrolled: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     cancelled: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    published: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    archived: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    escalated: 'bg-red-500/10 text-red-400 border-red-500/20',
+    closed: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
 };
 
 interface StatusChipProps {
