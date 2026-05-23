@@ -150,6 +150,9 @@ import { handleHrmRbacRoutes } from './routes/hrm/rbac.routes.mjs';
 // HRM route modules (HRM-1.4)
 import { handleHrmDirectoryRoutes } from './routes/hrm/directory.routes.mjs';
 
+// RBAC raw-http gate (HRM-1.2 Commit B)
+import { assertPermission } from './services/auth/rbac.service.mjs';
+
 function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -1065,8 +1068,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/departments') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.write'))) return;
       const department = await createHrmDepartment(prisma, body, actor);
       return json(res, 201, { department });
     }
@@ -1076,8 +1078,7 @@ const server = http.createServer(async (req, res) => {
       const [, departmentId] = hrmDepartmentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.write'))) return;
       const department = await updateHrmDepartment(prisma, departmentId, body, actor);
       return json(res, 200, { department });
     }
@@ -1085,8 +1086,7 @@ const server = http.createServer(async (req, res) => {
       const [, departmentId] = hrmDepartmentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.delete'))) return;
       const result = await deleteHrmDepartment(prisma, departmentId, actor);
       return json(res, 200, result);
     }
@@ -1115,8 +1115,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/employees') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee management is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const employee = await upsertHrmEmployee(prisma, body, actor);
       return json(res, 201, { employee });
     }
@@ -1124,8 +1123,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/employees/bulk') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM bulk import is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const result = await bulkUpsertHrmEmployees(prisma, body, actor);
       return json(res, 201, result);
     }
@@ -1144,8 +1142,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee updates are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const employee = await upsertHrmEmployee(prisma, { ...body, id: employeeId }, actor);
       return json(res, 200, { employee });
     }
@@ -1153,8 +1150,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee deletion is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.delete'))) return;
       const result = await archiveHrmEmployee(prisma, employeeId, actor);
       return json(res, 200, result);
     }
@@ -1169,8 +1165,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsRegenerateMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await regenerateHrmEmployeeCredentials(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1179,8 +1174,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsGenerateAliasMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await regenerateHrmEmployeeCredentials(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1189,8 +1183,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsSentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await markHrmEmployeeCredentialsSent(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1199,8 +1192,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsMarkSentAliasMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await markHrmEmployeeCredentialsSent(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }

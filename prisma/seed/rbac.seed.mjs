@@ -33,6 +33,7 @@ export const PERMISSIONS = [
   { module: 'hrm', resource: 'employees',     action: 'delete',  description: 'Supprimer des profils employés' },
   { module: 'hrm', resource: 'departments',   action: 'read',    description: 'Voir les départements' },
   { module: 'hrm', resource: 'departments',   action: 'write',   description: 'Créer et modifier des départements' },
+  { module: 'hrm', resource: 'departments',   action: 'delete',  description: 'Supprimer (archiver) des départements' },
   { module: 'hrm', resource: 'contractors',   action: 'read',    description: 'Voir les contractors' },
   { module: 'hrm', resource: 'contractors',   action: 'write',   description: 'Créer et modifier des contractors' },
   { module: 'hrm', resource: 'leave',         action: 'read',    description: 'Voir les demandes de congé' },

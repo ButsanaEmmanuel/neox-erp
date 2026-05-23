@@ -42,6 +42,7 @@ export const PERMISSION_KEYS = [
   'hrm.employees.delete',
   'hrm.departments.read',
   'hrm.departments.write',
+  'hrm.departments.delete',
   'hrm.contractors.read',
   'hrm.contractors.write',
   'hrm.leave.read',
