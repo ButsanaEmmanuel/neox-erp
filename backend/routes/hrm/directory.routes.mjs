@@ -4,11 +4,13 @@
 // Mounted from backend/auth-server.mjs via handleHrmDirectoryRoutes(ctx).
 
 import { listAssignableEmployees } from '../../services/hrm/assignables.service.mjs';
+import { upsertContractor } from '../../services/hrm/contractorUpsert.service.mjs';
 
 const EMPLOYEES_COLL = /^\/api\/v1\/hrm\/employees$/;
+const CONTRACTOR_UPSERT = /^\/api\/v1\/hrm\/employees\/contractor$/;
 
 function hasMatch(pathname) {
-  return EMPLOYEES_COLL.test(pathname);
+  return EMPLOYEES_COLL.test(pathname) || CONTRACTOR_UPSERT.test(pathname);
 }
 
 /**
@@ -42,6 +44,19 @@ export async function handleHrmDirectoryRoutes(ctx) {
       const employmentType = url.searchParams.get('employmentType') || undefined;
       const employees = await listAssignableEmployees(prisma, { projectId, employmentType });
       json(res, 200, { employees });
+      return true;
+    }
+
+    if (CONTRACTOR_UPSERT.test(pathname) && method === 'POST') {
+      const body = await ctx.parseBody(ctx.req);
+      const result = await upsertContractor(prisma, {
+        firstName: body?.firstName,
+        lastName: body?.lastName,
+        email: body?.email,
+        source: body?.source,
+        externalRef: body?.externalRef,
+      });
+      json(res, result.created ? 201 : 200, result);
       return true;
     }
 
