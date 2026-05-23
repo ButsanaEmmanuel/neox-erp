@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🟡 En cours — HRM-1.0 + HRM-1.1 fermés, HRM-1.2 service+UI livrés (D6 partielle), branchement routes existantes restant avant HRM-1.3
+**Statut global :** 🟡 En cours — HRM-1.0 + HRM-1.1 + HRM-1.3 fermés, HRM-1.2 service+UI livrés (D6 partielle, branchement routes en attente), HRM-1.4 prochaine étape
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -578,9 +578,10 @@ Le plan disait "store Zustand" pour les permissions, mais le projet utilise Reac
 
 ---
 
-### HRM-1.3 — UI RBAC — HRM > Configuration > Rôles
+### HRM-1.3 — UI RBAC — HRM > Configuration > Rôles ✅
 
 **Objectif :** L'HR admin peut créer/modifier des rôles et assigner des permissions.
+**Statut :** ✅ Fermé 2026-05-23 — commits `1b62305` (backend) + `ab5330a` (frontend).
 
 #### Pages et composants
 
@@ -639,12 +640,27 @@ Commit : feat(hrm): RBAC admin UI — roles matrix + user overrides
 ```
 
 **Critères de sortie HRM-1.3**
-- [ ] Créer un rôle custom avec sélection granulaire de permissions
-- [ ] Modifier les permissions d'un rôle existant non-système
-- [ ] Assigner un rôle à un employé depuis son profil
-- [ ] Ajouter une override individuelle avec raison et date d'expiration
-- [ ] Rôles système non modifiables (badge + inputs disabled)
-- [ ] Changements répercutés immédiatement (invalidation cache RBAC)
+- [x] Créer un rôle custom avec sélection granulaire de permissions — `POST /api/v1/hrm/roles` + `RoleEditorPage` mode "create"
+- [x] Modifier les permissions d'un rôle existant non-système — `PUT /api/v1/hrm/roles/:id` + `PermissionMatrix` (read/write/delete/execute + non-standard `admin`)
+- [x] Assigner un rôle à un employé depuis son profil — `UserPermissionsPage` + `RoleAssignModal` (tab "User Permissions" sous HRM > Configuration)
+- [x] Ajouter une override individuelle avec raison et date d'expiration — `OverrideModal` allow/deny + reason + expiresAt + assignedBy hydraté depuis `AuthContext`
+- [x] Rôles système non modifiables (badge + inputs disabled) — badge "system", inputs disabled, bouton delete disabled avec tooltip, service refuse `update`/`delete` côté backend (403 FORBIDDEN)
+- [x] Changements répercutés immédiatement (invalidation cache RBAC) — `invalidateCache(userId)` après chaque mutation user-scoped, `invalidateCache()` global après mutations sur Role/RolePermission
+
+#### Notes HRM-1.3 (ajoutées 2026-05-23)
+
+**Intégration UI** : 2 tabs ajoutés à `HRMConfiguration.tsx` ("Roles" + "User Permissions"). Le plan suggérait `src/pages/hrm/configuration/...` mais le codebase n'a pas de dossier `src/pages/` — tout est sous `src/components/hrm/<feature>/`. Les fichiers RBAC sont donc dans `src/components/hrm/rbac/` (pattern existant).
+
+**Convention API** : `apiClient` étendu d'un `'PUT'` dans son union `HttpMethod` (1 ligne) — le plan spec demandait `PUT /api/v1/hrm/roles/:id` et le client ne supportait que `GET/POST/PATCH/DELETE`.
+
+**Réutilisation HRMStore** : `UserPermissionsPage` utilise `useHRMStore().employees` comme source pour le picker — pas de nouvel endpoint de recherche utilisateur ajouté.
+
+**Limitations à noter** :
+- Pas de pagination sur `GET /api/v1/hrm/roles` (17 rôles aujourd'hui, OK ; à reconsidérer > 100).
+- `RoleAssignModal` recharge la liste complète à chaque ouverture — pas grave à cette échelle.
+- Les overrides legacy (avec `permission` à null car pré-HRM-1.1) sont affichés mais le bouton "Remove" est désactivé (pas de `permissionId` pour les cibler) — UX : badge "legacy".
+
+**Commits HRM-1.3** : `1b62305` (backend), `ab5330a` (frontend).
 
 ---
 
