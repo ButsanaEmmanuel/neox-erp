@@ -1266,6 +1266,7 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 | DH3 | Payroll UI — engine backend 95% mais frontend absent | Sprint Finance (priorité 3) |
 | DH4 | Export RH — pas d'export CSV/Excel des employés, congés, timesheets | Sprint Reporting (priorité 5) |
 | DH5 | Self-service mobile — flag `isSelfService` non testé sur écrans étroits | Sprint UX |
+| DH6 | Baseline migration manquante — `Project`/`WorkItem`/`ProjectMember` créés via `prisma db push` sans migration initiale. `prisma migrate dev` échoue sur shadow DB (P3006/P1014). Fix : créer une migration baseline et la marquer appliquée avec `prisma migrate resolve --applied` sur les migrations existantes. Workaround actuel : utiliser `prisma migrate deploy` qui n'utilise pas la shadow DB. | Sprint infra dédié — non bloquant pour HRM |
 
 ---
 
