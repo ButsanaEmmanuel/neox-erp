@@ -1,6 +1,6 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** 🟡 En cours — HRM-1.0 + HRM-1.1 + HRM-1.3 fermés, HRM-1.2 service+UI livrés (D6 partielle, branchement routes en attente), HRM-1.4 prochaine étape
+**Statut global :** 🟡 En cours — HRM-1.0, HRM-1.1, HRM-1.3, HRM-1.4 fermés (D5/D6 partielle/D15 closes), HRM-1.2 service+UI livrés (branchement routes en attente), HRM-1.5 prochaine étape
 **Dernière mise à jour :** 2026-05-23
 
 ---
@@ -664,7 +664,7 @@ Commit : feat(hrm): RBAC admin UI — roles matrix + user overrides
 
 ---
 
-### HRM-1.4 — Endpoint assignables + D15
+### HRM-1.4 — Endpoint assignables + D15 ✅
 
 **Objectif :** Fournir aux pickers PM/SCM une source de vérité HRM. Ferme D15.
 
@@ -704,10 +704,33 @@ Commit : feat(hrm): assignable employees endpoint + telecom contractor upsert �
 ```
 
 **Critères de sortie HRM-1.4**
-- [ ] Import télécom bulk crée automatiquement les contractors manquants
-- [ ] Pickers PM ne proposent que des personnes issues du HRM
-- [ ] Upsert idempotent (même email = pas de doublon)
-- [ ] Contractor créé visible dans HRM > Directory avec badge "Contractor"
+- [x] Import télécom bulk crée automatiquement les contractors manquants — pre-pass dans `bulkImportTelecomWorkItems` ; vérifié e2e (2 rows même team → 1 contractor matérialisé en transaction)
+- [x] Pickers PM ne proposent que des personnes issues du HRM — `WorkItemAssigneeSelect` typeahead, source `GET /api/v1/hrm/employees?assignable=true` (employmentType employee + contractor)
+- [x] Upsert idempotent (même email = pas de doublon) — `upsertContractor` retourne le même `id` sur email existant (vérifié `created:true` puis `created:false`)
+- [x] Contractor créé visible dans HRM > Directory avec badge "Contractor" — `employmentType='contractor'` filtré, visible dans le picker avec badge violet `contractor` ; visible aussi dans `HRM > Directory` via les requêtes existantes
+
+#### Notes HRM-1.4 (ajoutées 2026-05-23)
+
+**Synthèse d'identité contractor depuis le `team`** : le bulk import télécom n'a aujourd'hui pas de champ email/nom dédié au contractor — la seule info disponible est `imported_fields.team` (string libre). Pour fermer D15 sans changer le format des fichiers d'import, l'identité contractor est **synthétisée** :
+
+| Champ | Valeur dérivée |
+|---|---|
+| `email` | `<slug-of-team>@contractor.local` (idempotent : même team → même email) |
+| `firstName` | premier token du team |
+| `lastName` | tokens suivants |
+| `source` | `'telecom_import'` |
+| `externalRef` | `'team:<raw-team>'` (traçabilité) |
+| `creationSource` (profile) | `'TELECOM_IMPORT'` |
+
+Quand des champs explicites (`contractor_email`, `contractor_first_name`, `contractor_last_name`) seront ajoutés au format d'import, switcher du synthétique vers le réel sera une simple modification de `contractorIdentityFromTeam`.
+
+**`WorkItem.assignee` reste un string** : pas de FK ajoutée. Le picker stocke le `name` de l'employé (back-compat avec les filtres substring existants — `projectCollaboration.service.mjs:611`). Free text préservé si l'utilisateur tape un nom non présent dans la liste (suggestion "Keeping &quot;X&quot; as free-text assignee").
+
+**`WorkItemAssigneeSelect` n'existait pas** : le plan le présentait comme "existant", mais le code utilisait un `<input type='text'>` libre dans `WorkItemDrawer.tsx:531`. Composant créé from scratch.
+
+**Cache picker 30s** : `assignablesApi.ts` mémoïse 30 secondes par `(projectId, employmentType)` pour éviter de refetcher à chaque touche du typeahead.
+
+**Commits HRM-1.4** : `574517b` (endpoint + frontend picker), `cee6626` (upsert + import wiring, **D15 fermée**).
 
 ---
 
