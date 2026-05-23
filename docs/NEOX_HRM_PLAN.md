@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 fermé 2026-05-23. HRM-2.2 → HRM-2.7 à venir.
+**Statut :** 🟡 En cours — HRM-2.1 + HRM-2.2 fermés 2026-05-23. HRM-2.3 → HRM-2.7 à venir.
 
 ---
 
@@ -996,7 +996,7 @@ Commit : feat(hrm): recruitment pipeline + hire flow — ref HRM-2.1
 
 ---
 
-### HRM-2.2 — Onboarding / Offboarding
+### HRM-2.2 — Onboarding / Offboarding ✅
 
 **Objectif :** Checklists structurées avec suivi de complétion.
 
@@ -1077,10 +1077,30 @@ Commit : feat(hrm): onboarding/offboarding checklists — ref HRM-2.2
 ```
 
 **Critères de sortie HRM-2.2**
-- [ ] Templates de checklist créables par département
-- [ ] Checklist auto-générée lors d'un recrutement (flow HRM-2.1)
-- [ ] Employé peut compléter ses tâches depuis self-service
-- [ ] RH voit le taux de complétion par employé
+- [x] Templates de checklist créables par département — `TemplateManagerModal` (partagé Onboarding/Offboarding) + `POST /api/v1/hrm/{onboarding,offboarding}/templates` avec `departmentId` optionnel (null = global). Inline task editor (title/role/dueOffsetDays/isRequired).
+- [x] Checklist auto-générée lors d'un recrutement (flow HRM-2.1) — hook **hors-tx** dans `transitionCandidateToOnboarding` : résout `input.onboardingTemplateId` > template département > template global > rien ; en cas d'échec, console.warn + employé créé quand même (vérifié par test).
+- [x] Employé peut compléter ses tâches depuis self-service — `OnboardingPage` en mode self (`scope='self'` quand pas `hrm.onboarding.execute`) liste les checklists de l'actor, autorise `updateTask` sur sa propre checklist, refuse côté UI sur celle des autres (`canExecute && detail.userId !== actorUserId`).
+- [x] RH voit le taux de complétion par employé — `GET /api/v1/hrm/onboarding/stats?forUserId=...` + roll-up automatique du `statusCode` checklist via `updateChecklistTask` (auto-flip → `completed` quand tous required `done` et autres `done|skipped`).
+
+#### Notes HRM-2.2 (ajoutées 2026-05-23)
+
+**Architecture du hook hire** (point d'attention du user respecté) :
+- Le hook est ajouté **dans** `recruitmentOnboarding.service.mjs` (HRM-1.0), **pas** dans un nouveau service. La transaction historique (User + HrmEmploymentProfile + UserRole + AccessProvisioning + audit + DomainEvent) reste intacte. La création de checklist tourne **après** `await prisma.$transaction(...)` dans un try/catch séparé.
+- Résolution `templateId` : `input.onboardingTemplateId` → `resolveTemplateForDepartment(candidate.recruitmentDepartmentId)` (dept-scoped puis global) → null.
+- Échec ⇒ `console.warn` + `onboardingChecklistId: undefined` dans le résultat ; l'employé reste matérialisé. Confirmé par le test `checkRollbackNonBlocking` qui passe un `templateId` inexistant.
+
+**Auto-complétion** :
+- `updateChecklistTask` recalcule le rolled-up `statusCode` à chaque appel : `completed` quand toutes les tâches `isRequired` sont `done` ET toutes les autres sont `done|skipped`. Sinon `in_progress`. Le service `completeChecklist` reste disponible pour un toggle explicite mais devient optionnel — l'auto-flip suffit.
+
+**Migration `can()` → `usePermissions()` — 4/10** :
+- ✅ LeavePage, RecruitmentPage, OnboardingPage, OffboardingPage
+- Reste : HRMRouter, TrainingPage, WeekHeader, TimesheetsPage, PoliciesPage, CasesPage
+
+**Delta plan** :
+- Le plan listait `OnboardingChecklistTask.completedBy String?` ; ajouté avec relation `User?` sur `completedByUserId` + `@@relation("OnboardingTaskCompletedBy")`.
+- `isRequired Boolean` ajouté sur `TemplateTask` (pas dans DRAFT_2 mais nécessaire pour la roll-up auto-complétion + UX `req` badge existante).
+
+**Commits HRM-2.2** : `8011a8e` (schéma), `2ff776a` (backend + hook), `e707075` (frontend), `<ce commit>` (tests + plan).
 
 ---
 
