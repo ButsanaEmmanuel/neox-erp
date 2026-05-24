@@ -25,6 +25,7 @@ import {
   deleteMilestone,
 } from '../../services/pm/milestones.service.mjs';
 import { safeBroadcast } from '../../services/realtime/sseBroadcaster.mjs';
+import { assertPermission } from '../../services/auth/rbac.service.mjs';
 
 // SSE payload hygiene : exclude auth metadata fields from patchedFields,
 // they are not part of the business state mutated by the request.
@@ -79,7 +80,8 @@ export async function handlePmProjectRoutes(ctx) {
   try {
     if (projectMatch && method === 'GET') {
       const [, projectId] = projectMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return true;
       const project = await getProjectById(ctx.prisma, projectId);
       json(res, 200, { project });
       return true;
@@ -88,7 +90,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (projectMatch && method === 'PATCH') {
       const [, projectId] = projectMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.write'))) return true;
       const project = await updateProject(ctx.prisma, projectId, body);
       safeBroadcast('project_updated', { projectId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { project });
@@ -97,8 +100,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (projectMatch && method === 'DELETE') {
       const [, projectId] = projectMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.delete'))) return true;
       await deleteProject(ctx.prisma, projectId, actor);
       safeBroadcast('project_deleted', { projectId });
       json(res, 200, { ok: true });
@@ -108,8 +111,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (workItemsMatch && method === 'POST') {
       const [, projectId] = workItemsMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
       const workItem = await createWorkItem(ctx.prisma, projectId, body, actor);
       safeBroadcast('work_item_created', { projectId, workItemId: workItem.id, type: workItem.type });
       json(res, 201, { workItem });
@@ -119,8 +122,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (workItemMatch && method === 'PATCH') {
       const [, projectId, itemId] = workItemMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
       const workItem = await updateWorkItem(ctx.prisma, projectId, itemId, body, actor);
       safeBroadcast('work_item_updated', { projectId, workItemId: itemId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { workItem });
@@ -129,8 +132,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (workItemMatch && method === 'DELETE') {
       const [, projectId, itemId] = workItemMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
       const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.delete'))) return true;
       await deleteWorkItem(ctx.prisma, projectId, itemId, actor);
       safeBroadcast('work_item_deleted', { projectId, workItemId: itemId });
       json(res, 200, { ok: true });
@@ -139,7 +142,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (membersMatch && method === 'GET') {
       const [, projectId] = membersMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return true;
       const members = await listProjectMembers(ctx.prisma, projectId);
       json(res, 200, { members });
       return true;
@@ -148,7 +152,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (membersMatch && method === 'POST') {
       const [, projectId] = membersMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.write'))) return true;
       const member = await addProjectMember(ctx.prisma, projectId, body);
       safeBroadcast('project_member_added', { projectId, userId: member.userId, roleCode: member.roleCode });
       json(res, 201, { member });
@@ -157,7 +162,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (memberMatch && method === 'DELETE') {
       const [, projectId, userId] = memberMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.write'))) return true;
       await removeProjectMember(ctx.prisma, projectId, userId);
       safeBroadcast('project_member_removed', { projectId, userId });
       json(res, 200, { ok: true });
@@ -166,7 +172,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (scopeMatch && method === 'GET') {
       const [, projectId] = scopeMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.scope.read'))) return true;
       const scope = await fetchProjectScope(ctx.prisma, projectId);
       json(res, 200, scope);
       return true;
@@ -175,8 +182,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (scopeMatch && method === 'PATCH') {
       const [, projectId] = scopeMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
       const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.scope.write'))) return true;
       const scope = await updateProjectScope(ctx.prisma, projectId, body, actor);
       safeBroadcast('project_scope_updated', { projectId });
       json(res, 200, scope);
@@ -185,7 +192,8 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (milestonesMatch && method === 'GET') {
       const [, projectId] = milestonesMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.read'))) return true;
       const milestones = await listProjectMilestones(ctx.prisma, projectId);
       json(res, 200, { milestones });
       return true;
@@ -194,7 +202,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (milestonesMatch && method === 'POST') {
       const [, projectId] = milestonesMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
       const milestone = await createMilestone(ctx.prisma, projectId, body);
       safeBroadcast('milestone_created', { projectId, milestoneId: milestone.id });
       json(res, 201, { milestone });
@@ -204,7 +213,8 @@ export async function handlePmProjectRoutes(ctx) {
     if (milestoneMatch && method === 'PATCH') {
       const [, projectId, milestoneId] = milestoneMatch;
       const body = await ctx.parseBody(ctx.req);
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project', body);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
       const milestone = await updateMilestone(ctx.prisma, projectId, milestoneId, body);
       safeBroadcast('milestone_updated', { projectId, milestoneId, patchedFields: patchedFieldsOf(body) });
       json(res, 200, { milestone });
@@ -213,7 +223,10 @@ export async function handlePmProjectRoutes(ctx) {
 
     if (milestoneMatch && method === 'DELETE') {
       const [, projectId, milestoneId] = milestoneMatch;
-      await ctx.assertModuleAccess(ctx.prisma, ctx.url, 'project');
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      // Permission registry lacks pm.milestones.delete (only read/write/execute exist).
+      // Gate DELETE on pm.milestones.write — consistent with pm.scope which also has no .delete.
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
       await deleteMilestone(ctx.prisma, projectId, milestoneId);
       safeBroadcast('milestone_deleted', { projectId, milestoneId });
       json(res, 200, { ok: true });

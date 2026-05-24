@@ -983,7 +983,8 @@ const server = http.createServer(async (req, res) => {
     if (pmHandled) return;
 
     if (method === 'GET' && pathname === '/api/v1/projects') {
-      await assertModuleAccess(prisma, url, 'project');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return;
       const result = await listProjectsForUser(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1008,8 +1009,8 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && projectBulkImportMatch) {
       const [, projectId] = projectBulkImportMatch;
       const body = await parseBody(req);
-      await assertModuleAccess(prisma, url, 'project', body);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.import.execute'))) return;
       const result = await bulkImportTelecomWorkItems(prisma, {
         projectId,
         fileName: body.fileName,
@@ -1031,7 +1032,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/projects/engineering-dashboard') {
-      await assertModuleAccess(prisma, url, 'project');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return;
       const result = await getEngineeringDashboard(prisma, {
         userId: url.searchParams.get('userId') || undefined,
       });
