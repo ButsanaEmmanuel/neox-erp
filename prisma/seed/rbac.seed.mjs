@@ -89,6 +89,13 @@ export const PERMISSIONS = [
   { module: 'pm', resource: 'finance',    action: 'read',    description: 'Voir les entrées finance liées au projet' },
   { module: 'pm', resource: 'finance',    action: 'execute', description: 'Pousser une sync finance' },
 
+  // --- CRM (DH9) ---
+  { module: 'crm', resource: 'lookups', action: 'read',  description: 'Voir les référentiels CRM (industries, statuts, etc.)' },
+  { module: 'crm', resource: 'clients', action: 'read',  description: 'Voir les clients CRM' },
+  { module: 'crm', resource: 'clients', action: 'write', description: 'Créer et modifier des clients CRM' },
+  { module: 'crm', resource: 'deals',   action: 'read',  description: 'Voir les deals CRM' },
+  { module: 'crm', resource: 'deals',   action: 'write', description: 'Créer et modifier des deals CRM' },
+
   // --- Finance ---
   { module: 'finance', resource: 'ledger',   action: 'read',    description: 'Voir le grand livre' },
   { module: 'finance', resource: 'ledger',   action: 'write',   description: 'Modifier des entrées comptables' },
@@ -103,6 +110,21 @@ export const PERMISSIONS = [
   { module: 'finance', resource: 'advances', action: 'execute', description: 'Approuver des avances' },
   { module: 'finance', resource: 'reports',  action: 'read',    description: 'Voir les rapports financiers' },
   { module: 'finance', resource: 'reports',  action: 'execute', description: 'Générer et exporter des rapports' },
+
+  // --- Finance fine-grained (DH9) ---
+  { module: 'finance', resource: 'invoices',       action: 'read',    description: 'Voir les factures client' },
+  { module: 'finance', resource: 'invoices',       action: 'write',   description: 'Créer et modifier des factures client' },
+  { module: 'finance', resource: 'bills',          action: 'read',    description: 'Voir les factures fournisseur' },
+  { module: 'finance', resource: 'bills',          action: 'write',   description: 'Créer et modifier des factures fournisseur' },
+  { module: 'finance', resource: 'payments',       action: 'read',    description: 'Voir les paiements émis' },
+  { module: 'finance', resource: 'payments',       action: 'write',   description: 'Enregistrer des paiements émis' },
+  { module: 'finance', resource: 'receipts',       action: 'read',    description: 'Voir les encaissements' },
+  { module: 'finance', resource: 'receipts',       action: 'write',   description: 'Enregistrer des encaissements' },
+  { module: 'finance', resource: 'backfill',       action: 'execute', description: 'Lancer un backfill finance (projets, contrôles, documents)' },
+  { module: 'finance', resource: 'reconciliation', action: 'read',    description: 'Voir les réconciliations finance' },
+  { module: 'finance', resource: 'reconciliation', action: 'write',   description: 'Lancer et résoudre des réconciliations finance' },
+  { module: 'finance', resource: 'snapshot',       action: 'read',    description: 'Voir le snapshot finance global' },
+  { module: 'finance', resource: 'snapshot',       action: 'execute', description: 'Déclencher un recalcul de snapshot finance' },
 
   // --- SCM ---
   { module: 'scm', resource: 'suppliers',      action: 'read',    description: 'Voir les fournisseurs' },
@@ -134,6 +156,15 @@ export const PERMISSIONS = [
   { module: 'system', resource: 'audit',    action: 'read',    description: "Voir les logs d'audit" },
   { module: 'system', resource: 'settings', action: 'read',    description: 'Voir la configuration système' },
   { module: 'system', resource: 'settings', action: 'write',   description: 'Modifier la configuration système' },
+
+  // --- Système (DH9 — dashboard / reports / notifications / access admin) ---
+  { module: 'system', resource: 'dashboard',     action: 'read',    description: "Voir l'overview / dashboard global" },
+  { module: 'system', resource: 'notifications', action: 'read',    description: 'Voir ses notifications' },
+  { module: 'system', resource: 'notifications', action: 'write',   description: 'Agir sur ses notifications (marquer lu, etc.)' },
+  { module: 'system', resource: 'reports',       action: 'read',    description: "Voir les rapports d'intelligence cross-modules" },
+  { module: 'system', resource: 'reports',       action: 'execute', description: 'Synthétiser un rapport intelligence' },
+  { module: 'system', resource: 'access',        action: 'read',    description: "Voir les stakeholders et l'arbre d'accès cross-départements" },
+  { module: 'system', resource: 'access',        action: 'write',   description: 'Gérer les stakeholders et les permissions cross-départements' },
 
   // --- Finance — legacy registry (pre-HRM-1.1) ---
   // Kept here so super_admin (and any role spreading FIN_KEYS) covers the
@@ -183,6 +214,8 @@ export const ROLES = [
       ...HRM_KEYS,
       'system.rbac.read', 'system.rbac.write', 'system.rbac.execute',
       'system.audit.read',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -203,6 +236,8 @@ export const ROLES = [
       'hrm.training.read', 'hrm.training.write', 'hrm.training.execute',
       'hrm.policies.read', 'hrm.policies.write', 'hrm.policies.execute',
       'hrm.cases.read', 'hrm.cases.write', 'hrm.cases.execute',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -217,6 +252,8 @@ export const ROLES = [
       'hrm.training.read',
       'hrm.onboarding.execute',
       'hrm.offboarding.execute',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -230,6 +267,8 @@ export const ROLES = [
       'finance.expenses.read',
       'hrm.directory.read',
       'hrm.employees.read',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -243,6 +282,8 @@ export const ROLES = [
       'pm.milestones.read',
       'pm.documents.read', 'pm.documents.write',
       'pm.scope.read',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -253,6 +294,8 @@ export const ROLES = [
     keys: [
       ...FIN_KEYS,
       'hrm.payroll.read', 'hrm.payroll.write', 'hrm.payroll.execute',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -265,6 +308,14 @@ export const ROLES = [
       'finance.expenses.read', 'finance.expenses.write', 'finance.expenses.execute',
       'finance.advances.read', 'finance.advances.write', 'finance.advances.execute',
       'finance.reports.read',
+      'finance.invoices.read',
+      'finance.bills.read',
+      'finance.payments.read',
+      'finance.receipts.read',
+      'finance.snapshot.read',
+      'finance.reconciliation.read',
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
     ],
   },
   {
@@ -272,7 +323,11 @@ export const ROLES = [
     label: 'Responsable SCM',
     description: 'Accès complet au module SCM',
     isSystem: true,
-    keys: SCM_KEYS,
+    keys: [
+      ...SCM_KEYS,
+      'system.dashboard.read',
+      'system.notifications.read', 'system.notifications.write',
+    ],
   },
   {
     code: 'readonly',

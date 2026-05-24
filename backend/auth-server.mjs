@@ -836,6 +836,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/access/stakeholders') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.read'))) return;
       const rows = await listResourceStakeholders(prisma, {
         module: url.searchParams.get('module') || undefined,
         resourceType: url.searchParams.get('resourceType') || undefined,
@@ -848,13 +850,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/access/stakeholders') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const stakeholder = await upsertResourceStakeholder(prisma, body || {}, actor);
+      const bodyActor = parseActor(body);
+      const stakeholder = await upsertResourceStakeholder(prisma, body || {}, bodyActor);
       return json(res, 201, { stakeholder });
     }
 
     if (method === 'GET' && pathname === '/api/v1/access/cross-department/check') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.read'))) return;
       const allowed = await canAccessCrossDepartmentResource(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         module: url.searchParams.get('module') || undefined,
@@ -865,7 +871,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/bootstrap') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.configuration.read'))) return;
       const data = await getHrmBootstrap(prisma, {
         viewerUserId: url.searchParams.get('userId') || undefined,
         q: url.searchParams.get('q') || undefined,
@@ -876,7 +883,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/hrm/analytics' || pathname === '/api/hrm/analytics')) {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.directory.read'))) return;
       const viewerUserId = String(url.searchParams.get('userId') || '').trim();
       const allowed = await canManageHrmAdministration(prisma, viewerUserId);
       if (!allowed) return json(res, 403, { message: 'Forbidden. HR analytics is restricted to HR/Admin.' });
@@ -904,7 +912,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/hrm/contracts' || pathname === '/api/hrm/contracts')) {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.directory.read'))) return;
       const viewerUserId = String(url.searchParams.get('userId') || '').trim();
       const allowed = await canManageHrmAdministration(prisma, viewerUserId);
       if (!allowed) return json(res, 403, { message: 'Forbidden. Contract details are restricted to HR/Admin.' });
@@ -1051,11 +1060,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/projects/repair-integrity') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.execute'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const result = await repairProjectIntegrity(prisma, {
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 200, result);
     }
@@ -1070,6 +1081,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/projects/notifications' || pathname === '/api/v1/notifications')) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.notifications.read'))) return;
       const result = await listUserTeamNotifications(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1079,6 +1092,8 @@ const server = http.createServer(async (req, res) => {
 
     const projectNotifyTeamMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/notify-team$/);
     if (projectNotifyTeamMatch && method === 'POST') {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'system.notifications.write'))) return;
       const [, projectId] = projectNotifyTeamMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -1100,6 +1115,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/notifications/action') {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'system.notifications.write'))) return;
       const body = await parseBody(req);
       const actor = parseActor(body);
       const notificationId = String(body.notificationId || '').trim();
@@ -1139,7 +1156,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/departments') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.read'))) return;
       const departments = await listHrmDepartments(prisma);
       return json(res, 200, { departments });
     }
@@ -1171,7 +1189,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/employees') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.read'))) return;
       const result = await listHrmEmployees(prisma, {
         viewerUserId: url.searchParams.get('userId') || undefined,
         q: url.searchParams.get('q') || undefined,
@@ -1288,7 +1307,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/crm/lookups' || pathname === '/api/crm/lookups')) {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.lookups.read'))) return;
       const lookups = await listCrmLookups(prisma, {
         types: url.searchParams.get('types') || '',
         q: url.searchParams.get('q') || '',
@@ -1297,42 +1317,52 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/crm/clients') {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const clients = await listClientAccounts(prisma, url.searchParams.get('q') || '', url.searchParams.get('take') || 200);
       return json(res, 200, { clients });
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/clients/duplicates') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const body = await parseBody(req);
       const duplicates = await suggestCrmClientDuplicates(prisma, body || {});
       return json(res, 200, { duplicates });
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/clients') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const client = await createClientAccount(prisma, body, actor);
+      const bodyActor = parseActor(body);
+      const client = await createClientAccount(prisma, body, bodyActor);
       return json(res, 201, { client });
     }
 
     const crmClientPatchMatch = pathname.match(/^\/api\/v1\/crm\/clients\/([^/]+)$/);
     if (method === 'PATCH' && crmClientPatchMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.write'))) return;
       const [, clientId] = crmClientPatchMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const client = await updateClientAccount(prisma, clientId, body, actor);
+      const bodyActor = parseActor(body);
+      const client = await updateClientAccount(prisma, clientId, body, bodyActor);
       return json(res, 200, { client });
     }
 
     const crmClientFinancialsMatch = pathname.match(/^\/api\/v1\/crm\/clients\/([^/]+)\/financials$/);
     if (method === 'GET' && crmClientFinancialsMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const [, clientAccountId] = crmClientFinancialsMatch;
       const snapshot = await getClientFinancialSnapshot(prisma, clientAccountId);
       return json(res, 200, snapshot);
     }
 
     if (method === 'GET' && pathname === '/api/v1/crm/deals') {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.read'))) return;
       const deals = await listCrmDeals(prisma, {
         clientAccountId: url.searchParams.get('clientAccountId') || undefined,
         status: url.searchParams.get('status') || undefined,
@@ -1343,46 +1373,60 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/deals') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const deal = await createCrmDeal(prisma, body, actor);
+      const bodyActor = parseActor(body);
+      const deal = await createCrmDeal(prisma, body, bodyActor);
       return json(res, 201, { deal });
     }
 
     const crmDealPatchMatch = pathname.match(/^\/api\/v1\/crm\/deals\/([^/]+)$/);
     if (method === 'PATCH' && crmDealPatchMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const [, dealId] = crmDealPatchMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const deal = await updateCrmDeal(prisma, dealId, body, actor);
+      const bodyActor = parseActor(body);
+      const deal = await updateCrmDeal(prisma, dealId, body, bodyActor);
       return json(res, 200, { deal });
     }
 
     const crmDealWonMatch = pathname.match(/^\/api\/v1\/crm\/deals\/([^/]+)\/won$/);
     if (method === 'POST' && crmDealWonMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const [, dealId] = crmDealWonMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const result = await markDealWonAndCreateInvoiceCandidate(prisma, dealId, body, actor);
+      const bodyActor = parseActor(body);
+      const result = await markDealWonAndCreateInvoiceCandidate(prisma, dealId, body, bodyActor);
       return json(res, 200, result);
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/snapshot') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.snapshot.read'))) return;
       const snapshot = await buildFinanceSnapshot(prisma);
       return json(res, 200, snapshot);
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/reports') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reports.read'))) return;
       const reports = await getFinanceReports(prisma);
       return json(res, 200, { reports });
     }
 
     if (method === 'GET' && pathname === '/api/v1/dashboard/overview') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.dashboard.read'))) return;
       const overview = await getDashboardOverview(prisma);
       return json(res, 200, { overview });
     }
 
     if (method === 'GET' && pathname === '/api/v1/reports/intelligence') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.reports.read'))) return;
       const metrics = url.searchParams.getAll('metric').filter(Boolean);
       const intelligence = await getReportsIntelligence(prisma, {
         query: url.searchParams.get('query') || undefined,
@@ -1394,6 +1438,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/reports/intelligence/synthesize') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.reports.execute'))) return;
       const body = await parseBody(req);
       const intelligence = await synthesizeReportsIntelligence(prisma, body || {});
       return json(res, 200, { intelligence });
@@ -1407,41 +1453,55 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/governance/rollout') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const result = await rolloutFinanceGovernance(prisma);
       return json(res, 200, { result });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/categories') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const category = await upsertFinanceCategorySetting(prisma, body || {});
       return json(res, 201, { category });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/evidence-rules') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const rule = await upsertFinanceEvidenceRule(prisma, body || {});
       return json(res, 201, { rule });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/approval-thresholds') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const threshold = await upsertFinanceApprovalThreshold(prisma, body || {});
       return json(res, 201, { threshold });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/numbering-schemes') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const scheme = await upsertFinanceNumberingScheme(prisma, body || {});
       return json(res, 201, { scheme });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/payment-methods') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const paymentMethod = await upsertFinancePaymentMethodSetting(prisma, body || {});
       return json(res, 201, { paymentMethod });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/settings/ledger-mappings') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const body = await parseBody(req);
       const ledgerMapping = await upsertFinanceLedgerMapping(prisma, body || {});
       return json(res, 201, { ledgerMapping });
@@ -1463,6 +1523,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/backfill/project-entries') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.backfill.execute'))) return;
       const result = await backfillProjectFinanceEntries(prisma);
       return json(res, 200, result);
     }
@@ -1496,12 +1558,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/backfill/controls') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.backfill.execute'))) return;
       const result = await backfillReceivablesAndPayables(prisma);
       return json(res, 200, result);
     }
 
     const receivableMatch = pathname.match(/^\/api\/v1\/finance\/receivables\/([^/]+)$/);
     if (method === 'GET' && receivableMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const [, receivableId] = receivableMatch;
       const receivable = await getReceivableDetail(prisma, receivableId);
       if (!receivable) return json(res, 404, { message: 'Receivable not found.' });
@@ -1510,12 +1576,16 @@ const server = http.createServer(async (req, res) => {
 
     const payableMatch = pathname.match(/^\/api\/v1\/finance\/payables\/([^/]+)$/);
     if (method === 'GET' && payableMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const [, payableId] = payableMatch;
       const payable = await getPayableDetail(prisma, payableId);
       if (!payable) return json(res, 404, { message: 'Payable not found.' });
       return json(res, 200, { payable });
     }
     if (method === 'GET' && pathname === '/api/v1/finance/invoices') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.read'))) return;
       const invoices = await listCustomerInvoices(prisma, {
         status: url.searchParams.get('status') || undefined,
         receivableId: url.searchParams.get('receivableId') || undefined,
@@ -1524,17 +1594,21 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { invoices });
     }
     if (method === 'POST' && pathname === '/api/v1/finance/invoices') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const invoice = await createCustomerInvoice(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { invoice });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/bills') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.bills.read'))) return;
       const bills = await listVendorBills(prisma, {
         status: url.searchParams.get('status') || undefined,
         payableId: url.searchParams.get('payableId') || undefined,
@@ -1543,17 +1617,21 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { bills });
     }
     if (method === 'POST' && pathname === '/api/v1/finance/bills') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.bills.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const bill = await createVendorBill(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { bill });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/payments') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payments.read'))) return;
       const payments = await listPaymentDisbursements(prisma, {
         status: url.searchParams.get('status') || undefined,
         payableId: url.searchParams.get('payableId') || undefined,
@@ -1562,17 +1640,21 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { payments });
     }
     if (method === 'POST' && pathname === '/api/v1/finance/payments') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payments.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const result = await createPaymentDisbursement(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, result);
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/receipts') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.receipts.read'))) return;
       const receipts = await listReceiptCollections(prisma, {
         status: url.searchParams.get('status') || undefined,
         receivableId: url.searchParams.get('receivableId') || undefined,
@@ -1581,57 +1663,69 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { receipts });
     }
     if (method === 'POST' && pathname === '/api/v1/finance/receipts') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.receipts.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const result = await createReceiptCollection(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, result);
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/backfill/documents') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.backfill.execute'))) return;
       const result = await backfillInvoicesAndBills(prisma);
       return json(res, 200, result);
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/scm/po-commitment') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const entry = await syncScmPoCommitment(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { entry });
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/scm/vendor-bills') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const result = await createScmVendorBill(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, result);
     }
 
     const scmPoFinanceStatusMatch = pathname.match(/^\/api\/v1\/finance\/scm\/po\/([^/]+)\/status$/);
     if (method === 'GET' && scmPoFinanceStatusMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const [, poId] = scmPoFinanceStatusMatch;
       const status = await getScmPoFinanceStatus(prisma, poId);
       return json(res, 200, status);
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/scm/requisition-commitment') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const entry = await syncScmRequisitionCommitment(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { entry });
     }
@@ -1862,6 +1956,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { advance });
     }
     if (method === 'GET' && pathname === '/api/v1/finance/reconciliations') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.read'))) return;
       const reconciliations = await listFinanceReconciliations(prisma, {
         status: url.searchParams.get('status') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1870,18 +1966,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/finance/reconciliations/run') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const reconciliation = await runFinanceReconciliation(prisma, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { reconciliation });
     }
 
     const reconciliationMatch = pathname.match(/^\/api\/v1\/finance\/reconciliations\/([^/]+)$/);
     if (method === 'GET' && reconciliationMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.read'))) return;
       const [, reconciliationId] = reconciliationMatch;
       const reconciliation = await getFinanceReconciliationDetail(prisma, reconciliationId);
       if (!reconciliation) return json(res, 404, { message: 'Reconciliation not found.' });
@@ -1890,6 +1990,8 @@ const server = http.createServer(async (req, res) => {
 
     const reconciliationReceiptsMatch = pathname.match(/^\/api\/v1\/finance\/reconciliations\/([^/]+)\/unmatched-receipts$/);
     if (method === 'GET' && reconciliationReceiptsMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.read'))) return;
       const [, reconciliationId] = reconciliationReceiptsMatch;
       const lines = await listReconciliationUnmatchedReceipts(prisma, reconciliationId);
       return json(res, 200, { lines });
@@ -1897,6 +1999,8 @@ const server = http.createServer(async (req, res) => {
 
     const reconciliationPaymentsMatch = pathname.match(/^\/api\/v1\/finance\/reconciliations\/([^/]+)\/unmatched-payments$/);
     if (method === 'GET' && reconciliationPaymentsMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.read'))) return;
       const [, reconciliationId] = reconciliationPaymentsMatch;
       const lines = await listReconciliationUnmatchedPayments(prisma, reconciliationId);
       return json(res, 200, { lines });
@@ -1904,6 +2008,8 @@ const server = http.createServer(async (req, res) => {
 
     const reconciliationCasesMatch = pathname.match(/^\/api\/v1\/finance\/reconciliations\/([^/]+)\/discrepancies$/);
     if (method === 'GET' && reconciliationCasesMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.read'))) return;
       const [, reconciliationId] = reconciliationCasesMatch;
       const cases = await listReconciliationDiscrepancyCases(prisma, reconciliationId, {
         status: url.searchParams.get('status') || undefined,
@@ -1913,18 +2019,22 @@ const server = http.createServer(async (req, res) => {
 
     const discrepancyResolveMatch = pathname.match(/^\/api\/v1\/finance\/discrepancies\/([^/]+)$/);
     if (method === 'PATCH' && discrepancyResolveMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.reconciliation.write'))) return;
       const [, caseId] = discrepancyResolveMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const discrepancy = await resolveDiscrepancyCase(prisma, caseId, {
         ...body,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 200, { discrepancy });
     }
     const financeEntryMatch = pathname.match(/^\/api\/v1\/finance\/entries\/([^/]+)$/);
     if (method === 'GET' && financeEntryMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const [, financeEntryId] = financeEntryMatch;
       const entry = await getFinanceEntryDetail(prisma, financeEntryId);
       if (!entry) return json(res, 404, { message: 'Finance entry not found.' });
@@ -1933,6 +2043,8 @@ const server = http.createServer(async (req, res) => {
 
     const financeEntryActivityMatch = pathname.match(/^\/api\/v1\/finance\/entries\/([^/]+)\/activity$/);
     if (method === 'GET' && financeEntryActivityMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const [, financeEntryId] = financeEntryActivityMatch;
       const activities = await listFinanceEntryActivity(prisma, financeEntryId);
       return json(res, 200, { activities });
@@ -1940,14 +2052,18 @@ const server = http.createServer(async (req, res) => {
 
     const financeEntryEvidenceMatch = pathname.match(/^\/api\/v1\/finance\/entries\/([^/]+)\/evidence$/);
     if (method === 'GET' && financeEntryEvidenceMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const [, financeEntryId] = financeEntryEvidenceMatch;
       const evidence = await listFinanceEntryEvidence(prisma, financeEntryId);
       return json(res, 200, { evidence });
     }
     if (method === 'POST' && financeEntryEvidenceMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.evidence.upload'))) return;
       const [, financeEntryId] = financeEntryEvidenceMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const evidence = await uploadFinanceEvidence(prisma, {
         financeEntryId,
         originalFileName: body.originalFileName,
@@ -1956,20 +2072,22 @@ const server = http.createServer(async (req, res) => {
         documentType: body.documentType,
         notes: body.notes,
         contentBase64: body.contentBase64,
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { evidence });
     }
 
     const financeApproveMatch = pathname.match(/^\/api\/v1\/finance\/entries\/([^/]+)\/approve$/);
     if (method === 'PATCH' && financeApproveMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.approve'))) return;
       const [, financeEntryId] = financeApproveMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const entry = await approveFinanceEntry(prisma, financeEntryId, {
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
         notes: body.notes,
       });
       return json(res, 200, { entry });
@@ -1977,12 +2095,14 @@ const server = http.createServer(async (req, res) => {
 
     const financeRejectMatch = pathname.match(/^\/api\/v1\/finance\/entries\/([^/]+)\/reject$/);
     if (method === 'PATCH' && financeRejectMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.reject'))) return;
       const [, financeEntryId] = financeRejectMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const entry = await rejectFinanceEntry(prisma, financeEntryId, {
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
         notes: body.notes,
       });
       return json(res, 200, { entry });
@@ -1990,6 +2110,8 @@ const server = http.createServer(async (req, res) => {
 
     const financeEvidenceDownloadMatch = pathname.match(/^\/api\/v1\/finance\/evidence\/([^/]+)\/download$/);
     if (method === 'GET' && financeEvidenceDownloadMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const [, evidenceId] = financeEvidenceDownloadMatch;
       const evidence = await prisma.financeEvidenceDocument.findUnique({ where: { id: evidenceId } });
       if (!evidence || evidence.deletedAt) {
@@ -2010,6 +2132,8 @@ const server = http.createServer(async (req, res) => {
 
     const detailMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/details$/);
     if (method === 'PATCH' && detailMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.workItems.write'))) return;
       const [, projectId, workItemId] = detailMatch;
       const body = await parseBody(req);
       // D9 — boundary validation: reject type mismatches with 400 before
@@ -2046,6 +2170,8 @@ const server = http.createServer(async (req, res) => {
 
     const activitiesMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/activities$/);
     if (method === 'GET' && activitiesMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.workItems.read'))) return;
       const [, projectId, workItemId] = activitiesMatch;
       const activities = await listProjectItemActivities(prisma, projectId, workItemId);
       return json(res, 200, { activities });
@@ -2053,11 +2179,15 @@ const server = http.createServer(async (req, res) => {
 
     const filesCollectionMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/files$/);
     if (method === 'GET' && filesCollectionMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.read'))) return;
       const [, projectId, workItemId] = filesCollectionMatch;
       const files = await listProjectItemFiles(prisma, projectId, workItemId);
       return json(res, 200, { files });
     }
     if (method === 'POST' && filesCollectionMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.write'))) return;
       const [, projectId, workItemId] = filesCollectionMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -2077,6 +2207,8 @@ const server = http.createServer(async (req, res) => {
 
     const fileDeleteMatch = pathname.match(/^\/api\/v1\/pm\/files\/([^/]+)$/);
     if (method === 'DELETE' && fileDeleteMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.delete'))) return;
       const [, fileId] = fileDeleteMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -2089,6 +2221,8 @@ const server = http.createServer(async (req, res) => {
 
     const fileDownloadMatch = pathname.match(/^\/api\/v1\/pm\/files\/([^/]+)\/download$/);
     if (method === 'GET' && fileDownloadMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.read'))) return;
       const [, fileId] = fileDownloadMatch;
       const file = await prisma.projectItemFile.findUnique({ where: { id: fileId } });
       if (!file || file.deletedAt) {
