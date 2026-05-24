@@ -1534,6 +1534,22 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 | DH11 | ✅ Résolue 2026-05-24 (Sprint RBAC+D5 — DR1) | Le `Permission` registry contient `pm.milestones.read/write/execute` mais **pas** `pm.milestones.delete`. La route `DELETE /api/v1/projects/:id/milestones/:mId` a donc été gatée sur `pm.milestones.write` (workaround documenté inline). Asymétrie avec `pm.projects.delete`, `pm.workItems.delete`, `pm.documents.delete` qui existent. | **Résolu** : (1) `pm.milestones.delete` ajouté au registry `prisma/seed/rbac.seed.mjs` (description "Supprimer des jalons"). (2) Route `DELETE /milestones/:mId` (`backend/routes/pm/projects.routes.mjs:234-244`) bascule de `pm.milestones.write` → `pm.milestones.delete`, commentaire workaround supprimé. (3) Seed ré-exécuté (idempotent) : 1 permission créée, `super_admin` (+1 = 99 perms), `project_manager` (+1 = 24 perms via `...PM_KEYS`). (4) Test `backend/tests/pm/pm-routes-rbac-d6.test.mjs` : `pm.milestones.delete` ajouté à PM_KEYS → 11 admin checks + 3 deny scenarios ✓. **Note `pm.scope`** : aucune route DELETE n'existe (uniquement GET/PATCH upsert) → pas de gap à corriger pour scope. |
 | DH12 | 🟡 Architecture (ouverte, priorité haute — découverte sprint Dettes D13) | Sous-tâches `Milestone.parentId` non implémentées. Le sprint Dettes a livré le périmètre WorkItem uniquement (D13 fermée pour WorkItem). Reste à faire pour Milestone : self-relation `parentId`, rollup `completionPct` (moyenne pondérée des enfants), MAX_DEPTH, anti-cycle, UI nested dans `MilestonesPage`. Patterns réutilisables : `backend/services/pm/workItemHierarchy.service.mjs` est un excellent template (depth/cycle/rollup logic factorisable). | Sprint PM-2 dédié — **avancer avant l'UI Finance**, débloque la complétion réelle des projets cross-tâches. |
 
+### Sprint RBAC + D5 — bilan ✅
+
+**Statut : ✅ Fermé 2026-05-24** — branche `claude/sprint-rbac-d5`, 5 commits (1 par dette) + ce récap.
+
+| Dette | Résolution | Commit |
+|---|---|---|
+| DR1 (DH11) | `pm.milestones.delete` ajouté au registry ; route DELETE migrée de `.write` → `.delete` ; workaround retiré. Super_admin 98→99, project_manager 23→24. | `5d0127f` |
+| DR2 (DH10) | 10 permissions `finance.*` legacy intégrées au seed ; super_admin atteint 99→**109/109** via `RolePermission`. Script one-shot `grant-admin-full-perms.mjs` supprimé. Idempotence + e2e nouveau super_admin vérifiés. | `48e53ad` |
+| DR3 (résidu D6) | `engineeringTeamProjectCount` supprimé (string heuristic `ENG`/`Engineering` + whitelist roleCode). Redondant avec `projectMembershipCount`. Reason `engineering_team_assignment` retirée. Doc synchronisée. | `357c7e7` |
+| D5 | Audit live DB : 11/11 FKs déjà corrects sur les 4 modèles in-scope (`ProjectDocument` n'existe pas). Aucune migration nécessaire (déjà résolu par HRM-1.0 baseline + D13). E2E : `user.delete()` avec membership → P2003 ; soft-delete OK. | `8dec313` |
+| DR4 | `NEOX_PM_PERMISSIONS.md` enrichi : section registry PM 20 keys, grille rôles → keys, anti-patterns DR3+D6, Changelog par sprint. | `a8ab029` |
+
+**Effets de bord positifs** : (1) `prisma/seed/rbac.seed.mjs` est désormais la source unique de vérité 100% du registry (zéro divergence entre seed et DB) ; (2) le chemin RBAC `loadUserContext` est entièrement DB-only (zéro string match) ; (3) le doc `NEOX_PM_PERMISSIONS.md` reflète l'état réel et porte un Changelog auditable.
+
+**Toutes les dettes ouvertes en sortie de Sprint Dettes Techniques (DH10, DH11) ainsi que le résidu D5 et les sous-questions DR3/DR4 sont soldées.**
+
 ---
 
 ## 7. Règles transversales
