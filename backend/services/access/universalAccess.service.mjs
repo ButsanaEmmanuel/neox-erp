@@ -109,43 +109,6 @@ async function loadUserContext(prisma, userId) {
     },
   });
 
-  const engineeringTeamProjectCount = await prisma.projectMember.count({
-    where: {
-      isDeleted: false,
-      AND: [
-        {
-          OR: [
-            { userId: { in: identityUserIds } },
-            ...(email
-              ? [
-                  {
-                    user: {
-                      email,
-                      isDeleted: false,
-                      isActive: true,
-                    },
-                  },
-                ]
-              : []),
-          ],
-        },
-        {
-          OR: [
-            { roleCode: { in: ['LEAD', 'CONTRIBUTOR', 'VIEWER', 'ENGINEERING'] } },
-            {
-              department: {
-                OR: [
-                  { code: { contains: 'ENG', mode: 'insensitive' } },
-                  { name: { contains: 'Engineering', mode: 'insensitive' } },
-                ],
-              },
-            },
-          ],
-        },
-      ],
-    },
-  });
-
   return {
     user,
     userId,
@@ -158,7 +121,6 @@ async function loadUserContext(prisma, userId) {
     authorityLevel: user.hrmEmploymentProfile?.authorityLevel || 'CONTRIBUTOR',
     projectMembershipCount,
     managedProjectCount,
-    engineeringTeamProjectCount,
     identityUserIds,
   };
 }
@@ -213,7 +175,6 @@ export async function getUserPermissionSet(prisma, userId) {
     || context.roleCodes.includes('PROJECT_MANAGER')
     || hasExplicitProjectPermission
     || context.managedProjectCount > 0
-    || context.engineeringTeamProjectCount > 0
     || context.projectMembershipCount > 0;
 
   if (hasProjectFullAccess) {
@@ -228,11 +189,9 @@ export async function getUserPermissionSet(prisma, userId) {
             ? 'role_permission_grant'
             : context.managedProjectCount > 0
               ? 'project_manager_assignment'
-              : context.engineeringTeamProjectCount > 0
-                ? 'engineering_team_assignment'
-                : context.projectMembershipCount > 0
-                  ? 'project_membership'
-                  : 'role_grant',
+              : context.projectMembershipCount > 0
+                ? 'project_membership'
+                : 'role_grant',
     });
   } else {
     const salesProgressReadOnly =
@@ -318,7 +277,6 @@ export async function getUserPermissionSet(prisma, userId) {
     authorityLevel: context.authorityLevel,
     projectMembershipCount: context.projectMembershipCount,
     managedProjectCount: context.managedProjectCount,
-    engineeringTeamProjectCount: context.engineeringTeamProjectCount,
     modules: Object.fromEntries(moduleAccess.entries()),
     permissions: Object.fromEntries(permissions.entries()),
   };

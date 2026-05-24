@@ -78,6 +78,7 @@ export const PERMISSIONS = [
   { module: 'pm', resource: 'workItems',  action: 'execute', description: 'Soumettre QA / approuver / signer' },
   { module: 'pm', resource: 'milestones', action: 'read',    description: 'Voir les jalons' },
   { module: 'pm', resource: 'milestones', action: 'write',   description: 'Créer et modifier des jalons' },
+  { module: 'pm', resource: 'milestones', action: 'delete',  description: 'Supprimer des jalons' },
   { module: 'pm', resource: 'milestones', action: 'execute', description: 'Marquer un jalon complet' },
   { module: 'pm', resource: 'documents',  action: 'read',    description: 'Voir les documents projet' },
   { module: 'pm', resource: 'documents',  action: 'write',   description: 'Uploader des documents' },
@@ -133,6 +134,25 @@ export const PERMISSIONS = [
   { module: 'system', resource: 'audit',    action: 'read',    description: "Voir les logs d'audit" },
   { module: 'system', resource: 'settings', action: 'read',    description: 'Voir la configuration système' },
   { module: 'system', resource: 'settings', action: 'write',   description: 'Modifier la configuration système' },
+
+  // --- Finance — legacy registry (pre-HRM-1.1) ---
+  // Kept here so super_admin (and any role spreading FIN_KEYS) covers the
+  // entire Permission table via RolePermission, not via UserPermissionSet
+  // overrides. Two of these are gated by live routes:
+  //   - finance.settings.manage → auth-server.mjs:1404
+  //   - finance.entries.read    → auth-server.mjs:1452
+  // The other 8 are reserved for upcoming Finance routes; dropping them
+  // would silently strip permissions from anyone with overrides. DR2 closure.
+  { module: 'finance', resource: 'entries',        action: 'read',              description: 'Voir les écritures finance (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'create',            description: 'Créer des écritures finance (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'update',            description: 'Modifier des écritures finance (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'approve',           description: 'Approuver des écritures finance (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'reject',            description: 'Rejeter des écritures finance (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'submit_validation', description: 'Soumettre une écriture à validation (legacy)' },
+  { module: 'finance', resource: 'entries',        action: 'settle',            description: 'Solder une écriture finance (legacy)' },
+  { module: 'finance', resource: 'evidence',       action: 'upload',            description: 'Uploader une pièce justificative finance (legacy)' },
+  { module: 'finance', resource: 'reconciliation', action: 'resolve',           description: 'Résoudre une réconciliation finance (legacy)' },
+  { module: 'finance', resource: 'settings',       action: 'manage',            description: 'Gérer les paramètres finance (legacy)' },
 ].map((p) => ({ ...p, key: `${p.module}.${p.resource}.${p.action}` }));
 
 // ============================================================

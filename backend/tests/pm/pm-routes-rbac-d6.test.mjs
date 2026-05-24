@@ -29,8 +29,7 @@ const PM_KEYS = [
   'pm.scope.write',
   'pm.milestones.read',
   'pm.milestones.write',
-  // Note: pm.milestones.delete absent from the Permission registry — DELETE
-  // route gated on pm.milestones.write instead (see route comment).
+  'pm.milestones.delete',
   'pm.import.execute',
 ];
 
