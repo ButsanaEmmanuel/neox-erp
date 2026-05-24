@@ -1288,7 +1288,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/crm/lookups' || pathname === '/api/crm/lookups')) {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.lookups.read'))) return;
       const lookups = await listCrmLookups(prisma, {
         types: url.searchParams.get('types') || '',
         q: url.searchParams.get('q') || '',
@@ -1297,42 +1298,52 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/crm/clients') {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const clients = await listClientAccounts(prisma, url.searchParams.get('q') || '', url.searchParams.get('take') || 200);
       return json(res, 200, { clients });
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/clients/duplicates') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const body = await parseBody(req);
       const duplicates = await suggestCrmClientDuplicates(prisma, body || {});
       return json(res, 200, { duplicates });
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/clients') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const client = await createClientAccount(prisma, body, actor);
+      const bodyActor = parseActor(body);
+      const client = await createClientAccount(prisma, body, bodyActor);
       return json(res, 201, { client });
     }
 
     const crmClientPatchMatch = pathname.match(/^\/api\/v1\/crm\/clients\/([^/]+)$/);
     if (method === 'PATCH' && crmClientPatchMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.write'))) return;
       const [, clientId] = crmClientPatchMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const client = await updateClientAccount(prisma, clientId, body, actor);
+      const bodyActor = parseActor(body);
+      const client = await updateClientAccount(prisma, clientId, body, bodyActor);
       return json(res, 200, { client });
     }
 
     const crmClientFinancialsMatch = pathname.match(/^\/api\/v1\/crm\/clients\/([^/]+)\/financials$/);
     if (method === 'GET' && crmClientFinancialsMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.clients.read'))) return;
       const [, clientAccountId] = crmClientFinancialsMatch;
       const snapshot = await getClientFinancialSnapshot(prisma, clientAccountId);
       return json(res, 200, snapshot);
     }
 
     if (method === 'GET' && pathname === '/api/v1/crm/deals') {
-      await assertModuleAccess(prisma, url, 'crm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.read'))) return;
       const deals = await listCrmDeals(prisma, {
         clientAccountId: url.searchParams.get('clientAccountId') || undefined,
         status: url.searchParams.get('status') || undefined,
@@ -1343,27 +1354,33 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/crm/deals') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const deal = await createCrmDeal(prisma, body, actor);
+      const bodyActor = parseActor(body);
+      const deal = await createCrmDeal(prisma, body, bodyActor);
       return json(res, 201, { deal });
     }
 
     const crmDealPatchMatch = pathname.match(/^\/api\/v1\/crm\/deals\/([^/]+)$/);
     if (method === 'PATCH' && crmDealPatchMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const [, dealId] = crmDealPatchMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const deal = await updateCrmDeal(prisma, dealId, body, actor);
+      const bodyActor = parseActor(body);
+      const deal = await updateCrmDeal(prisma, dealId, body, bodyActor);
       return json(res, 200, { deal });
     }
 
     const crmDealWonMatch = pathname.match(/^\/api\/v1\/crm\/deals\/([^/]+)\/won$/);
     if (method === 'POST' && crmDealWonMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'crm.deals.write'))) return;
       const [, dealId] = crmDealWonMatch;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const result = await markDealWonAndCreateInvoiceCandidate(prisma, dealId, body, actor);
+      const bodyActor = parseActor(body);
+      const result = await markDealWonAndCreateInvoiceCandidate(prisma, dealId, body, bodyActor);
       return json(res, 200, result);
     }
 
