@@ -75,7 +75,12 @@ function checkCalculator() {
   assert.equal(calculateLeaveDays('2030-06-07', '2030-06-10'), 2, 'weekend spanning range skips Sat+Sun');
   // 2030-06-03 = Monday alone -> 1
   assert.equal(calculateLeaveDays('2030-06-03', '2030-06-03'), 1, 'single weekday inclusive');
-  console.log('  ✓ calculateLeaveDays handles weekends and single-day ranges');
+  // HRM-2.7 explicit assertions per the test spec — Mon..Fri = 5 and
+  // Mon..Sun = 5 (the Saturday and Sunday are silently excluded).
+  // 2030-06-03 = Monday, 2030-06-07 = Friday, 2030-06-09 = Sunday.
+  assert.equal(calculateLeaveDays('2030-06-03', '2030-06-07'), 5, 'Mon..Fri full week = 5 working days');
+  assert.equal(calculateLeaveDays('2030-06-03', '2030-06-09'), 5, 'Mon..Sun full week = 5 working days (weekend excluded)');
+  console.log('  ✓ calculateLeaveDays handles weekends and single-day ranges (Mon..Fri = Mon..Sun = 5)');
 }
 
 async function checkInsufficientBalance({ user, policy }) {

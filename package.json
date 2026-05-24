@@ -20,7 +20,10 @@
         "test:hrm-policies": "node backend/tests/hrm/hrm-policies.test.mjs",
         "test:hrm-cases": "node backend/tests/hrm/hrm-cases.test.mjs",
         "test:hrm-timesheets": "node backend/tests/hrm/hrm-timesheets.test.mjs",
-        "test:hrm-sse-events": "node backend/tests/hrm/hrm-sse-events.test.mjs"
+        "test:hrm-sse-events": "node backend/tests/hrm/hrm-sse-events.test.mjs",
+        "test:hrm-rbac": "node backend/tests/hrm/hrm-rbac.test.mjs",
+        "test:hrm-contractors": "node backend/tests/hrm/hrm-contractors.test.mjs",
+        "test:hrm-regression": "node backend/tests/hrm/hrm-regression.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"
