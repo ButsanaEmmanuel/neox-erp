@@ -25,7 +25,7 @@ export function computeTelecomSummary(workItems: WorkItem[]): TelecomSummary {
 
   return {
     totalImportedRows: workItems.length,
-    incompleteItems: workItems.filter((wi) => wi.status === 'needs_manual_completion' || wi.manual_completion_status !== 'complete').length,
+    incompleteItems: workItems.filter((wi) => wi.status === 'needs_manual_completion' && wi.manual_completion_status !== 'complete').length,
     financePending: workItems.filter((wi) => wi.finance_sync_status === 'pending' || wi.finance_sync_status === 'blocked').length,
     financeSynced: workItems.filter((wi) => wi.finance_sync_status === 'synced').length,
     errorRows: workItems.filter((wi) => wi.status === 'validation_error' || wi.finance_sync_status === 'error' || wi.finance_sync_status === 'blocked').length,
