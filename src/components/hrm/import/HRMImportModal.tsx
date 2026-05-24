@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, X } from 'lucide-react';
-import { useHRMStore } from '../../../store/hrm/useHRMStore';
+import { useDirectoryStore } from '../../../store/hrm/useDirectoryStore';
 import { parseDepartmentWorkbook, parseEmployeeWorkbook } from '../../../services/hrm/hrmImport.service';
 import { Department, EmploymentProfile, HRMImportValidationResult } from '../../../types/hrm';
 import { downloadDepartmentTemplate, downloadEmployeeTemplate } from '../../../services/hrm/hrmTemplate.service';
@@ -19,10 +19,10 @@ const HRMImportModal: React.FC<HRMImportModalProps> = ({ isOpen, onClose, type }
     const [importError, setImportError] = useState<string | null>(null);
     const [validationResult, setValidationResult] = useState<HRMImportValidationResult<any> | null>(null);
 
-    const bulkAddEmployees = useHRMStore((s) => s.bulkAddEmployees);
-    const bulkAddDepartments = useHRMStore((s) => s.bulkAddDepartments);
-    const existingEmployees = useHRMStore((s) => s.employees);
-    const existingDepartments = useHRMStore((s) => s.departments);
+    const bulkAddEmployees = useDirectoryStore((s) => s.bulkAddEmployees);
+    const bulkAddDepartments = useDirectoryStore((s) => s.bulkAddDepartments);
+    const existingEmployees = useDirectoryStore((s) => s.employees);
+    const existingDepartments = useDirectoryStore((s) => s.departments);
 
     if (!isOpen) return null;
 
