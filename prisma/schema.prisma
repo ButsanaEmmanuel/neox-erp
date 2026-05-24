@@ -602,6 +602,7 @@ model WorkItem {
   operationalManualFieldsJson Json?
   acceptanceManualFieldsJson Json?
   description      String?
+  parentId         String?
   isDeleted        Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -609,11 +610,14 @@ model WorkItem {
 
   project          Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
   importBatch      ProjectImportBatch? @relation(fields: [importBatchId], references: [id])
+  parent           WorkItem?  @relation("WorkItemChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children         WorkItem[] @relation("WorkItemChildren")
 
   @@index([projectId])
   @@index([importBatchId])
   @@index([financeSyncStatus])
   @@index([isDeleted])
+  @@index([parentId])
 }
 
 model ProjectImportBatch {
