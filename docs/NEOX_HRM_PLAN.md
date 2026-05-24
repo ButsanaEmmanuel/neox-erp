@@ -24,7 +24,7 @@
 | ID | Description | Traitement |
 |---|---|---|
 | D5 | FK RESTRICT manquant sur `ProjectMember` | Fermée en HRM-1.0 (migration groupée) |
-| D6 | `src/lib/rbac.ts` hardcodé | Fermée en HRM-1.2 (migration DB-driven) |
+| D6 | `src/lib/rbac.ts` hardcodé | Fermée en HRM-1.2 (résolution DB-driven) + Sprint Dettes Techniques (suppression complète du shim `can()`, wiring assertPermission sur 38 routes PM+Finance, 2026-05-24) |
 | D15 | Assignés télécom → auto-création contractor HRM | Fermée en HRM-1.4 |
 
 ### État de l'existant (audit 2026-05-23)
@@ -1505,7 +1505,7 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 | ID | Description | Fermée en |
 |---|---|---|
 | D5 | FK RESTRICT sur `ProjectMember` | HRM-1.0 |
-| D6 | `src/lib/rbac.ts` hardcodé | HRM-1.2 |
+| D6 | `src/lib/rbac.ts` hardcodé | HRM-1.2 + Sprint Dettes Techniques 2026-05-24 (shim `can()` supprimé, 38 routes PM/Finance migrées vers `assertPermission`) |
 | D15 | Assignés télécom → contractor HRM | HRM-1.4 |
 
 ### Dettes PM restantes — non touchées ici
@@ -1514,7 +1514,7 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 |---|---|---|
 | D2 | Stubs télécom → finance | Sprint Finance (priorité 3) |
 | D7 | `importWorkItems` IDs locaux | Sprint Reporting (priorité 5) |
-| D8 | `computeTelecomSummary` OR vs AND | Sprint Reporting (priorité 5) |
+| D8 | `computeTelecomSummary` OR vs AND | ✅ Fermée 2026-05-24 (Sprint Dettes Techniques — `||` → `&&` dans `telecomSummary.service.ts`, test smoke 4 assertions) |
 | D13 | Sous-tâches `parentId` | Sprint PM-2 dédié |
 
 ### Nouvelles dettes HRM ouvertes
