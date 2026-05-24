@@ -1521,7 +1521,7 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 
 | ID | Description | Sprint cible |
 |---|---|---|
-| DH1 | `useHRMStore.ts` (777L) trop lourd — à découper par sous-module | Sprint HRM refacto |
+| DH1 | ✅ Résolue 2026-05-24 (Sprint Dettes Techniques) | `useHRMStore.ts` 777 L → 42 L. Découpe en 8 sous-stores Zustand dans `src/store/hrm/` : `useDirectoryStore` (état transverse + employees/departments), `useOnboardingStore` (+ offboarding fondu), `useRecruitmentStore`, `useTimesheetsStore`, `useLeaveStore`, `useTrainingStore`, `usePoliciesStore`, `useCasesStore`. `useHRMStore` devient un barrel re-export + composite hook (spread des 8 stores → API legacy préservée, zéro breaking change consumer). Cross-mutations via `useDirectoryStore.getState().patchEmployeeLocal(...)` (action locale dédiée pour préserver le comportement no-API des flips de status lifecycle). 1 consumer (`HRMImportModal`) migré vers `useDirectoryStore` direct (pattern selector `(s) => s.x` incompatible avec le composite hook). `tsc --noEmit` ✅ après chaque commit. 9 commits : `a421322` → `77bee8b`. |
 | DH2 | Table `PublicHoliday` absente — calcul congés approximatif (weekends seulement) | HRM-2 ou post |
 | DH3 | Payroll UI — engine backend 95% mais frontend absent | Sprint Finance (priorité 3) |
 | DH4 | Export RH — pas d'export CSV/Excel des employés, congés, timesheets | Sprint Reporting (priorité 5) |
