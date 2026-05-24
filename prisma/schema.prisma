@@ -2017,3 +2017,15 @@ model LeaveRequest {
   @@index([isDeleted])
 }
 
+model PublicHoliday {
+  id        String   @id @default(cuid())
+  date      DateTime
+  name      String
+  country   String   @default("CD")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([date, country])
+  @@index([country, date])
+}
+
