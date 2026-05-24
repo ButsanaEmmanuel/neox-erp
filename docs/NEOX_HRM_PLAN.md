@@ -1515,7 +1515,7 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 | D2 | Stubs télécom → finance | Sprint Finance (priorité 3) |
 | D7 | `importWorkItems` IDs locaux | Sprint Reporting (priorité 5) |
 | D8 | `computeTelecomSummary` OR vs AND | ✅ Fermée 2026-05-24 (Sprint Dettes Techniques — `||` → `&&` dans `telecomSummary.service.ts`, test smoke 4 assertions) |
-| D13 | Sous-tâches `parentId` | Sprint PM-2 dédié |
+| D13 | Sous-tâches `parentId` | ✅ Fermée 2026-05-24 (Sprint Dettes Techniques — WorkItem uniquement, Milestone reporté) |
 
 ### Nouvelles dettes HRM ouvertes
 
