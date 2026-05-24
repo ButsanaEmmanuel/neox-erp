@@ -836,6 +836,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/access/stakeholders') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.read'))) return;
       const rows = await listResourceStakeholders(prisma, {
         module: url.searchParams.get('module') || undefined,
         resourceType: url.searchParams.get('resourceType') || undefined,
@@ -848,13 +850,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/access/stakeholders') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.write'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
-      const stakeholder = await upsertResourceStakeholder(prisma, body || {}, actor);
+      const bodyActor = parseActor(body);
+      const stakeholder = await upsertResourceStakeholder(prisma, body || {}, bodyActor);
       return json(res, 201, { stakeholder });
     }
 
     if (method === 'GET' && pathname === '/api/v1/access/cross-department/check') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.access.read'))) return;
       const allowed = await canAccessCrossDepartmentResource(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         module: url.searchParams.get('module') || undefined,
@@ -865,7 +871,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/bootstrap') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.configuration.read'))) return;
       const data = await getHrmBootstrap(prisma, {
         viewerUserId: url.searchParams.get('userId') || undefined,
         q: url.searchParams.get('q') || undefined,
@@ -876,7 +883,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/hrm/analytics' || pathname === '/api/hrm/analytics')) {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.directory.read'))) return;
       const viewerUserId = String(url.searchParams.get('userId') || '').trim();
       const allowed = await canManageHrmAdministration(prisma, viewerUserId);
       if (!allowed) return json(res, 403, { message: 'Forbidden. HR analytics is restricted to HR/Admin.' });
@@ -904,7 +912,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/hrm/contracts' || pathname === '/api/hrm/contracts')) {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.directory.read'))) return;
       const viewerUserId = String(url.searchParams.get('userId') || '').trim();
       const allowed = await canManageHrmAdministration(prisma, viewerUserId);
       if (!allowed) return json(res, 403, { message: 'Forbidden. Contract details are restricted to HR/Admin.' });
@@ -1051,11 +1060,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/projects/repair-integrity') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.execute'))) return;
       const body = await parseBody(req);
-      const actor = parseActor(body);
+      const bodyActor = parseActor(body);
       const result = await repairProjectIntegrity(prisma, {
-        actorUserId: actor.actorUserId,
-        actorDisplayName: actor.actorDisplayName,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 200, result);
     }
@@ -1070,6 +1081,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && (pathname === '/api/v1/projects/notifications' || pathname === '/api/v1/notifications')) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.notifications.read'))) return;
       const result = await listUserTeamNotifications(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1079,6 +1092,8 @@ const server = http.createServer(async (req, res) => {
 
     const projectNotifyTeamMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/notify-team$/);
     if (projectNotifyTeamMatch && method === 'POST') {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'system.notifications.write'))) return;
       const [, projectId] = projectNotifyTeamMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -1100,6 +1115,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/notifications/action') {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'system.notifications.write'))) return;
       const body = await parseBody(req);
       const actor = parseActor(body);
       const notificationId = String(body.notificationId || '').trim();
@@ -1139,7 +1156,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/departments') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.read'))) return;
       const departments = await listHrmDepartments(prisma);
       return json(res, 200, { departments });
     }
@@ -1171,7 +1189,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/hrm/employees') {
-      await assertModuleAccess(prisma, url, 'hrm');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.read'))) return;
       const result = await listHrmEmployees(prisma, {
         viewerUserId: url.searchParams.get('userId') || undefined,
         q: url.searchParams.get('q') || undefined,
@@ -1399,11 +1418,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/dashboard/overview') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.dashboard.read'))) return;
       const overview = await getDashboardOverview(prisma);
       return json(res, 200, { overview });
     }
 
     if (method === 'GET' && pathname === '/api/v1/reports/intelligence') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.reports.read'))) return;
       const metrics = url.searchParams.getAll('metric').filter(Boolean);
       const intelligence = await getReportsIntelligence(prisma, {
         query: url.searchParams.get('query') || undefined,
@@ -1415,6 +1438,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'POST' && pathname === '/api/v1/reports/intelligence/synthesize') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.reports.execute'))) return;
       const body = await parseBody(req);
       const intelligence = await synthesizeReportsIntelligence(prisma, body || {});
       return json(res, 200, { intelligence });
@@ -2107,6 +2132,8 @@ const server = http.createServer(async (req, res) => {
 
     const detailMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/details$/);
     if (method === 'PATCH' && detailMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.workItems.write'))) return;
       const [, projectId, workItemId] = detailMatch;
       const body = await parseBody(req);
       // D9 — boundary validation: reject type mismatches with 400 before
@@ -2143,6 +2170,8 @@ const server = http.createServer(async (req, res) => {
 
     const activitiesMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/activities$/);
     if (method === 'GET' && activitiesMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.workItems.read'))) return;
       const [, projectId, workItemId] = activitiesMatch;
       const activities = await listProjectItemActivities(prisma, projectId, workItemId);
       return json(res, 200, { activities });
@@ -2150,11 +2179,15 @@ const server = http.createServer(async (req, res) => {
 
     const filesCollectionMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/files$/);
     if (method === 'GET' && filesCollectionMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.read'))) return;
       const [, projectId, workItemId] = filesCollectionMatch;
       const files = await listProjectItemFiles(prisma, projectId, workItemId);
       return json(res, 200, { files });
     }
     if (method === 'POST' && filesCollectionMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.write'))) return;
       const [, projectId, workItemId] = filesCollectionMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -2174,6 +2207,8 @@ const server = http.createServer(async (req, res) => {
 
     const fileDeleteMatch = pathname.match(/^\/api\/v1\/pm\/files\/([^/]+)$/);
     if (method === 'DELETE' && fileDeleteMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.delete'))) return;
       const [, fileId] = fileDeleteMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
@@ -2186,6 +2221,8 @@ const server = http.createServer(async (req, res) => {
 
     const fileDownloadMatch = pathname.match(/^\/api\/v1\/pm\/files\/([^/]+)\/download$/);
     if (method === 'GET' && fileDownloadMatch) {
+      const actorUrl = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actorUrl.actorUserId, res }, 'pm.documents.read'))) return;
       const [, fileId] = fileDownloadMatch;
       const file = await prisma.projectItemFile.findUnique({ where: { id: fileId } });
       if (!file || file.deletedAt) {
