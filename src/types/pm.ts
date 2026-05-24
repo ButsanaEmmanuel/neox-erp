@@ -187,6 +187,11 @@ export interface WorkItem {
   description?: string;
   tags?: string[];
 
+  // D13 — Sub-task hierarchy (parentId carries the relation; root ⇔ parentId === null/undefined).
+  // `children` is populated when the row comes from getProjectById's nested include.
+  parentId?: string | null;
+  children?: WorkItem[];
+
   // Telecom imported/manual/calculated fields
   import_batch_id?: string;
   manual_completion_status?: 'pending' | 'complete';

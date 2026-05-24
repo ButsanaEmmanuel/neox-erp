@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useProjectStore } from '../../store/pm/useProjectStore';
-import { Search, Filter, Columns, Download, Plus, ChevronLeft, ChevronRight, Trash2, X, SlidersHorizontal } from 'lucide-react';
+import { Search, Filter, Columns, Download, Plus, ChevronLeft, ChevronRight, Trash2, X, SlidersHorizontal, ChevronDown, ChevronRight as ChevronRightIcon, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
 import StatusChip from '../ui/StatusChip';
@@ -40,6 +40,13 @@ const WorkItemsPage: React.FC = () => {
   const [filterAcceptance, setFilterAcceptance] = useState<string>('');
   const [filterSchedule, setFilterSchedule] = useState<string>('');
   const [filterFinance, setFilterFinance] = useState<string>('');
+  // D13 — expanded parents in the nested view. Parents collapsed by default.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const activeFilterCount = [filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance].filter(Boolean).length;
   const clearAllFilters = () => { setFilterStatus(''); setFilterQA(''); setFilterAcceptance(''); setFilterSchedule(''); setFilterFinance(''); };
@@ -113,8 +120,6 @@ const WorkItemsPage: React.FC = () => {
     });
   }, [projectItems, searchTerm, view, filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
-
   useEffect(() => {
     setPage(1);
   }, [searchTerm, view, activeProjectId, filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance]);
@@ -132,23 +137,61 @@ const WorkItemsPage: React.FC = () => {
     }
   }, [searchParams, projectItems]);
 
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  // D13 — index children by parentId from the flat list. Each row has parentId?.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, typeof filteredItems>();
+    for (const item of filteredItems) {
+      const pid = item.parentId;
+      if (!pid) continue;
+      const arr = map.get(pid) || [];
+      arr.push(item);
+      map.set(pid, arr);
+    }
+    return map;
+  }, [filteredItems]);
 
-  const pagedItems = useMemo(() => {
+  // Root rows = no parent, OR parent isn't in the filtered set (orphan-by-filter
+  // shown as a root rather than hidden — preserves "show what matches the filter").
+  const rootItems = useMemo(() => {
+    const idsInFilter = new Set(filteredItems.map((i) => i.id));
+    return filteredItems.filter((i) => !i.parentId || !idsInFilter.has(i.parentId));
+  }, [filteredItems]);
+
+  const pagedRoots = useMemo(() => {
     const start = (page - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, page]);
-  const currentPageIds = useMemo(() => pagedItems.map((item) => item.id), [pagedItems]);
+    return rootItems.slice(start, start + ITEMS_PER_PAGE);
+  }, [rootItems, page]);
+
+  // Flatten paged roots into the display list, walking children when expanded.
+  // Caps recursion at depth 3 (UI guard; backend already enforces).
+  type Displayed = { item: typeof filteredItems[number]; depth: number };
+  const pagedItems = useMemo<Displayed[]>(() => {
+    const out: Displayed[] = [];
+    const visit = (node: typeof filteredItems[number], depth: number) => {
+      out.push({ item: node, depth });
+      if (depth >= 3) return;
+      if (!expandedIds.has(node.id)) return;
+      const kids = childrenByParent.get(node.id) || [];
+      for (const k of kids) visit(k, depth + 1);
+    };
+    for (const root of pagedRoots) visit(root, 1);
+    return out;
+  }, [pagedRoots, expandedIds, childrenByParent]);
+  const currentPageIds = useMemo(() => pagedItems.map((d) => d.item.id), [pagedItems]);
   const selectedInPageCount = useMemo(
     () => currentPageIds.filter((id) => selectedIds.includes(id)).length,
     [currentPageIds, selectedIds]
   );
   const allPageSelected = pagedItems.length > 0 && selectedInPageCount === pagedItems.length;
 
-  const pageStart = filteredItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
-  const pageEnd = Math.min(page * ITEMS_PER_PAGE, filteredItems.length);
+  // Pagination is by ROOT rows (children inflate row count when expanded).
+  const totalPages = Math.max(1, Math.ceil(rootItems.length / ITEMS_PER_PAGE));
+  const pageStart = rootItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
+  const pageEnd = Math.min(page * ITEMS_PER_PAGE, rootItems.length);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const toggleSelectAllPage = () => {
     setSelectedIds((prev) => {
@@ -406,7 +449,13 @@ const WorkItemsPage: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.06]">
-            {pagedItems.map((item) => (
+            {pagedItems.map(({ item, depth }) => {
+              const kids = childrenByParent.get(item.id) || [];
+              const hasKids = kids.length > 0;
+              const completedKids = kids.filter((k) => ['complete', 'done', 'finance_synced'].includes(k.status)).length;
+              const blockedKid = kids.find((k) => ['validation_error', 'finance_sync_error'].includes(k.status));
+              const isExpanded = expandedIds.has(item.id);
+              return (
               <tr key={item.id} onClick={() => setSelectedItemId(item.id)} className="group hover:bg-surface transition-colors cursor-pointer">
                 <td className="px-6 py-3" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -416,8 +465,32 @@ const WorkItemsPage: React.FC = () => {
                     className="rounded bg-surface border-input"
                   />
                 </td>
-                <td className="px-6 py-3 font-medium text-primary">
-                  {isTelecom ? (item.imported_fields?.legacy_site_id || '-') : item.title}
+                <td className="px-6 py-3 font-medium text-primary" style={{ paddingLeft: `${24 + (depth - 1) * 20}px` }}>
+                  <div className="flex items-center gap-2">
+                    {hasKids ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(item.id); }}
+                        className="text-muted hover:text-primary"
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRightIcon size={14} />}
+                      </button>
+                    ) : (
+                      <span className="inline-block w-[14px]" />
+                    )}
+                    {blockedKid && (
+                      <span title="Has blocked sub-task" className="inline-flex">
+                        <AlertTriangle size={13} className="text-rose-400 shrink-0" />
+                      </span>
+                    )}
+                    <span>{isTelecom ? (item.imported_fields?.legacy_site_id || '-') : item.title}</span>
+                    {hasKids && (
+                      <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface border border-border/60 text-muted">
+                        {completedKids}/{kids.length}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_identifier || '-'}</td>}
                 {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_name || '-'}</td>}
@@ -482,7 +555,8 @@ const WorkItemsPage: React.FC = () => {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filteredItems.length === 0 && (
               <tr>
                 <td colSpan={isTelecom ? 12 : 8} className="text-center py-20 text-muted">
@@ -519,6 +593,7 @@ const WorkItemsPage: React.FC = () => {
 
       <WorkItemDrawer
         workItemId={selectedItemId}
+        onSwitchItem={(id) => setSelectedItemId(id)}
         onClose={() => {
           setSelectedItemId(null);
           if (searchParams.get('workItemId')) {
