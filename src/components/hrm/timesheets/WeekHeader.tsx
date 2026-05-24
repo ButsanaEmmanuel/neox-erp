@@ -3,8 +3,7 @@ import { ChevronLeft, ChevronRight, Calculator, Check, X, Send } from 'lucide-re
 import { format, parseISO, addWeeks, subWeeks } from 'date-fns';
 import StatusChip from '../../ui/StatusChip';
 import { TimesheetStatus } from '../../../types/hrm';
-import { can } from '../../../lib/rbac';
-import { useHRMStore } from '../../../store/hrm/useHRMStore';
+import { usePermissions } from '../../../lib/rbac';
 
 interface WeekHeaderProps {
     weekStart: string;
@@ -29,7 +28,7 @@ const WeekHeader: React.FC<WeekHeaderProps> = ({
     onApprove,
     onReject
 }) => {
-    const { currentRole } = useHRMStore();
+    const { has } = usePermissions();
     const startDate = parseISO(weekStart);
     const endDate = addWeeks(startDate, 1); // approximate end of week for display
     // correct end date is actually start + 6 days
@@ -40,8 +39,8 @@ const WeekHeader: React.FC<WeekHeaderProps> = ({
     const handleNextWeek = () => onWeekChange(format(addWeeks(startDate, 1), 'yyyy-MM-dd'));
 
     const canSubmit = isMyTimesheet && status === 'draft' && totalHours > 0;
-    const canApprove = !isMyTimesheet && status === 'submitted' && can(currentRole, 'approve', 'timesheets');
-    const canReject = !isMyTimesheet && status === 'submitted' && can(currentRole, 'approve', 'timesheets');
+    const canApprove = !isMyTimesheet && status === 'submitted' && has('hrm.timesheets.execute');
+    const canReject = !isMyTimesheet && status === 'submitted' && has('hrm.timesheets.execute');
 
     return (
         <div className="flex-none px-8 py-6 border-b border-border/60 flex items-center justify-between bg-app">

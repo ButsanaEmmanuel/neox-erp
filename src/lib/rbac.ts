@@ -1,6 +1,6 @@
-// HRM-1.2 — Frontend RBAC, DB-driven via GET /api/auth/me/permissions.
+// Frontend RBAC, DB-driven via GET /api/auth/me/permissions.
 //
-// Public API (new):
+// Public API:
 //   PERMISSION_KEYS       readonly string[] — single source of truth for
 //                         the 97 catalogue keys (keep in sync with
 //                         prisma/seed/rbac.seed.mjs).
@@ -8,23 +8,16 @@
 //   usePermissions()      React hook → { permissions, has, isReady }.
 //   hasPermission(perms, key)  pure helper (Set-based O(1) lookup).
 //
-// Legacy API (deprecated, kept for HRM-1.3 migration):
-//   can(employee, action, resource), canAccess(employee, resource)
-//   ModuleName, Action, Resource
-//   These are NOT used by the new permission resolution — they still
-//   contain the historical role/authority-level mappings until each
-//   page is migrated to <PermissionGuard> or usePermissions().
-//
-// D6 closure note: the runtime permission resolution no longer relies
-// on hardcoded role strings — it comes from the backend
-// /api/auth/me/permissions endpoint, which reads UserRole +
-// RolePermission + UserPermissionSet. The hardcoded strings inside
-// can()/canAccess() are confined to the deprecated shim and will be
-// removed page-by-page in HRM-1.3.
+// D6 closure (Sprint Dettes Techniques 2026-05-24): the legacy can() /
+// canAccess() shim and its hardcoded role/authority/department tables
+// (MODULE_OWNER_DEPARTMENTS, OWNER_PERMISSIONS, TIERS_PERMISSIONS,
+// TIERS_RESOURCE_ALLOWLIST, ModuleName, Action, Resource) have been
+// removed. All runtime permission resolution now goes through the DB
+// catalogue, the backend `/api/auth/me/permissions` endpoint, and the
+// `usePermissions()` hook above.
 
 import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { EmploymentProfile, AuthorityLevel, HRMRole } from '../types/hrm';
 
 // ============================================================
 // Catalogue of permission keys — keep in sync with the backend
@@ -190,175 +183,3 @@ export function usePermissions() {
   };
 }
 
-// ============================================================
-// Legacy API — kept for backward compat with pages not yet migrated.
-// Remove in HRM-1.3 once every consumer uses <PermissionGuard> or
-// usePermissions() directly.
-// ============================================================
-
-export type ModuleName = 'hrm' | 'crm' | 'scm' | 'project' | 'finance';
-
-export type Action =
-    | 'view' | 'create' | 'edit' | 'delete'
-    | 'approve' | 'submit' | 'acknowledge'
-    | 'manage_templates' | 'manage_settings'
-    | 'approve_transaction' | 'qa_verify' | 'approve_milestone'
-    | 'view_costs' | 'manage_costs'
-    | 'all';
-
-export type Resource =
-    | 'directory' | 'own_profile'
-    | 'onboarding' | 'offboarding'
-    | 'recruitment' | 'candidates'
-    | 'timesheets' | 'team_timesheets'
-    | 'leave' | 'team_leave'
-    | 'training' | 'policies' | 'cases'
-    | 'all';
-
-// NOTE: hardcoded mappings below are confined to this deprecated shim.
-// The runtime permission resolution no longer goes through them — it
-// reads from the DB-seeded catalogue via /api/auth/me/permissions.
-// These mappings stay only so that pages calling can(role, action, resource)
-// keep functioning identically until they are migrated in HRM-1.3.
-
-const MODULE_OWNER_DEPARTMENTS: Record<string, string> = {
-    hrm: 'dept-hr',
-    project: 'dept-eng',
-    crm: 'dept-sales',
-    scm: 'dept-ops',
-    finance: 'dept-finance',
-};
-
-const OWNER_PERMISSIONS: Record<AuthorityLevel, Action[]> = {
-    ADMIN: ['all'],
-    MANAGER: ['view', 'create', 'edit', 'approve', 'submit', 'manage_templates', 'qa_verify', 'approve_milestone', 'view_costs', 'manage_costs'],
-    CONTRIBUTOR: ['view', 'create', 'edit', 'submit', 'acknowledge'],
-    OBSERVER: ['view'],
-};
-
-const TIERS_PERMISSIONS: Record<string, Action[]> = {
-    hrm: ['view', 'create', 'submit'],
-    scm: ['view', 'create', 'submit'],
-    project: ['view'],
-    crm: [],
-    finance: [],
-};
-
-const TIERS_RESOURCE_ALLOWLIST: Record<string, string[]> = {
-    hrm: ['own_profile', 'timesheets', 'leave', 'training', 'policies'],
-    scm: ['all'],
-    project: ['all'],
-    crm: [],
-    finance: [],
-};
-
-/** @deprecated Use usePermissions().has(key) or <PermissionGuard /> instead. Removed in HRM-1.3. */
-export function can(
-    employee: EmploymentProfile | HRMRole | undefined,
-    action: Action,
-    resource: Resource | ModuleName,
-): boolean {
-    if (typeof employee === 'string') {
-        const roleMap: Record<HRMRole, EmploymentProfile> = {
-            hr: {
-                id: 'role-hr',
-                personId: 'role-hr',
-                employeeCode: 'ROLE-HR',
-                employmentType: 'employee',
-                status: 'active',
-                roleTitle: 'HR',
-                startDate: new Date().toISOString().slice(0, 10),
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                hasSystemAccess: true,
-                authorityLevel: 'MANAGER',
-                departmentId: MODULE_OWNER_DEPARTMENTS.hrm,
-            },
-            manager: {
-                id: 'role-manager',
-                personId: 'role-manager',
-                employeeCode: 'ROLE-MANAGER',
-                employmentType: 'employee',
-                status: 'active',
-                roleTitle: 'Manager',
-                startDate: new Date().toISOString().slice(0, 10),
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                hasSystemAccess: true,
-                authorityLevel: 'MANAGER',
-                departmentId: MODULE_OWNER_DEPARTMENTS.project,
-            },
-            staff: {
-                id: 'role-staff',
-                personId: 'role-staff',
-                employeeCode: 'ROLE-STAFF',
-                employmentType: 'employee',
-                status: 'active',
-                roleTitle: 'Staff',
-                startDate: new Date().toISOString().slice(0, 10),
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                hasSystemAccess: true,
-                authorityLevel: 'CONTRIBUTOR',
-                departmentId: MODULE_OWNER_DEPARTMENTS.hrm,
-            },
-        };
-        employee = roleMap[employee];
-    }
-
-    if (!employee || !employee.hasSystemAccess) return false;
-
-    const level = employee.authorityLevel || 'OBSERVER';
-    const deptId = employee.departmentId;
-
-    if (level === 'ADMIN') return true;
-
-    const resourceKey = String(resource);
-    const parentModule = getParentModule(resourceKey);
-    const isOwner = deptId === MODULE_OWNER_DEPARTMENTS[parentModule];
-
-    const isCostRelated = action === 'view_costs' || action === 'manage_costs' || parentModule === 'finance';
-    if (isCostRelated && !isOwner) return false;
-
-    if (isOwner) {
-        const allowed = OWNER_PERMISSIONS[level];
-        if (allowed.includes('all')) return true;
-        return allowed.includes(action);
-    }
-
-    const serviceActions = TIERS_PERMISSIONS[parentModule] || [];
-    const allowlist = TIERS_RESOURCE_ALLOWLIST[parentModule] || [];
-    if (resourceKey !== parentModule && !allowlist.includes('all') && !allowlist.includes(resourceKey)) {
-        return false;
-    }
-
-    if (action === 'approve' || action === 'edit' || action === 'delete') {
-        return false;
-    }
-
-    return serviceActions.includes(action);
-}
-
-function getParentModule(resource: string): string {
-    const mapping: Record<string, string> = {
-        directory: 'hrm',
-        own_profile: 'hrm',
-        onboarding: 'hrm',
-        offboarding: 'hrm',
-        recruitment: 'hrm',
-        candidates: 'hrm',
-        timesheets: 'hrm',
-        team_timesheets: 'hrm',
-        leave: 'hrm',
-        team_leave: 'hrm',
-        training: 'hrm',
-        policies: 'hrm',
-        cases: 'hrm',
-    };
-    return mapping[resource] || resource;
-}
-
-/** @deprecated Use usePermissions().has(key) or <PermissionGuard /> instead. Removed in HRM-1.3. */
-export function canAccess(employee: EmploymentProfile | HRMRole | undefined, resource: Resource | ModuleName): boolean {
-    return can(employee, 'view', resource);
-}
