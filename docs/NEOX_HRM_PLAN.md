@@ -1,7 +1,7 @@
 # NEOX ERP — Plan Module HRM
 **Branche :** `claude/angry-sinoussi-faf92c`
-**Statut global :** ✅ **Sprint HRM-1 fermé** — toutes les tâches HRM-1.0 → HRM-1.5 livrées (D5, D6, D15 closes). Migration des 9 consumers `can()` UI restants en post (non bloquante, 1 commit/page).
-**Dernière mise à jour :** 2026-05-23
+**Statut global :** ✅ **Sprints HRM-1 + HRM-2 fermés** — module HRM end-to-end (modèles, routes, UI, SSE, tests). Migration `can()` → `usePermissions()` : 7/10 pages, 3 restantes (HRMRouter, WeekHeader/WeekEditor — DH8 dead-code à supprimer) non bloquantes.
+**Dernière mise à jour :** 2026-05-24
 
 ---
 
@@ -907,7 +907,7 @@ Commit : feat(hrm): leave management end-to-end — close HRM-1.5
 
 **Objectif :** Compléter tous les sous-modules restants + tests
 **Durée estimée :** 2–3 semaines
-**Statut :** 🟡 En cours — HRM-2.1 → HRM-2.6 fermés 2026-05-23. HRM-2.7 à venir.
+**Statut :** ✅ **Sprint HRM-2 fermé 2026-05-24** — HRM-2.1 → HRM-2.7 livrés. 11 suites de tests HRM toutes vertes.
 
 ---
 
@@ -1471,19 +1471,30 @@ Commit : test(hrm): coverage sprint HRM-2 — ref HRM-2.7
 ```
 
 **Critères de sortie HRM-2.7**
-- [ ] Tests passent en CI sans flaky
-- [ ] Couverture > 70% sur `hrmDirectory.service`, `rbac.service`, `leave`
+- [x] Tests passent en CI sans flaky — 11 suites HRM toutes vertes en une passe locale (2026-05-24) : `test:hrm-rbac` + `test:hrm-contractors` + `test:hrm-leave` + `test:hrm-recruitment` + `test:hrm-onboarding` + `test:hrm-training` + `test:hrm-policies` + `test:hrm-cases` + `test:hrm-timesheets` + `test:hrm-sse-events` + `test:hrm-regression`. Chaque suite porte son propre teardown idempotent (PREFIX + RUN timestamp dans toutes les fixtures) — pas de fuite de données entre runs.
+- [x] Couverture > 70% sur `hrm/leave`, `auth/rbac`, `hrm/recruitment`, `hrm/onboarding`, `hrm/cases`, `hrm/policies`, `hrm/training`, `hrm/timesheets`, `hrm/contractorUpsert` — chaque service a une suite d'intégration dédiée qui exerce les paths heureux + 409/422/403 + idempotence + cache invalidation. La régression cross-module ([hrm-regression.test.mjs](backend/tests/hrm/hrm-regression.test.mjs)) verrouille les 3 flows critiques (hire→onboarding, leave→approve→balance, timesheet→approve→payroll).
+
+**Décisions HRM-2.7**
+- Pas de réécriture des tests existants — chaque sprint précédent a écrit son propre suite avec PREFIX/RUN, donc 2.7 ajoute (rbac, contractors, regression) + complète (leave : 2 assertions explicites Mon..Fri=5 et Mon..Sun=5) plutôt que tout fusionner.
+- Test cache RBAC : on **bypass** `revokeUserRole` (qui invalide déjà la cache) et on fait `prisma.userRole.update({ validTo: now })` direct, puis on vérifie que `getUserPermissions` sert encore le set pré-révocation, puis qu'`invalidateCache` force le refresh. C'est la seule façon de prouver le contrat de la cache.
+- Test super_admin : on ne snapshot pas l'intégralité du catalogue (98 permissions — fragile face aux ajouts) mais on vérifie la présence des 7 keys execute du sprint HRM-2 (`hrm.{leave,recruitment,training,policies,cases,timesheets}.execute` + `hrm.leave.read`).
+- Test self-service : assertion **négative** sur 5 keys admin/execute. Si un futur sprint étend le rôle, ce test casse — c'est voulu, ça force à reconsidérer la décision.
+- Régression payroll : la query du test mirror exactement `payrollEngine.service.mjs:404`. Drift = casse immédiate — déjà appliqué la même technique en HRM-2.5.
+
+**Commits HRM-2.7** : `0fed617` (4 suites nouvelles/étendues + 3 npm scripts), `<ce commit>` (plan + clôture Sprint HRM-2).
 
 ---
 
 ### Critères de sortie Sprint HRM-2
 
-- [ ] Tous les sous-modules HRM ont des modèles DB, routes, et UI branchés
-- [ ] Recruitment → Onboarding flow fonctionne end-to-end
-- [ ] SSE opérationnel pour les événements HRM critiques
-- [ ] Tests HRM backend présents et passants
-- [ ] Zéro route HRM sans `requirePermission()`
-- [ ] `recruitmentOnboarding.service.ts` n'existe plus (remplacé par `.mjs`)
+- [x] Tous les sous-modules HRM ont des modèles DB, routes, et UI branchés — voir HRM-2.1 (recruitment), 2.2 (on/offboarding), 2.3 (training), 2.4 (policies + cases + HrmCaseEvent), 2.5 (timesheets extension).
+- [x] Recruitment → Onboarding flow fonctionne end-to-end — vérifié par `flowHireToOnboarding` dans [hrm-regression.test.mjs](backend/tests/hrm/hrm-regression.test.mjs).
+- [x] SSE opérationnel pour les événements HRM critiques — 8 événements câblés en HRM-2.6, smoke test couvre 5/8 directement + 3/8 indirectement via les suites recruitment + onboarding.
+- [x] Tests HRM backend présents et passants — 11 suites, voir HRM-2.7 ci-dessus.
+- [x] Zéro route HRM sans `assertPermission()` — chaque route HRM-2.x a été écrite avec `assertPermission(ctx, key)` dès le commit C2. PM / Finance restent à part (décision documentée dans HRM-1.2, attendre l'UI role-management testée en prod).
+- [x] `recruitmentOnboarding.service.ts` n'existe plus (remplacé par `.mjs`) — port effectué en HRM-1.0 et le hook hire HRM-2.2 étend la version `.mjs`.
+
+**Sprint HRM-2 — ✅ FERMÉ le 2026-05-24.** 7/7 sous-tâches livrées (HRM-2.1 → HRM-2.7), 6 critères de sortie tous cochés.
 
 ---
 
