@@ -81,6 +81,36 @@ function checkCalculator() {
   assert.equal(calculateLeaveDays('2030-06-03', '2030-06-07'), 5, 'Mon..Fri full week = 5 working days');
   assert.equal(calculateLeaveDays('2030-06-03', '2030-06-09'), 5, 'Mon..Sun full week = 5 working days (weekend excluded)');
   console.log('  ✓ calculateLeaveDays handles weekends and single-day ranges (Mon..Fri = Mon..Sun = 5)');
+
+  // DH2 — PublicHoliday exclusion via the optional Set parameter.
+  // Wednesday 2030-06-05 declared as a holiday → Mon..Fri drops 5 → 4.
+  const holidaysOneMidWeek = new Set(['2030-06-05']);
+  assert.equal(
+    calculateLeaveDays('2030-06-03', '2030-06-07', holidaysOneMidWeek),
+    4,
+    'Mon..Fri with Wednesday as a holiday = 4 working days',
+  );
+  // Holiday landing on a Saturday must NOT double-discount.
+  const holidayOnSaturday = new Set(['2030-06-08']);
+  assert.equal(
+    calculateLeaveDays('2030-06-03', '2030-06-09', holidayOnSaturday),
+    5,
+    'holiday on a Saturday → still 5 working days (no double exclusion)',
+  );
+  // Full work-week with two holidays mid-week → 3 working days.
+  const holidaysTwoMidWeek = new Set(['2030-06-04', '2030-06-05']);
+  assert.equal(
+    calculateLeaveDays('2030-06-03', '2030-06-07', holidaysTwoMidWeek),
+    3,
+    'Mon..Fri with Tue+Wed as holidays = 3 working days',
+  );
+  // Empty/null holidays Set ≡ legacy behaviour (pure function).
+  assert.equal(
+    calculateLeaveDays('2030-06-03', '2030-06-07', new Set()),
+    5,
+    'empty holidays Set degrades to weekend-only logic',
+  );
+  console.log('  ✓ calculateLeaveDays excludes holidays without double-counting weekends');
 }
 
 async function checkInsufficientBalance({ user, policy }) {

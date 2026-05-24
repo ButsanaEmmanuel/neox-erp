@@ -6,9 +6,11 @@ import { safeBroadcast } from '../realtime/sseBroadcaster.mjs';
 // a single prisma.$transaction() so the LeaveBalance counters never
 // drift from the LeaveRequest status.
 //
-// Day calculation: weekdays only (Saturday, Sunday excluded).
-//   DH2 — Once a PublicHoliday table exists, plug the lookup at the
-//   marker inside calculateLeaveDays() (only line to change).
+// Day calculation: business days only — Saturday, Sunday AND active
+// PublicHoliday rows excluded. `calculateLeaveDays` stays pure (takes
+// a pre-built Set of YYYY-MM-DD strings so tests don't need a DB);
+// `calculateLeaveDaysWithHolidays(prisma, ...)` is the async wrapper
+// used by request creation.
 //
 // Status lifecycle:
 //   pending  -> approved | rejected | cancelled
@@ -50,7 +52,7 @@ const forbidden = (msg, extra) => new HttpError(403, 'FORBIDDEN', msg, extra);
 
 const ONE_DAY_MS = 86_400_000;
 
-export function calculateLeaveDays(startDate, endDate) {
+export function calculateLeaveDays(startDate, endDate, publicHolidaysSet = null) {
   const start = startDate instanceof Date ? new Date(startDate) : new Date(String(startDate));
   const end = endDate instanceof Date ? new Date(endDate) : new Date(String(endDate));
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -63,16 +65,35 @@ export function calculateLeaveDays(startDate, endDate) {
   }
   let count = 0;
   for (let t = start.getTime(); t <= end.getTime(); t += ONE_DAY_MS) {
-    const day = new Date(t).getDay();
-    if (day !== 0 && day !== 6) {
-      // DH2 — Plug PublicHoliday lookup here:
-      //   if (publicHolidaysSet.has(new Date(t).toISOString().slice(0, 10))) continue;
-      count += 1;
-    }
+    const d = new Date(t);
+    const day = d.getDay();
+    if (day === 0 || day === 6) continue;
+    if (publicHolidaysSet && publicHolidaysSet.has(d.toISOString().slice(0, 10))) continue;
+    count += 1;
   }
   // Round to nearest 0.5 — half-day inputs are not modelled yet but
   // the round prepares the API surface for them.
   return Math.round(count * 2) / 2;
+}
+
+// Async wrapper: fetches active PublicHoliday rows in the [startDate,
+// endDate] range for the given country (default 'CD' — RDC) and builds
+// the lookup Set, then delegates to the pure calculateLeaveDays. This
+// is the entry point used by createRequest below; tests can keep
+// calling the pure form with no DB.
+export async function calculateLeaveDaysWithHolidays(prisma, startDate, endDate, country = 'CD') {
+  const start = startDate instanceof Date ? new Date(startDate) : new Date(String(startDate));
+  const end = endDate instanceof Date ? new Date(endDate) : new Date(String(endDate));
+  const holidays = await prisma.publicHoliday.findMany({
+    where: {
+      country,
+      isActive: true,
+      date: { gte: start, lte: end },
+    },
+    select: { date: true },
+  });
+  const set = new Set(holidays.map((h) => h.date.toISOString().slice(0, 10)));
+  return calculateLeaveDays(startDate, endDate, set);
 }
 
 // ============================================================
@@ -327,7 +348,7 @@ export async function createRequest(prisma, input, { actorUserId } = {}) {
   if (!nonEmpty(input?.policyId)) throw badRequest('policyId is required', { field: 'policyId' });
   const startDate = parseDate(input?.startDate, 'startDate');
   const endDate = parseDate(input?.endDate, 'endDate');
-  const days = calculateLeaveDays(startDate, endDate);
+  const days = await calculateLeaveDaysWithHolidays(prisma, startDate, endDate);
   if (days <= 0) {
     throw badRequest('The selected range contains no working day', { field: 'startDate' });
   }
