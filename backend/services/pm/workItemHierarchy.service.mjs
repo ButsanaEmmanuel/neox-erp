@@ -23,7 +23,9 @@ const MAX_DEPTH = 3;
 // --- status sets ------------------------------------------------------
 
 const COMPLETED_STATUSES = new Set(['complete', 'done', 'finance_synced']);
-const BLOCKED_STATUSES = new Set(['validation_error', 'finance_sync_error']);
+// `at_risk` is the rollup output — when a parent is at_risk, treat it as
+// blocked for upward propagation so the signal reaches the root.
+const BLOCKED_STATUSES = new Set(['validation_error', 'finance_sync_error', 'at_risk']);
 const IN_PROGRESS_STATUSES = new Set(['in-progress']);
 
 function classify(status) {
