@@ -90,10 +90,24 @@ model User {
   assignedCases              HrmCase[]                @relation("CaseAssignee")
   authoredCaseEvents         HrmCaseEvent[]           @relation("CaseEventAuthor")
   approvedTimesheets         TimesheetEntry[]         @relation("TimesheetApprover")
+  columnPreferences          UserColumnPreference[]
 
   @@index([departmentId])
   @@index([supervisorId])
   @@index([isDeleted])
+}
+
+model UserColumnPreference {
+  id        String   @id @default(cuid())
+  userId    String
+  context   String
+  columns   Json
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, context])
+  @@index([userId])
 }
 
 model UserPermissionSet {
