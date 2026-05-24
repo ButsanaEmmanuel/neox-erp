@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useProjectStore } from '../../store/pm/useProjectStore';
-import { X, Calendar, ChevronDown, Calculator, Upload, Trash2, FileText, MessageSquare } from 'lucide-react';
+import { X, Calendar, ChevronDown, Calculator, Upload, Trash2, FileText, MessageSquare, Plus, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WorkItem, WorkItemType, WorkItemStatus } from '../../types/pm';
@@ -9,10 +9,14 @@ import { ACCEPTANCE_MANUAL_FIELDS, formatManualFieldValue, ManualFieldDef, OPERA
 import { deleteProjectItemFileFromBackend, fetchProjectItemActivities, fetchProjectItemFiles, getProjectItemFileDownloadUrl, saveProjectItemDetailsToBackend, uploadProjectItemFileToBackend, BackendActivity, BackendFile } from '../../services/pm/projectItemBackend.service';
 import { notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
 import { useAuth } from '../../contexts/AuthContext';
+import WorkItemAssigneeSelect from './WorkItemAssigneeSelect';
 
 interface WorkItemDrawerProps {
   workItemId: string | null;
   onClose: () => void;
+  // D13 — let the page swap the open drawer when a sub-task is clicked.
+  // Optional so existing call sites without a handler keep working.
+  onSwitchItem?: (id: string) => void;
 }
 
 type ManualGroup = 'operational' | 'acceptance';
@@ -110,11 +114,34 @@ function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<st
   return next;
 }
 
-const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) => {
+const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, onSwitchItem }) => {
   const { user } = useAuth();
-  const { workItems, addWorkItem, updateWorkItem, activeProjectId, projects } = useProjectStore();
+  const { workItems, addWorkItem, updateWorkItem, addSubTask, activeProjectId, projects } = useProjectStore();
   const existingItem = workItems.find((i) => i.id === workItemId);
+
+  // D13 — sub-task helpers (depth walk + direct children lookup, all from
+  // the flat store). MAX_DEPTH=3 matches the backend contract.
+  const computeDepth = (id: string | undefined | null): number => {
+    if (!id) return 0;
+    let depth = 1;
+    let cursor: string | null | undefined = id;
+    const seen = new Set<string>();
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const node = workItems.find((wi) => wi.id === cursor);
+      if (!node?.parentId) break;
+      cursor = node.parentId;
+      depth += 1;
+      if (depth > 10) break;
+    }
+    return depth;
+  };
+  const currentDepth = existingItem ? computeDepth(existingItem.id) : 0;
+  const directChildren = existingItem ? workItems.filter((wi) => wi.parentId === existingItem.id) : [];
   const isNew = workItemId === 'new';
+  const canAddSubTask = !isNew && currentDepth >= 1 && currentDepth < 3;
+  const [subTaskTitleDraft, setSubTaskTitleDraft] = useState('');
+  const [subTaskError, setSubTaskError] = useState<string | null>(null);
   const project = projects.find((p) => p.id === activeProjectId);
   const isTelecom = Boolean(project?.isTelecomProject || project?.projectMode === 'telecom_multi_site' || existingItem?.type === 'site');
 
@@ -528,7 +555,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
               {activeTab === 'details' && (
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <div><label className="text-xs text-muted">Assignee</label><input type="text" value={formData.assignee || ''} onChange={(e) => setFormData((prev) => ({ ...prev, assignee: e.target.value }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary" /></div>
+                    <div>
+                      <label className="text-xs text-muted">Assignee</label>
+                      <div className="mt-1">
+                        <WorkItemAssigneeSelect
+                          value={formData.assignee || ''}
+                          onChange={(next) => setFormData((prev) => ({ ...prev, assignee: next }))}
+                        />
+                      </div>
+                    </div>
                     <div><label className="text-xs text-muted">Type</label><select value={formData.type} onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value as WorkItemType }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="task">Task</option><option value="milestone">Milestone</option><option value="deliverable">Deliverable</option><option value="issue">Issue</option><option value="site">Site</option></select></div>
                     <div>
                       <label className="text-xs text-muted">Planned Date</label>
@@ -672,6 +707,76 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose }) 
                   )}
 
                   <div><label className="text-xs text-muted">Description</label><textarea value={formData.description || ''} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} className="w-full mt-1 bg-card border border-border/60 rounded-lg p-3 min-h-[100px] text-sm text-secondary" /></div>
+
+                  {/* D13 — Sub-tasks panel. Only visible on existing items. */}
+                  {!isNew && existingItem && (
+                    <div className="rounded-xl border border-border/70 bg-surface p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-primary">Sub-tasks ({directChildren.length})</p>
+                        <span className="text-[11px] text-muted">depth {currentDepth} / 3</span>
+                      </div>
+
+                      {directChildren.length === 0 && (
+                        <p className="text-xs text-muted">No sub-tasks yet.</p>
+                      )}
+
+                      {directChildren.length > 0 && (
+                        <div className="space-y-1.5">
+                          {directChildren.map((child) => {
+                            const isBlocked = child.status === 'validation_error' || child.status === 'finance_sync_error';
+                            return (
+                              <button
+                                key={child.id}
+                                type="button"
+                                onClick={() => onSwitchItem?.(child.id)}
+                                className="w-full flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-card hover:bg-surface px-3 py-2 text-left transition-colors"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {isBlocked && (
+                                    <span title="Blocked sub-task" className="inline-flex">
+                                      <AlertTriangle size={13} className="text-rose-400 shrink-0" />
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-primary truncate">{child.title}</span>
+                                </div>
+                                <span className="text-[10px] uppercase tracking-wider text-muted shrink-0">{child.status}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 pt-2 border-t border-border/60">
+                        <input
+                          type="text"
+                          value={subTaskTitleDraft}
+                          onChange={(e) => { setSubTaskTitleDraft(e.target.value); setSubTaskError(null); }}
+                          placeholder="New sub-task title..."
+                          disabled={!canAddSubTask}
+                          className="flex-1 bg-card border border-input rounded-lg px-3 py-1.5 text-xs text-primary disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          disabled={!canAddSubTask || !subTaskTitleDraft.trim()}
+                          onClick={async () => {
+                            if (!existingItem) return;
+                            try {
+                              await addSubTask(existingItem.id, { title: subTaskTitleDraft.trim(), projectId: existingItem.projectId } as any);
+                              setSubTaskTitleDraft('');
+                              setSubTaskError(null);
+                            } catch (err) {
+                              setSubTaskError((err as Error).message || 'Failed to create sub-task');
+                            }
+                          }}
+                          title={!canAddSubTask ? (currentDepth >= 3 ? 'Maximum sub-task depth reached (3)' : 'Save the item first') : 'Add sub-task'}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <Plus size={12} /> Add
+                        </button>
+                      </div>
+                      {subTaskError && <p className="text-[11px] text-rose-400">{subTaskError}</p>}
+                    </div>
+                  )}
                 </div>
               )}
 

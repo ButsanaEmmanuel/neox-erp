@@ -1,9 +1,11 @@
 ﻿import React, { useState, useEffect } from 'react';
-import { X, User, Briefcase, MapPin, Mail, Phone, MoreHorizontal, Edit2, Check, Shield, Lock } from 'lucide-react';
+import { X, User, Briefcase, MapPin, Mail, Phone, MoreHorizontal, Edit2, Check, Shield, Lock, Award } from 'lucide-react';
 import { useHRM } from '../../contexts/HRMContext';
 import { usePeople } from '../../contexts/PeopleContext';
 import { EmploymentProfile } from '../../types/hrm';
 import { Person } from '../../types/person';
+import { trainingApi, type CertificationRow } from '../../services/trainingApi';
+import { fetchAssignableEmployees } from '../../services/assignablesApi';
 
 interface EmployeeDrawerProps {
     isOpen: boolean;
@@ -32,6 +34,11 @@ const EmployeeDrawer: React.FC<EmployeeDrawerProps> = ({ isOpen, onClose, employ
     const [hasSystemAccess, setHasSystemAccess] = useState(false);
     const [systemRole, setSystemRole] = useState<string>('USER');
 
+    // Certifications (HRM-2.3) — resolved by matching person.email to a
+    // User id via the assignables endpoint, so we don't have to thread
+    // userId through the legacy PeopleContext.
+    const [certifications, setCertifications] = useState<CertificationRow[]>([]);
+
     useEffect(() => {
         if (isOpen && employmentId) {
             const empProfile = getEmploymentProfile(employmentId);
@@ -56,8 +63,29 @@ const EmployeeDrawer: React.FC<EmployeeDrawerProps> = ({ isOpen, onClose, employ
             setProfile(null);
             setPerson(null);
             setIsEditing(false);
+            setCertifications([]);
         }
     }, [isOpen, employmentId, getEmploymentProfile, getPerson, departments]);
+
+    useEffect(() => {
+        if (!isOpen || !person?.email) {
+            setCertifications([]);
+            return;
+        }
+        let cancelled = false;
+        void (async () => {
+            try {
+                const employees = await fetchAssignableEmployees();
+                const match = employees.find((e) => e.email?.toLowerCase() === person.email?.toLowerCase());
+                if (!match || cancelled) return;
+                const { certifications: certs } = await trainingApi.listUserCertifications(match.id);
+                if (!cancelled) setCertifications(certs);
+            } catch {
+                if (!cancelled) setCertifications([]);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [isOpen, person?.email]);
 
     if (!isOpen) return null;
 
@@ -140,7 +168,17 @@ const EmployeeDrawer: React.FC<EmployeeDrawerProps> = ({ isOpen, onClose, employ
                         </div>
 
                         <div className="mt-12 px-6 pb-6">
-                            <h1 className="text-2xl font-bold text-primary mb-1">{person.name}</h1>
+                            <h1 className="text-2xl font-bold text-primary mb-1 flex items-center gap-2">
+                                {person.name}
+                                {certifications.length > 0 && (
+                                    <span
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                                        title={`${certifications.length} certification${certifications.length === 1 ? '' : 's'}`}
+                                    >
+                                        <Award size={11} /> Certifié
+                                    </span>
+                                )}
+                            </h1>
                             <div className="flex items-center gap-2 text-muted text-sm mb-6">
                                 <span>{profile.roleTitle}</span>
                                 <span>•</span>
@@ -262,6 +300,29 @@ const EmployeeDrawer: React.FC<EmployeeDrawerProps> = ({ isOpen, onClose, employ
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Certifications (HRM-2.3) */}
+                                {certifications.length > 0 && (
+                                    <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100">
+                                        <h3 className="text-sm font-semibold text-primary mb-3 flex items-center gap-2">
+                                            <Award size={16} className="text-emerald-600" />
+                                            Certifications ({certifications.length})
+                                        </h3>
+                                        <ul className="space-y-2">
+                                            {certifications.map((c) => (
+                                                <li key={c.id} className="flex items-center justify-between text-sm">
+                                                    <div className="min-w-0">
+                                                        <div className="text-primary truncate">{c.course.title}</div>
+                                                        <div className="text-[11px] text-muted">{c.course.category ?? 'Training'} · {c.completedAt ? new Date(c.completedAt).toLocaleDateString() : ''}</div>
+                                                    </div>
+                                                    {c.score != null && (
+                                                        <span className="text-[11px] font-semibold text-emerald-600">{Number(c.score).toFixed(0)}%</span>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
 
                                 {/* System Access & RBAC */}
                                 <div className="bg-amber-50/50 rounded-xl p-4 border border-amber-100">

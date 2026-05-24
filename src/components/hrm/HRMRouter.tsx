@@ -14,17 +14,29 @@ import PoliciesPage from './policies/PoliciesPage';
 import CasesPage from './cases/CasesPage';
 import HRMConfiguration from './config/HRMConfiguration';
 import HRMOrgView from './HRMOrgView';
-import { useHRMStore } from '../../store/hrm/useHRMStore';
-import { can } from '../../lib/rbac';
+import { PermissionKey, usePermissions } from '../../lib/rbac';
 
 interface HRMRouterProps {
     activeView: string;
     onNavigate?: (view: string) => void;
 }
 
+const VIEW_READ_PERMISSION: Record<string, PermissionKey> = {
+    'hrm-directory': 'hrm.directory.read',
+    'hrm-org-chart': 'hrm.directory.read',
+    'hrm-onboarding': 'hrm.onboarding.read',
+    'hrm-offboarding': 'hrm.offboarding.read',
+    'hrm-recruitment': 'hrm.recruitment.read',
+    'hrm-cases': 'hrm.cases.read',
+    'hrm-configuration': 'hrm.configuration.read',
+    'hrm-timesheets': 'hrm.timesheets.read',
+    'hrm-leave': 'hrm.leave.read',
+    'hrm-training': 'hrm.training.read',
+    'hrm-policies': 'hrm.policies.read',
+};
+
 const HRMRouter: React.FC<HRMRouterProps> = ({ activeView, onNavigate }) => {
-    const { currentRole } = useHRMStore();
-    const canView = (resource: any) => can(currentRole, 'view', resource);
+    const { has } = usePermissions();
     // Pages that need onNavigate are rendered directly, the rest via a map
     const VIEW_MAP: Record<string, React.FC> = {
         'hrm-overview': HRMDashboard,
@@ -41,21 +53,8 @@ const HRMRouter: React.FC<HRMRouterProps> = ({ activeView, onNavigate }) => {
     };
 
     const renderPage = () => {
-        const protectedResourceByView: Record<string, any> = {
-            'hrm-directory': 'directory',
-            'hrm-org-chart': 'directory',
-            'hrm-onboarding': 'onboarding',
-            'hrm-offboarding': 'offboarding',
-            'hrm-recruitment': 'recruitment',
-            'hrm-cases': 'cases',
-            'hrm-configuration': 'directory',
-            'hrm-timesheets': 'timesheets',
-            'hrm-leave': 'leave',
-            'hrm-training': 'training',
-            'hrm-policies': 'policies',
-        };
-        const guardedResource = protectedResourceByView[activeView];
-        if (guardedResource && activeView !== 'hrm-policies' && !canView(guardedResource)) {
+        const guardedPermission = VIEW_READ_PERMISSION[activeView];
+        if (guardedPermission && activeView !== 'hrm-policies' && !has(guardedPermission)) {
             return (
                 <EmptyState
                     title="Access restricted"

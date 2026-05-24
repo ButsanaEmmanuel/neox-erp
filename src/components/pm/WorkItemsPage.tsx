@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useProjectStore } from '../../store/pm/useProjectStore';
-import { Search, Filter, Columns, Download, Plus, ChevronLeft, ChevronRight, Trash2, X, SlidersHorizontal } from 'lucide-react';
+import { Search, Filter, Columns, Download, Plus, ChevronLeft, ChevronRight, Trash2, X, SlidersHorizontal, ChevronDown, ChevronRight as ChevronRightIcon, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { format } from 'date-fns';
 import StatusChip from '../ui/StatusChip';
@@ -8,6 +8,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WorkItemStatus } from '../../types/pm';
 
 import WorkItemDrawer from './WorkItemDrawer';
+import ColumnConfigPanel from './telecom/ColumnConfigPanel';
+import { TELECOM_COLUMN_REGISTRY, TELECOM_DEFAULT_COLUMNS, columnByKey } from './telecom/telecomColumns';
+import { fetchColumnPreference } from '../../services/pm/columnPreferences.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -40,6 +44,27 @@ const WorkItemsPage: React.FC = () => {
   const [filterAcceptance, setFilterAcceptance] = useState<string>('');
   const [filterSchedule, setFilterSchedule] = useState<string>('');
   const [filterFinance, setFilterFinance] = useState<string>('');
+  // DH7 — user column preferences for the telecom table.
+  const { user } = useAuth();
+  const [telecomColumns, setTelecomColumns] = useState<string[]>(TELECOM_DEFAULT_COLUMNS);
+  const [showColumnsPanel, setShowColumnsPanel] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    fetchColumnPreference('telecom_workitems', user.id)
+      .then((pref) => { if (!cancelled) setTelecomColumns(pref.columns); })
+      .catch(() => { /* keep defaults if fetch fails */ });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // D13 — expanded parents in the nested view. Parents collapsed by default.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => setExpandedIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const activeFilterCount = [filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance].filter(Boolean).length;
   const clearAllFilters = () => { setFilterStatus(''); setFilterQA(''); setFilterAcceptance(''); setFilterSchedule(''); setFilterFinance(''); };
@@ -113,8 +138,6 @@ const WorkItemsPage: React.FC = () => {
     });
   }, [projectItems, searchTerm, view, filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / ITEMS_PER_PAGE));
-
   useEffect(() => {
     setPage(1);
   }, [searchTerm, view, activeProjectId, filterStatus, filterQA, filterAcceptance, filterSchedule, filterFinance]);
@@ -132,23 +155,61 @@ const WorkItemsPage: React.FC = () => {
     }
   }, [searchParams, projectItems]);
 
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  // D13 — index children by parentId from the flat list. Each row has parentId?.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, typeof filteredItems>();
+    for (const item of filteredItems) {
+      const pid = item.parentId;
+      if (!pid) continue;
+      const arr = map.get(pid) || [];
+      arr.push(item);
+      map.set(pid, arr);
+    }
+    return map;
+  }, [filteredItems]);
 
-  const pagedItems = useMemo(() => {
+  // Root rows = no parent, OR parent isn't in the filtered set (orphan-by-filter
+  // shown as a root rather than hidden — preserves "show what matches the filter").
+  const rootItems = useMemo(() => {
+    const idsInFilter = new Set(filteredItems.map((i) => i.id));
+    return filteredItems.filter((i) => !i.parentId || !idsInFilter.has(i.parentId));
+  }, [filteredItems]);
+
+  const pagedRoots = useMemo(() => {
     const start = (page - 1) * ITEMS_PER_PAGE;
-    return filteredItems.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredItems, page]);
-  const currentPageIds = useMemo(() => pagedItems.map((item) => item.id), [pagedItems]);
+    return rootItems.slice(start, start + ITEMS_PER_PAGE);
+  }, [rootItems, page]);
+
+  // Flatten paged roots into the display list, walking children when expanded.
+  // Caps recursion at depth 3 (UI guard; backend already enforces).
+  type Displayed = { item: typeof filteredItems[number]; depth: number };
+  const pagedItems = useMemo<Displayed[]>(() => {
+    const out: Displayed[] = [];
+    const visit = (node: typeof filteredItems[number], depth: number) => {
+      out.push({ item: node, depth });
+      if (depth >= 3) return;
+      if (!expandedIds.has(node.id)) return;
+      const kids = childrenByParent.get(node.id) || [];
+      for (const k of kids) visit(k, depth + 1);
+    };
+    for (const root of pagedRoots) visit(root, 1);
+    return out;
+  }, [pagedRoots, expandedIds, childrenByParent]);
+  const currentPageIds = useMemo(() => pagedItems.map((d) => d.item.id), [pagedItems]);
   const selectedInPageCount = useMemo(
     () => currentPageIds.filter((id) => selectedIds.includes(id)).length,
     [currentPageIds, selectedIds]
   );
   const allPageSelected = pagedItems.length > 0 && selectedInPageCount === pagedItems.length;
 
-  const pageStart = filteredItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
-  const pageEnd = Math.min(page * ITEMS_PER_PAGE, filteredItems.length);
+  // Pagination is by ROOT rows (children inflate row count when expanded).
+  const totalPages = Math.max(1, Math.ceil(rootItems.length / ITEMS_PER_PAGE));
+  const pageStart = rootItems.length === 0 ? 0 : (page - 1) * ITEMS_PER_PAGE + 1;
+  const pageEnd = Math.min(page * ITEMS_PER_PAGE, rootItems.length);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const toggleSelectAllPage = () => {
     setSelectedIds((prev) => {
@@ -241,6 +302,16 @@ const WorkItemsPage: React.FC = () => {
                 <span className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold bg-blue-600 text-white rounded-full">{activeFilterCount}</span>
               )}
             </button>
+            {isTelecom && (
+              <button
+                type="button"
+                onClick={() => setShowColumnsPanel(true)}
+                className="inline-flex items-center gap-1 p-2 rounded-lg transition-colors hover:bg-surface text-muted hover:text-primary"
+                title="Configure columns"
+              >
+                <Columns size={16} />
+              </button>
+            )}
             <button onClick={() => navigate(`/projects/${activeProjectId}/imports`)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-2">
               <Download size={16} /> Import Excel
             </button>
@@ -388,16 +459,24 @@ const WorkItemsPage: React.FC = () => {
                 onClick={toggleSelectAllPage}
                 title="Click to select all rows on this page"
               >
-                {isTelecom ? 'Legacy Site ID' : 'Title'}
+                {isTelecom ? 'Identifier' : 'Title'}
               </th>
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Site ID</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Site Name</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">PO Unit Price</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">Ticket Number</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">QA</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Acceptance</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">PO Unit Price Completed</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">Contractor Payable Amount</th>}
+              {/* DH7 — telecom columns rendered from user preference. */}
+              {isTelecom && telecomColumns.map((key) => {
+                const def = columnByKey.get(key);
+                if (!def) return null;
+                return (
+                  <th
+                    key={key}
+                    className={cn(
+                      'px-6 py-3 border-b border-border/60 font-medium whitespace-nowrap',
+                      def.align === 'right' ? 'text-right' : '',
+                    )}
+                  >
+                    {def.label}
+                  </th>
+                );
+              })}
               <th className="px-6 py-3 border-b border-border/60 font-medium w-[120px]">Status</th>
               {!isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium w-[100px]">Type</th>}
               {!isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium w-[150px]">Assignee</th>}
@@ -406,7 +485,13 @@ const WorkItemsPage: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-white/[0.06]">
-            {pagedItems.map((item) => (
+            {pagedItems.map(({ item, depth }) => {
+              const kids = childrenByParent.get(item.id) || [];
+              const hasKids = kids.length > 0;
+              const completedKids = kids.filter((k) => ['complete', 'done', 'finance_synced'].includes(k.status)).length;
+              const blockedKid = kids.find((k) => ['validation_error', 'finance_sync_error'].includes(k.status));
+              const isExpanded = expandedIds.has(item.id);
+              return (
               <tr key={item.id} onClick={() => setSelectedItemId(item.id)} className="group hover:bg-surface transition-colors cursor-pointer">
                 <td className="px-6 py-3" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -416,45 +501,52 @@ const WorkItemsPage: React.FC = () => {
                     className="rounded bg-surface border-input"
                   />
                 </td>
-                <td className="px-6 py-3 font-medium text-primary">
-                  {isTelecom ? (item.imported_fields?.legacy_site_id || '-') : item.title}
+                <td className="px-6 py-3 font-medium text-primary" style={{ paddingLeft: `${24 + (depth - 1) * 20}px` }}>
+                  <div className="flex items-center gap-2">
+                    {hasKids ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(item.id); }}
+                        className="text-muted hover:text-primary"
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRightIcon size={14} />}
+                      </button>
+                    ) : (
+                      <span className="inline-block w-[14px]" />
+                    )}
+                    {blockedKid && (
+                      <span title="Has blocked sub-task" className="inline-flex">
+                        <AlertTriangle size={13} className="text-rose-400 shrink-0" />
+                      </span>
+                    )}
+                    <span>{isTelecom
+                      ? (item.imported_fields?.legacy_site_id
+                        || item.imported_fields?.site_identifier
+                        || item.title
+                        || ('#' + item.id.slice(-6)))
+                      : item.title}</span>
+                    {hasKids && (
+                      <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface border border-border/60 text-muted">
+                        {completedKids}/{kids.length}
+                      </span>
+                    )}
+                  </div>
                 </td>
-                {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_identifier || '-'}</td>}
-                {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_name || '-'}</td>}
-                {isTelecom && <td className="px-6 py-3 text-right text-secondary tabular-nums">{item.po_unit_price?.toLocaleString() || '-'}</td>}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right text-secondary tabular-nums">
-                    {item.ticket_number !== undefined && item.ticket_number > 0 ? item.ticket_number : '-'}
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3">
-                    <StatusChip status={item.qaStatus || 'pending'} className="h-5 text-[10px]" />
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3">
-                    <StatusChip status={item.acceptanceStatus || 'pending'} className="h-5 text-[10px]" />
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right tabular-nums">
-                    {item.po_unit_price_completed !== undefined && item.po_unit_price_completed > 0 ? (
-                      <span className="text-secondary">{item.po_unit_price_completed.toLocaleString()}</span>
-                    ) : (
-                      <span className="text-muted">-</span>
-                    )}
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right tabular-nums">
-                    {item.is_financially_eligible && item.contractor_payable_amount !== undefined ? (
-                      <span className="text-emerald-300">{item.contractor_payable_amount.toLocaleString()}</span>
-                    ) : (
-                      <span className="text-muted">-</span>
-                    )}
-                  </td>
-                )}
+                {/* DH7 — telecom data cells rendered from user preference. */}
+                {isTelecom && telecomColumns.map((key) => {
+                  const def = columnByKey.get(key);
+                  if (!def) return null;
+                  const pageIndexBase = (page - 1) * ITEMS_PER_PAGE;
+                  const indexInPage = pagedItems.findIndex((d) => d.item.id === item.id);
+                  const ctx = { index: pageIndexBase + Math.max(0, indexInPage), projectName: project?.name };
+                  const value = def.accessor(item, ctx);
+                  return (
+                    <td key={key} className={cn('px-6 py-3 whitespace-nowrap', def.align === 'right' ? 'text-right tabular-nums' : 'text-secondary')}>
+                      {value || <span className="text-muted">-</span>}
+                    </td>
+                  );
+                })}
                 <td className="px-6 py-3">
                   {isTelecom && !item.ticket_number ? <span className="text-muted">-</span> : <StatusChip status={item.status as any} />}
                 </td>
@@ -482,7 +574,8 @@ const WorkItemsPage: React.FC = () => {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filteredItems.length === 0 && (
               <tr>
                 <td colSpan={isTelecom ? 12 : 8} className="text-center py-20 text-muted">
@@ -517,8 +610,18 @@ const WorkItemsPage: React.FC = () => {
         </div>
       </div>
 
+      {isTelecom && (
+        <ColumnConfigPanel
+          open={showColumnsPanel}
+          onClose={() => setShowColumnsPanel(false)}
+          onApplied={(cols) => setTelecomColumns(cols)}
+          initialColumns={telecomColumns}
+        />
+      )}
+
       <WorkItemDrawer
         workItemId={selectedItemId}
+        onSwitchItem={(id) => setSelectedItemId(id)}
         onClose={() => {
           setSelectedItemId(null);
           if (searchParams.get('workItemId')) {

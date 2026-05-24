@@ -16,10 +16,10 @@
 
 ## Services backend ajoutes
 
-- `backend/services/hrm/recruitmentOnboarding.service.ts`
-- `backend/services/auth/firstLogin.service.ts`
-- `backend/services/notifications/welcomeEmail.service.ts`
-- `backend/services/security/password.service.ts`
+- `backend/services/hrm/recruitmentOnboarding.service.mjs`
+- `backend/services/auth/firstLogin.service.mjs`
+- `backend/services/notifications/welcomeEmail.service.mjs`
+- `backend/services/security/password.service.mjs`
 
 ## BDD
 

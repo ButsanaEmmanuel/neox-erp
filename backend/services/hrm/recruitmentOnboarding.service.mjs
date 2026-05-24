@@ -1,38 +1,31 @@
 import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { generateTemporaryPassword, hashPassword } from '../security/password.service';
+import { randomUUID } from 'node:crypto';
+import { generateTemporaryPassword, hashPassword } from '../security/password.service.mjs';
+import {
+  createChecklistFromTemplate as createOnboardingChecklistFromTemplate,
+  resolveTemplateForDepartment as resolveOnboardingTemplate,
+} from './onboarding.service.mjs';
 
 const prisma = new PrismaClient();
 
-type TargetStatus = 'hired' | 'onboarding';
-
-interface TransitionToOnboardingInput {
-  candidateId: string;
-  actorUserId: string;
-  professionalEmail: string;
-  companyName: string;
-  appUrl: string;
-}
-
-interface TransitionToOnboardingResult {
-  candidateId: string;
-  userId: string;
-  username: string;
-  temporaryPassword: string;
-}
-
-/**
- * Atomic workflow:
- * 1) Move candidate status to hired/onboarding
- * 2) Create user with temp password hash and force_password_change=true
- * 3) Assign contributor role + recruitment department
- * 4) Write audit logs
- * 5) Queue welcome email event
- */
-export async function transitionCandidateToOnboarding(
-  input: TransitionToOnboardingInput,
-  targetStatus: TargetStatus = 'onboarding',
-): Promise<TransitionToOnboardingResult> {
+// Atomic workflow inside one prisma.$transaction:
+//   1) Move candidate status to hired/onboarding
+//   2) Create user with temp password hash and force_password_change=true
+//   3) Assign contributor role + recruitment department
+//   4) Write audit logs
+//   5) Queue welcome email event
+//
+// HRM-2.2 — Post-transaction (best-effort, never blocks the hire):
+//   6) Resolve an onboarding template:
+//        a. explicit input.onboardingTemplateId wins
+//        b. otherwise the active template for the user's department
+//        c. otherwise a global (departmentId IS NULL) active template
+//        d. nothing found -> skip silently
+//   7) Create the OnboardingChecklist from the resolved template.
+//      Any failure is logged with console.warn and swallowed; the
+//      employee remains created. The returned object carries
+//      onboardingChecklistId on success, otherwise undefined.
+export async function transitionCandidateToOnboarding(input, targetStatus = 'onboarding') {
   const normalizedUsername = input.professionalEmail.trim().toLowerCase();
   const temporaryPassword = generateTemporaryPassword();
   const temporaryPasswordHash = hashPassword(temporaryPassword);
@@ -163,8 +156,35 @@ export async function transitionCandidateToOnboarding(
       userId: createdUser.id,
       username: normalizedUsername,
       temporaryPassword,
+      departmentId: candidate.recruitmentDepartmentId,
     };
   });
 
-  return result;
+  // ────────────────────────────────────────────────────────────────
+  // Post-transaction onboarding-checklist hook (HRM-2.2).
+  // Best-effort: a failure here MUST NOT undo the hire.
+  // ────────────────────────────────────────────────────────────────
+  let onboardingChecklistId;
+  try {
+    let templateId = input.onboardingTemplateId ?? null;
+    if (!templateId) {
+      templateId = await resolveOnboardingTemplate(prisma, result.departmentId);
+    }
+    if (templateId) {
+      const checklist = await createOnboardingChecklistFromTemplate(prisma, {
+        userId: result.userId,
+        templateId,
+        startDate: input.startDate ?? new Date(),
+      });
+      onboardingChecklistId = checklist.id;
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[transitionCandidateToOnboarding] onboarding checklist hook failed for user ${result.userId} (candidate ${result.candidateId}):`,
+      err?.message ?? err,
+    );
+  }
+
+  return { ...result, onboardingChecklistId };
 }

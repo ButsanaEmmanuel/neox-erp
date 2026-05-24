@@ -1,6 +1,31 @@
 import crypto from 'node:crypto';
 import { broadcast as sseBroadcast } from '../realtime/sseBroadcaster.mjs';
 import { getUserPermissionSet } from '../access/universalAccess.service.mjs';
+import { upsertContractor } from '../hrm/contractorUpsert.service.mjs';
+
+// HRM-1.4 / D15 — synthesize a stable contractor identity from a raw
+// `team` value in a telecom import row. Same team string -> same email
+// -> idempotent upsert across imports.
+function contractorIdentityFromTeam(rawTeam) {
+  const team = String(rawTeam || '').trim();
+  if (!team) return null;
+  const slug = team
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) return null;
+  const [firstName, ...rest] = team.split(/\s+/);
+  return {
+    team,
+    email: `${slug}@contractor.local`,
+    firstName: firstName || team,
+    lastName: rest.join(' ') || '',
+    source: 'telecom_import',
+    externalRef: `team:${team}`,
+  };
+}
 
 function decimalToNumber(value) {
   if (value === null || value === undefined) return null;
@@ -445,7 +470,20 @@ export async function getProjectById(prisma, projectId) {
           user: { select: { id: true, name: true, email: true, isActive: true } },
         },
       },
-      workItems: { where: { isDeleted: false } },
+      // D13 — eager-load up to 3 levels of children so the UI can render
+      // nested rows without N round-trips. WorkItem.parentId max depth = 3
+      // (root=1, child=2, grandchild=3) → 2 levels of children are enough.
+      workItems: {
+        where: { isDeleted: false },
+        include: {
+          children: {
+            where: { isDeleted: false },
+            include: {
+              children: { where: { isDeleted: false } },
+            },
+          },
+        },
+      },
     },
   });
   if (!row) {
@@ -937,6 +975,27 @@ export async function bulkImportTelecomWorkItems(prisma, input = {}) {
     const workItemRows = [];
     const stateRows = [];
     const activityRows = [];
+
+    // HRM-1.4 / D15 — pre-pass: upsert one HRM contractor per unique
+    // team value in this batch. Failures are logged but never abort
+    // the import — the work items still land with the raw team string
+    // in their `assignee` field for backward compat.
+    const teamsSeen = new Set();
+    const contractorsCreated = [];
+    for (const rawRow of rows) {
+      const team = String(rawRow?.imported_fields?.team || '').trim();
+      if (!team || teamsSeen.has(team)) continue;
+      teamsSeen.add(team);
+      const identity = contractorIdentityFromTeam(team);
+      if (!identity) continue;
+      try {
+        const result = await upsertContractor(tx, identity);
+        if (result.created) contractorsCreated.push({ team, userId: result.id });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[bulkImportTelecomWorkItems] contractor upsert failed for team "${team}":`, e?.message || e);
+      }
+    }
 
     for (let index = 0; index < rows.length; index += 1) {
       const rawRow = rows[index];

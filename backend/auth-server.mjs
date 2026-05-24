@@ -142,6 +142,31 @@ import {
 // PM route modules
 import { handlePmProjectRoutes } from './routes/pm/projects.routes.mjs';
 
+// Auth route modules (HRM-1.2)
+import { handleAuthMeRoutes } from './routes/auth/me.routes.mjs';
+
+// HRM route modules (HRM-1.3)
+import { handleHrmRbacRoutes } from './routes/hrm/rbac.routes.mjs';
+// HRM route modules (HRM-1.4)
+import { handleHrmDirectoryRoutes } from './routes/hrm/directory.routes.mjs';
+// HRM route modules (HRM-1.5)
+import { handleHrmLeaveRoutes } from './routes/hrm/leave.routes.mjs';
+// HRM route modules (HRM-2.1)
+import { handleHrmRecruitmentRoutes } from './routes/hrm/recruitment.routes.mjs';
+// HRM route modules (HRM-2.2)
+import { handleHrmOnboardingRoutes } from './routes/hrm/onboarding.routes.mjs';
+// HRM route modules (HRM-2.3)
+import { handleHrmTrainingRoutes } from './routes/hrm/training.routes.mjs';
+// HRM route modules (HRM-2.4)
+import { handleHrmPoliciesRoutes } from './routes/hrm/policies.routes.mjs';
+import { handleHrmCasesRoutes } from './routes/hrm/cases.routes.mjs';
+// HRM route modules (HRM-2.5)
+import { handleHrmTimesheetsRoutes } from './routes/hrm/timesheets.routes.mjs';
+
+// RBAC raw-http gate (HRM-1.2 Commit B)
+import { assertPermission } from './services/auth/rbac.service.mjs';
+import { getColumnPreference, setColumnPreference } from './services/preferences/columnPreferences.service.mjs';
+
 function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
   if (!fs.existsSync(envPath)) return;
@@ -902,14 +927,93 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { contracts, pagination: rows.pagination || null });
     }
 
+    const authMeHandled = await handleAuthMeRoutes({
+      req, res, url, pathname, method, json,
+    });
+    if (authMeHandled) return;
+
+    const hrmRbacHandled = await handleHrmRbacRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmRbacHandled) return;
+
+    const hrmDirectoryHandled = await handleHrmDirectoryRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmDirectoryHandled) return;
+
+    const hrmLeaveHandled = await handleHrmLeaveRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmLeaveHandled) return;
+
+    const hrmRecruitmentHandled = await handleHrmRecruitmentRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmRecruitmentHandled) return;
+
+    const hrmOnboardingHandled = await handleHrmOnboardingRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmOnboardingHandled) return;
+
+    const hrmTrainingHandled = await handleHrmTrainingRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmTrainingHandled) return;
+
+    const hrmPoliciesHandled = await handleHrmPoliciesRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmPoliciesHandled) return;
+
+    const hrmCasesHandled = await handleHrmCasesRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmCasesHandled) return;
+
+    const hrmTimesheetsHandled = await handleHrmTimesheetsRoutes({
+      req, res, url, pathname, method, prisma, parseBody, json,
+    });
+    if (hrmTimesheetsHandled) return;
+
     const pmHandled = await handlePmProjectRoutes({
       req, res, url, pathname, method, prisma,
       assertModuleAccess, parseBody, parseActor, parseActorFromUrl, json,
     });
     if (pmHandled) return;
 
+    // DH7 — user column preferences (visibility + ordering per table context).
+    if (method === 'GET' && pathname === '/api/v1/preferences/columns') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.read'))) return;
+      const context = url.searchParams.get('context') || '';
+      try {
+        const pref = await getColumnPreference(prisma, actor.actorUserId, context);
+        return json(res, 200, pref);
+      } catch (e) {
+        return json(res, e.statusCode || 500, { error: e.message, code: e.code, field: e.field });
+      }
+    }
+
+    if (method === 'PUT' && pathname === '/api/v1/preferences/columns') {
+      const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return;
+      try {
+        const pref = await setColumnPreference(prisma, actor.actorUserId, {
+          context: body?.context,
+          columns: body?.columns,
+        });
+        return json(res, 200, pref);
+      } catch (e) {
+        return json(res, e.statusCode || 500, { error: e.message, code: e.code, field: e.field, key: e.key });
+      }
+    }
+
     if (method === 'GET' && pathname === '/api/v1/projects') {
-      await assertModuleAccess(prisma, url, 'project');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return;
       const result = await listProjectsForUser(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -934,8 +1038,8 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && projectBulkImportMatch) {
       const [, projectId] = projectBulkImportMatch;
       const body = await parseBody(req);
-      await assertModuleAccess(prisma, url, 'project', body);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.import.execute'))) return;
       const result = await bulkImportTelecomWorkItems(prisma, {
         projectId,
         fileName: body.fileName,
@@ -957,7 +1061,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/projects/engineering-dashboard') {
-      await assertModuleAccess(prisma, url, 'project');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.read'))) return;
       const result = await getEngineeringDashboard(prisma, {
         userId: url.searchParams.get('userId') || undefined,
       });
@@ -1042,8 +1147,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/departments') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.write'))) return;
       const department = await createHrmDepartment(prisma, body, actor);
       return json(res, 201, { department });
     }
@@ -1053,8 +1157,7 @@ const server = http.createServer(async (req, res) => {
       const [, departmentId] = hrmDepartmentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.write'))) return;
       const department = await updateHrmDepartment(prisma, departmentId, body, actor);
       return json(res, 200, { department });
     }
@@ -1062,8 +1165,7 @@ const server = http.createServer(async (req, res) => {
       const [, departmentId] = hrmDepartmentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM administration is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.departments.delete'))) return;
       const result = await deleteHrmDepartment(prisma, departmentId, actor);
       return json(res, 200, result);
     }
@@ -1092,8 +1194,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/employees') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee management is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const employee = await upsertHrmEmployee(prisma, body, actor);
       return json(res, 201, { employee });
     }
@@ -1101,8 +1202,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/hrm/employees/bulk') {
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM bulk import is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const result = await bulkUpsertHrmEmployees(prisma, body, actor);
       return json(res, 201, result);
     }
@@ -1121,8 +1221,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee updates are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const employee = await upsertHrmEmployee(prisma, { ...body, id: employeeId }, actor);
       return json(res, 200, { employee });
     }
@@ -1130,8 +1229,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM employee deletion is restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.delete'))) return;
       const result = await archiveHrmEmployee(prisma, employeeId, actor);
       return json(res, 200, result);
     }
@@ -1146,8 +1244,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsRegenerateMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await regenerateHrmEmployeeCredentials(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1156,8 +1253,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsGenerateAliasMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await regenerateHrmEmployeeCredentials(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1166,8 +1262,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsSentMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await markHrmEmployeeCredentialsSent(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1176,8 +1271,7 @@ const server = http.createServer(async (req, res) => {
       const [, employeeId] = hrmEmployeeCredentialsMarkSentAliasMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
-      const allowed = await canManageHrmAdministration(prisma, actor.actorUserId);
-      if (!allowed) return json(res, 403, { message: 'HRM credential actions are restricted to HR/Admin.' });
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'hrm.employees.write'))) return;
       const credential = await markHrmEmployeeCredentialsSent(prisma, employeeId, actor);
       return json(res, 200, { credential });
     }
@@ -1306,7 +1400,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/settings') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const settings = await getFinanceGovernanceSettings(prisma);
       return json(res, 200, { settings });
     }
@@ -1353,7 +1448,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/entries') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const entries = await listFinanceEntries(prisma, {
         entryType: url.searchParams.get('entryType') || undefined,
         direction: url.searchParams.get('direction') || undefined,
@@ -1372,7 +1468,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/receivables') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const receivables = await listReceivables(prisma, {
         status: url.searchParams.get('status') || undefined,
         collectionStatus: url.searchParams.get('collectionStatus') || undefined,
@@ -1385,7 +1482,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/payables') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const payables = await listPayables(prisma, {
         status: url.searchParams.get('status') || undefined,
         paymentStatus: url.searchParams.get('paymentStatus') || undefined,
@@ -1539,11 +1637,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-schedules') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const schedules = await listPayrollSchedules(prisma);
       return json(res, 200, { schedules });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/salary-profiles') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const profiles = await listEmployeeSalaryProfiles(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         isActive: url.searchParams.get('isActive') === null ? undefined : url.searchParams.get('isActive') === 'true',
@@ -1555,6 +1657,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/salary-profiles') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const profile = await upsertEmployeeSalaryProfile(prisma, body || {}, actor);
       return json(res, 201, { profile });
     }
@@ -1562,11 +1665,14 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-schedules') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const schedule = await upsertPayrollSchedule(prisma, body || {}, actor);
       return json(res, 201, { schedule });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-runs') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const runs = await listPayrollRuns(prisma, {
         status: url.searchParams.get('status') || undefined,
         postingStatus: url.searchParams.get('postingStatus') || undefined,
@@ -1578,6 +1684,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-runs/execute') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const run = await executePayrollRun(prisma, body || {}, actor);
       return json(res, 201, { run });
     }
@@ -1585,6 +1692,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-runs/run-due') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const runs = await runDuePayrollSchedules(prisma, actor);
       return json(res, 200, { runs });
     }
@@ -1592,6 +1700,8 @@ const server = http.createServer(async (req, res) => {
     const payrollRunDetailMatch = pathname.match(/^\/api\/v1\/finance\/hrm\/payroll-runs\/([^/]+)$/);
     if (method === 'GET' && payrollRunDetailMatch) {
       const [, payrollRunId] = payrollRunDetailMatch;
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const run = await getPayrollRunDetail(prisma, payrollRunId);
       if (!run) return json(res, 404, { message: 'Payroll run not found.' });
       return json(res, 200, { run });
@@ -1602,6 +1712,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollRunId] = payrollRunPostMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const result = await postPayrollRun(prisma, payrollRunId, body || {}, actor);
       return json(res, 200, result);
     }
@@ -1611,11 +1722,14 @@ const server = http.createServer(async (req, res) => {
       const [, payrollRunEmployeeId] = payrollRunAdjustMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const employeeLine = await adjustPayrollRunEmployee(prisma, payrollRunEmployeeId, body || {}, actor);
       return json(res, 200, { employeeLine });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-batches') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const batches = await listPayrollBatches(prisma, {
         status: url.searchParams.get('status') || undefined,
         approvalStatus: url.searchParams.get('approvalStatus') || undefined,
@@ -1627,6 +1741,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-batches') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await createPayrollBatch(prisma, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1638,6 +1753,8 @@ const server = http.createServer(async (req, res) => {
     const payrollBatchMatch = pathname.match(/^\/api\/v1\/finance\/hrm\/payroll-batches\/([^/]+)$/);
     if (method === 'GET' && payrollBatchMatch) {
       const [, payrollBatchId] = payrollBatchMatch;
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const batch = await getPayrollBatchDetail(prisma, payrollBatchId);
       if (!batch) return json(res, 404, { message: 'Payroll batch not found.' });
       return json(res, 200, { batch });
@@ -1648,6 +1765,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollBatchId] = payrollBatchApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await approvePayrollBatch(prisma, payrollBatchId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1660,6 +1778,8 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && payrollBatchReconcileMatch) {
       const [, payrollBatchId] = payrollBatchReconcileMatch;
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await reconcilePayrollBatch(prisma, payrollBatchId, body || {});
       return json(res, 200, { batch });
     }
@@ -1669,6 +1789,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollLineId] = payrollLineDisburseMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const result = await disbursePayrollLine(prisma, payrollLineId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1678,6 +1799,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/expense-claims') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.read'))) return;
       const claims = await listExpenseClaims(prisma, {
         status: url.searchParams.get('status') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1687,6 +1810,8 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/expense-claims') {
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.write'))) return;
       const claim = await createExpenseClaim(prisma, body || {});
       return json(res, 201, { claim });
     }
@@ -1696,6 +1821,7 @@ const server = http.createServer(async (req, res) => {
       const [, claimId] = expenseClaimApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.execute'))) return;
       const claim = await approveExpenseClaim(prisma, claimId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1705,6 +1831,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/employee-advances') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.read'))) return;
       const advances = await listEmployeeAdvances(prisma, {
         status: url.searchParams.get('status') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1714,6 +1842,8 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/employee-advances') {
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.write'))) return;
       const advance = await createEmployeeAdvance(prisma, body || {});
       return json(res, 201, { advance });
     }
@@ -1723,6 +1853,7 @@ const server = http.createServer(async (req, res) => {
       const [, advanceId] = employeeAdvanceApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.execute'))) return;
       const advance = await approveEmployeeAdvance(prisma, advanceId, {
         ...body,
         actorUserId: actor.actorUserId,

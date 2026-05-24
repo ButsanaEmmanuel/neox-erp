@@ -44,6 +44,7 @@ interface ProjectStore {
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addWorkItem: (item: Omit<WorkItem, 'id'>) => Promise<void>;
+  addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }) => Promise<WorkItem>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
   updateTelecomManualFields: (id: string, updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>) => void;
   retryFinanceSync: (id: string) => void;
@@ -301,6 +302,24 @@ export const useProjectStore = create<ProjectStore>()(
               projects: state.projects.map((p) => p.id === item.projectId ? withTelecomSummary(freshProject, newWorkItems) : p),
             };
           });
+        },
+
+        // D13 — Create a sub-task under an existing work item. Backend
+        // inherits projectId from the parent, validates depth ≤ 3, and
+        // triggers rollupStatus on the parent in the same tx. We then
+        // re-fetch the project to pick up any rolled-up parent status
+        // changes without a second round-trip.
+        addSubTask: async (parentId, data) => {
+          const created = await projectApi.createSubTask(parentId, data);
+          const freshProject = await projectApi.fetchProjectById(created.projectId);
+          set((state) => {
+            const newWorkItems = [...state.workItems, created];
+            return {
+              workItems: newWorkItems,
+              projects: state.projects.map((p) => p.id === created.projectId ? withTelecomSummary(freshProject, newWorkItems) : p),
+            };
+          });
+          return created;
         },
 
         updateWorkItem: async (id, updates) => {

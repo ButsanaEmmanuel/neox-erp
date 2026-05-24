@@ -15,7 +15,8 @@ export type WorkItemStatus =
   | 'finance_sync_error'
   | 'awaiting_qa_approval'
   | 'awaiting_signed_acceptance'
-  | 'awaiting_financial_eligibility';
+  | 'awaiting_financial_eligibility'
+  | 'at_risk';
 export type WorkItemType = 'task' | 'milestone' | 'deliverable' | 'issue' | 'site';
 export type ImportStatus = 'processing' | 'completed' | 'failed' | 'completed-with-errors';
 export type ProjectMode = 'standard' | 'telecom_multi_site';
@@ -185,6 +186,11 @@ export interface WorkItem {
   legacySiteId?: string;
   description?: string;
   tags?: string[];
+
+  // D13 — Sub-task hierarchy (parentId carries the relation; root ⇔ parentId === null/undefined).
+  // `children` is populated when the row comes from getProjectById's nested include.
+  parentId?: string | null;
+  children?: WorkItem[];
 
   // Telecom imported/manual/calculated fields
   import_batch_id?: string;

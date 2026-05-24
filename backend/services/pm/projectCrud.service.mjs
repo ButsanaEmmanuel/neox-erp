@@ -8,6 +8,7 @@
 //   - Activity logs go to ProjectItemActivity for work-item lifecycle events.
 
 export { getProjectById } from '../projects/projectCollaboration.service.mjs';
+import { rollupStatus } from './workItemHierarchy.service.mjs';
 
 const ALLOWED_PROJECT_FIELDS = new Set([
   'name', 'clientName', 'clientAccountId', 'status', 'projectMode',
@@ -161,7 +162,7 @@ export async function createWorkItem(prisma, projectId, data, actor) {
 export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
   const existing = await prisma.workItem.findFirst({
     where: { id: itemId, projectId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, status: true, parentId: true },
   });
   if (!existing) {
     throw notFound(`Work item '${itemId}' not found in project '${projectId}'.`);
@@ -174,9 +175,17 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
     }
   }
   const patch = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
-  return prisma.workItem.update({
-    where: { id: itemId },
-    data: patch,
+
+  // D13 — when a child's status changes, roll up the chain in the same tx.
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.workItem.update({
+      where: { id: itemId },
+      data: patch,
+    });
+    if (existing.parentId && Object.prototype.hasOwnProperty.call(patch, 'status') && patch.status !== existing.status) {
+      await rollupStatus(tx, existing.parentId);
+    }
+    return updated;
   });
 }
 

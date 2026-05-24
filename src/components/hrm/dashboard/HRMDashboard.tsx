@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import PageHeader from '../../ui/PageHeader';
 import ContractAlerts from './ContractAlerts';
 import { useHRMStore } from '../../../store/hrm/useHRMStore';
-import { Users, UserPlus, FileText, TrendingUp } from 'lucide-react';
+import { Users, UserPlus, FileText, TrendingUp, Activity, AlertTriangle, X } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { usePermissions } from '../../../hooks/usePermissions';
+import { useHrmRealtimeSync } from '../../../hooks/useHrmRealtimeSync';
 
 const HRMDashboard: React.FC = () => {
     const { employees, leaveRequests, trainingRecords, timesheets } = useHRMStore();
@@ -12,6 +13,14 @@ const HRMDashboard: React.FC = () => {
     const { hasPermission } = usePermissions();
     const isOmniAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
     const isHrmPrivileged = isOmniAdmin || hasPermission('hrm', 'contracts', 'read');
+
+    // HRM-2.6 — live HR-side indicators for hires + case escalations.
+    const [liveHires, setLiveHires] = useState(0);
+    const [liveEscalations, setLiveEscalations] = useState(0);
+    useHrmRealtimeSync(user?.id, {
+        'hrm.employee.hired':  () => { if (isHrmPrivileged) setLiveHires((n) => n + 1); },
+        'hrm.case.escalated':  () => { if (isHrmPrivileged) setLiveEscalations((n) => n + 1); },
+    });
 
     const stats = useMemo(() => {
         return {
@@ -60,6 +69,23 @@ const HRMDashboard: React.FC = () => {
             />
 
             <div className="p-6 space-y-6">
+                {isHrmPrivileged && (liveHires > 0 || liveEscalations > 0) && (
+                    <div className="flex items-center gap-3 flex-wrap">
+                        {liveHires > 0 && (
+                            <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/10 border border-blue-500/30 rounded-lg text-[12px] font-semibold text-blue-400">
+                                <Activity size={14} /> {liveHires} new hire{liveHires === 1 ? '' : 's'}
+                                <button onClick={() => setLiveHires(0)} className="ml-2 text-muted hover:text-primary"><X size={12} /></button>
+                            </div>
+                        )}
+                        {liveEscalations > 0 && (
+                            <div className="inline-flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-[12px] font-semibold text-red-400">
+                                <AlertTriangle size={14} /> {liveEscalations} case{liveEscalations === 1 ? '' : 's'} escalated
+                                <button onClick={() => setLiveEscalations(0)} className="ml-2 text-muted hover:text-primary"><X size={12} /></button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {isHrmPrivileged ? (
                     <>
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

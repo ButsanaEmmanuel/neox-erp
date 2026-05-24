@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 import { changePasswordWithApi, getProfileWithApi, loginWithApi, updateProfileWithApi } from '../services/authApi';
+import { apiRequest } from '../lib/apiClient';
+
+const PERMISSIONS_STORAGE_KEY = 'neox-auth-permissions';
 
 export type Role = string;
 
@@ -27,11 +30,16 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  // HRM-1.2: effective permission keys for the current user.
+  // Stored as a string[] (not Set) so it stays JSON-serializable across
+  // localStorage and React state. rbac.ts wraps lookups in a Set for O(1).
+  permissions: string[];
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
   hasRole: (roles: Role[]) => boolean;
   updateProfile: (data: Partial<User>) => Promise<void>;
   refreshUserProfile: () => Promise<void>;
+  refreshPermissions: () => Promise<void>;
   completePasswordChange: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
@@ -72,6 +80,62 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   });
 
+  const [permissions, setPermissionsState] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(PERMISSIONS_STORAGE_KEY);
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const persistPermissions = useCallback((perms: string[]) => {
+    setPermissionsState(perms);
+    try {
+      localStorage.setItem(PERMISSIONS_STORAGE_KEY, JSON.stringify(perms));
+    } catch {
+      // localStorage may be unavailable (private mode, quota). The in-memory
+      // state still holds — losing the cache only costs one refetch.
+    }
+  }, []);
+
+  // HRM-1.2: fetch effective permissions for a given userId.
+  // Designed to NEVER throw. On any failure we fall back to [] and let
+  // <PermissionGuard> deny access at each guard site — better than
+  // crashing the whole app over a missing endpoint or 5xx.
+  const hydratePermissionsFor = useCallback(async (userId: string | undefined | null) => {
+    if (!userId) {
+      persistPermissions([]);
+      return;
+    }
+    try {
+      const response = await apiRequest<{ permissions: string[] }>(
+        `/api/auth/me/permissions?userId=${encodeURIComponent(userId)}`,
+      );
+      const next = Array.isArray(response?.permissions)
+        ? response.permissions.filter((k): k is string => typeof k === 'string')
+        : [];
+      persistPermissions(next);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[AuthContext] Failed to hydrate permissions, defaulting to []:', err);
+      persistPermissions([]);
+    }
+  }, [persistPermissions]);
+
+  // Rehydrate on mount if a user is already in localStorage (page reload).
+  // We keep the cached permissions visible immediately for instant paint,
+  // then refresh in the background.
+  useEffect(() => {
+    if (user?.id) {
+      void hydratePermissionsFor(user.id);
+    }
+    // Intentionally only on mount + when the user id changes — login/refresh
+    // hydrate explicitly below to keep the order deterministic.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   const login = async (email: string, password: string) => {
     const response = await loginWithApi(email, password);
     const normalized = normalizeIncomingUser(response.user);
@@ -101,11 +165,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (response.token) {
       localStorage.setItem('neox-auth-token', response.token);
     }
+    await hydratePermissionsFor(authenticatedUser.id);
     return true;
   };
 
   const logout = () => {
     setUser(null);
+    persistPermissions([]);
     localStorage.removeItem('neox-auth-session');
     localStorage.removeItem('neox-auth-token');
   };
@@ -135,6 +201,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('neox-auth-session', JSON.stringify(updated));
       return updated;
     });
+    await hydratePermissionsFor(user.id);
+  };
+
+  const refreshPermissions = async () => {
+    await hydratePermissionsFor(user?.id);
   };
 
   const completePasswordChange = async (currentPassword: string, newPassword: string) => {
@@ -160,7 +231,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user?.preferredLanguage]);
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, hasRole, updateProfile, refreshUserProfile, completePasswordChange }}>
+    <AuthContext.Provider value={{ user, permissions, login, logout, hasRole, updateProfile, refreshUserProfile, refreshPermissions, completePasswordChange }}>
       {children}
     </AuthContext.Provider>
   );

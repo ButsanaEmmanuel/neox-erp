@@ -100,6 +100,37 @@ export async function deleteWorkItem(projectId: string, itemId: string): Promise
   });
 }
 
+// ── Sub-tasks (D13) ───────────────────────────────────────────────────────
+
+export async function createSubTask(
+  parentWorkItemId: string,
+  data: Partial<WorkItem> & { title: string },
+): Promise<WorkItem> {
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(
+    `/api/v1/pm/work-items/${parentWorkItemId}/subtasks`,
+    { method: 'POST', body: data },
+  );
+  return workItem;
+}
+
+export async function fetchSubTasks(workItemId: string): Promise<WorkItem[]> {
+  const { subtasks } = await apiRequest<{ subtasks: WorkItem[] }>(
+    `/api/v1/pm/work-items/${workItemId}/subtasks`,
+  );
+  return subtasks;
+}
+
+export async function moveWorkItemParent(
+  workItemId: string,
+  parentId: string | null,
+): Promise<WorkItem> {
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(
+    `/api/v1/pm/work-items/${workItemId}/parent`,
+    { method: 'PATCH', body: { parentId } },
+  );
+  return workItem;
+}
+
 // ── Milestones (Sprint 5 — Task 5.3) ──────────────────────────────────────
 
 export async function fetchProjectMilestones(projectId: string): Promise<Milestone[]> {
