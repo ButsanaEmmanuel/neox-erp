@@ -15,7 +15,8 @@ export type WorkItemStatus =
   | 'finance_sync_error'
   | 'awaiting_qa_approval'
   | 'awaiting_signed_acceptance'
-  | 'awaiting_financial_eligibility';
+  | 'awaiting_financial_eligibility'
+  | 'at_risk';
 export type WorkItemType = 'task' | 'milestone' | 'deliverable' | 'issue' | 'site';
 export type ImportStatus = 'processing' | 'completed' | 'failed' | 'completed-with-errors';
 export type ProjectMode = 'standard' | 'telecom_multi_site';

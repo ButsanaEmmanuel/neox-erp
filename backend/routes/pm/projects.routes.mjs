@@ -26,6 +26,11 @@ import {
 } from '../../services/pm/milestones.service.mjs';
 import { safeBroadcast } from '../../services/realtime/sseBroadcaster.mjs';
 import { assertPermission } from '../../services/auth/rbac.service.mjs';
+import {
+  createSubTask,
+  listSubTasks,
+  moveSubTask,
+} from '../../services/pm/workItemHierarchy.service.mjs';
 
 // SSE payload hygiene : exclude auth metadata fields from patchedFields,
 // they are not part of the business state mutated by the request.
@@ -56,6 +61,9 @@ export async function handlePmProjectRoutes(ctx) {
   const projectMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)$/);
   const workItemsMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items$/);
   const workItemMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)$/);
+  // D13 — sub-task routes are project-agnostic (lookup by workItemId).
+  const subTasksMatch = pathname.match(/^\/api\/v1\/pm\/work-items\/([^/]+)\/subtasks$/);
+  const workItemParentMatch = pathname.match(/^\/api\/v1\/pm\/work-items\/([^/]+)\/parent$/);
   const membersMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members$/);
   const memberMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/members\/([^/]+)$/);
   const scopeMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/scope$/);
@@ -73,7 +81,9 @@ export async function handlePmProjectRoutes(ctx) {
     (memberMatch && method === 'DELETE') ||
     (scopeMatch && (method === 'GET' || method === 'PATCH')) ||
     (milestonesMatch && (method === 'GET' || method === 'POST')) ||
-    (milestoneMatch && (method === 'PATCH' || method === 'DELETE'));
+    (milestoneMatch && (method === 'PATCH' || method === 'DELETE')) ||
+    (subTasksMatch && (method === 'GET' || method === 'POST')) ||
+    (workItemParentMatch && method === 'PATCH');
 
   if (!hasMatch) return false;
 
@@ -230,6 +240,38 @@ export async function handlePmProjectRoutes(ctx) {
       await deleteMilestone(ctx.prisma, projectId, milestoneId);
       safeBroadcast('milestone_deleted', { projectId, milestoneId });
       json(res, 200, { ok: true });
+      return true;
+    }
+
+    // D13 — sub-task hierarchy routes (project-agnostic).
+    if (subTasksMatch && method === 'GET') {
+      const [, workItemId] = subTasksMatch;
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.read'))) return true;
+      const subtasks = await listSubTasks(ctx.prisma, workItemId);
+      json(res, 200, { subtasks });
+      return true;
+    }
+
+    if (subTasksMatch && method === 'POST') {
+      const [, parentId] = subTasksMatch;
+      const body = await ctx.parseBody(ctx.req);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
+      const workItem = await createSubTask(ctx.prisma, parentId, body, actor);
+      safeBroadcast('work_item_created', { projectId: workItem.projectId, workItemId: workItem.id, type: workItem.type, parentId });
+      json(res, 201, { workItem });
+      return true;
+    }
+
+    if (workItemParentMatch && method === 'PATCH') {
+      const [, workItemId] = workItemParentMatch;
+      const body = await ctx.parseBody(ctx.req);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
+      const workItem = await moveSubTask(ctx.prisma, workItemId, { parentId: body?.parentId ?? null });
+      safeBroadcast('work_item_updated', { projectId: workItem.projectId, workItemId, patchedFields: ['parentId'] });
+      json(res, 200, { workItem });
       return true;
     }
 

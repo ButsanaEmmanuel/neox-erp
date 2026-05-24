@@ -470,7 +470,20 @@ export async function getProjectById(prisma, projectId) {
           user: { select: { id: true, name: true, email: true, isActive: true } },
         },
       },
-      workItems: { where: { isDeleted: false } },
+      // D13 — eager-load up to 3 levels of children so the UI can render
+      // nested rows without N round-trips. WorkItem.parentId max depth = 3
+      // (root=1, child=2, grandchild=3) → 2 levels of children are enough.
+      workItems: {
+        where: { isDeleted: false },
+        include: {
+          children: {
+            where: { isDeleted: false },
+            include: {
+              children: { where: { isDeleted: false } },
+            },
+          },
+        },
+      },
     },
   });
   if (!row) {
