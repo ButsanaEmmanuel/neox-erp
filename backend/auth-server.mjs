@@ -165,6 +165,7 @@ import { handleHrmTimesheetsRoutes } from './routes/hrm/timesheets.routes.mjs';
 
 // RBAC raw-http gate (HRM-1.2 Commit B)
 import { assertPermission } from './services/auth/rbac.service.mjs';
+import { getColumnPreference, setColumnPreference } from './services/preferences/columnPreferences.service.mjs';
 
 function loadEnvFile() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -981,6 +982,34 @@ const server = http.createServer(async (req, res) => {
       assertModuleAccess, parseBody, parseActor, parseActorFromUrl, json,
     });
     if (pmHandled) return;
+
+    // DH7 — user column preferences (visibility + ordering per table context).
+    if (method === 'GET' && pathname === '/api/v1/preferences/columns') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.read'))) return;
+      const context = url.searchParams.get('context') || '';
+      try {
+        const pref = await getColumnPreference(prisma, actor.actorUserId, context);
+        return json(res, 200, pref);
+      } catch (e) {
+        return json(res, e.statusCode || 500, { error: e.message, code: e.code, field: e.field });
+      }
+    }
+
+    if (method === 'PUT' && pathname === '/api/v1/preferences/columns') {
+      const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return;
+      try {
+        const pref = await setColumnPreference(prisma, actor.actorUserId, {
+          context: body?.context,
+          columns: body?.columns,
+        });
+        return json(res, 200, pref);
+      } catch (e) {
+        return json(res, e.statusCode || 500, { error: e.message, code: e.code, field: e.field, key: e.key });
+      }
+    }
 
     if (method === 'GET' && pathname === '/api/v1/projects') {
       const actor = parseActorFromUrl(url);
