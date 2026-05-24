@@ -234,9 +234,7 @@ export async function handlePmProjectRoutes(ctx) {
     if (milestoneMatch && method === 'DELETE') {
       const [, projectId, milestoneId] = milestoneMatch;
       const actor = ctx.parseActorFromUrl(ctx.url);
-      // Permission registry lacks pm.milestones.delete (only read/write/execute exist).
-      // Gate DELETE on pm.milestones.write — consistent with pm.scope which also has no .delete.
-      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.delete'))) return true;
       await deleteMilestone(ctx.prisma, projectId, milestoneId);
       safeBroadcast('milestone_deleted', { projectId, milestoneId });
       json(res, 200, { ok: true });

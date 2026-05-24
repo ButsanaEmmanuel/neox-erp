@@ -78,6 +78,7 @@ export const PERMISSIONS = [
   { module: 'pm', resource: 'workItems',  action: 'execute', description: 'Soumettre QA / approuver / signer' },
   { module: 'pm', resource: 'milestones', action: 'read',    description: 'Voir les jalons' },
   { module: 'pm', resource: 'milestones', action: 'write',   description: 'Créer et modifier des jalons' },
+  { module: 'pm', resource: 'milestones', action: 'delete',  description: 'Supprimer des jalons' },
   { module: 'pm', resource: 'milestones', action: 'execute', description: 'Marquer un jalon complet' },
   { module: 'pm', resource: 'documents',  action: 'read',    description: 'Voir les documents projet' },
   { module: 'pm', resource: 'documents',  action: 'write',   description: 'Uploader des documents' },
