@@ -31,6 +31,11 @@ import {
   listSubTasks,
   moveSubTask,
 } from '../../services/pm/workItemHierarchy.service.mjs';
+import {
+  createSubMilestone,
+  listSubMilestones,
+  moveSubMilestone,
+} from '../../services/pm/milestoneHierarchy.service.mjs';
 
 // SSE payload hygiene : exclude auth metadata fields from patchedFields,
 // they are not part of the business state mutated by the request.
@@ -69,6 +74,9 @@ export async function handlePmProjectRoutes(ctx) {
   const scopeMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/scope$/);
   const milestonesMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/milestones$/);
   const milestoneMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/milestones\/([^/]+)$/);
+  // DH12 — milestone hierarchy routes (project-agnostic, lookup by milestoneId).
+  const subMilestonesMatch = pathname.match(/^\/api\/v1\/pm\/milestones\/([^/]+)\/sub-milestones$/);
+  const milestoneParentMatch = pathname.match(/^\/api\/v1\/pm\/milestones\/([^/]+)\/parent$/);
 
   // Fast bail-out: if no pattern + method combination matches what we own,
   // return false so the main flow keeps dispatching. This prevents the
@@ -83,7 +91,9 @@ export async function handlePmProjectRoutes(ctx) {
     (milestonesMatch && (method === 'GET' || method === 'POST')) ||
     (milestoneMatch && (method === 'PATCH' || method === 'DELETE')) ||
     (subTasksMatch && (method === 'GET' || method === 'POST')) ||
-    (workItemParentMatch && method === 'PATCH');
+    (workItemParentMatch && method === 'PATCH') ||
+    (subMilestonesMatch && (method === 'GET' || method === 'POST')) ||
+    (milestoneParentMatch && method === 'PATCH');
 
   if (!hasMatch) return false;
 
@@ -270,6 +280,38 @@ export async function handlePmProjectRoutes(ctx) {
       const workItem = await moveSubTask(ctx.prisma, workItemId, { parentId: body?.parentId ?? null });
       safeBroadcast('work_item_updated', { projectId: workItem.projectId, workItemId, patchedFields: ['parentId'] });
       json(res, 200, { workItem });
+      return true;
+    }
+
+    // DH12 — milestone hierarchy routes (project-agnostic).
+    if (subMilestonesMatch && method === 'GET') {
+      const [, milestoneId] = subMilestonesMatch;
+      const actor = ctx.parseActorFromUrl(ctx.url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.read'))) return true;
+      const subMilestones = await listSubMilestones(ctx.prisma, milestoneId);
+      json(res, 200, { subMilestones });
+      return true;
+    }
+
+    if (subMilestonesMatch && method === 'POST') {
+      const [, parentId] = subMilestonesMatch;
+      const body = await ctx.parseBody(ctx.req);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
+      const milestone = await createSubMilestone(ctx.prisma, parentId, body);
+      safeBroadcast('milestone_created', { projectId: milestone.projectId, milestoneId: milestone.id, parentId });
+      json(res, 201, { milestone });
+      return true;
+    }
+
+    if (milestoneParentMatch && method === 'PATCH') {
+      const [, milestoneId] = milestoneParentMatch;
+      const body = await ctx.parseBody(ctx.req);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.milestones.write'))) return true;
+      const milestone = await moveSubMilestone(ctx.prisma, milestoneId, { parentId: body?.parentId ?? null });
+      safeBroadcast('milestone_updated', { projectId: milestone.projectId, milestoneId, patchedFields: ['parentId'] });
+      json(res, 200, { milestone });
       return true;
     }
 

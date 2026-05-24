@@ -9,6 +9,8 @@
 //   - completionPct validation lives here only (no DB CHECK — see D12).
 //   - Dependency cycle detection: in-memory DFS, max depth 50 (see D12 sibling note).
 
+import { rollupStatus as rollupMilestoneStatus } from './milestoneHierarchy.service.mjs';
+
 const MILESTONE_STATUSES = ['planned', 'in_progress', 'done', 'blocked'];
 const ALLOWED_FIELDS = new Set([
   'title', 'description', 'dueDate', 'status', 'ownerId', 'completionPct',
@@ -176,14 +178,30 @@ export async function listProjectMilestones(prisma, projectId) {
     throw notFound(`Project '${projectId}' not found.`, 'PROJECT_NOT_FOUND');
   }
 
+  // DH12 — racines uniquement (parentId: null) + 3 niveaux d'enfants imbriqués.
+  // Les enfants sont eager-load via `children` pour éviter une seconde requête
+  // et pour ne pas dupliquer les milestones non-racines dans la liste plate.
   const milestones = await prisma.milestone.findMany({
-    where: { projectId, isDeleted: false },
+    where: { projectId, isDeleted: false, parentId: null },
     orderBy: { dueDate: 'asc' },
     include: {
       dependencies: {
         include: {
           dependsOn: {
             select: { id: true, title: true, status: true, dueDate: true, isDeleted: true },
+          },
+        },
+      },
+      children: {
+        where: { isDeleted: false },
+        orderBy: { dueDate: 'asc' },
+        include: {
+          children: {
+            where: { isDeleted: false },
+            orderBy: { dueDate: 'asc' },
+            include: {
+              children: { where: { isDeleted: false }, orderBy: { dueDate: 'asc' } },
+            },
           },
         },
       },
@@ -262,7 +280,7 @@ export async function updateMilestone(prisma, projectId, milestoneId, body) {
 
   const existing = await prisma.milestone.findFirst({
     where: { id: milestoneId, projectId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, parentId: true, status: true },
   });
   if (!existing) {
     throw notFound(
@@ -306,6 +324,10 @@ export async function updateMilestone(prisma, projectId, milestoneId, body) {
         });
       }
     }
+    // DH12 — propage le rollup vers la racine quand le status change.
+    if (fields.status !== undefined && fields.status !== existing.status && existing.parentId) {
+      await rollupMilestoneStatus(tx, existing.parentId);
+    }
     return tx.milestone.findUnique({
       where: { id: milestoneId },
       include: {
@@ -333,7 +355,7 @@ export async function updateMilestone(prisma, projectId, milestoneId, body) {
 export async function deleteMilestone(prisma, projectId, milestoneId) {
   const existing = await prisma.milestone.findFirst({
     where: { id: milestoneId, projectId, isDeleted: false },
-    select: { id: true },
+    select: { id: true, parentId: true },
   });
   if (!existing) {
     throw notFound(
@@ -367,9 +389,15 @@ export async function deleteMilestone(prisma, projectId, milestoneId) {
     throw err;
   }
 
-  await prisma.milestone.update({
-    where: { id: milestoneId },
-    data: { isDeleted: true, deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    await tx.milestone.update({
+      where: { id: milestoneId },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
+    // DH12 — un enfant disparaît, le parent doit être réévalué.
+    if (existing.parentId) {
+      await rollupMilestoneStatus(tx, existing.parentId);
+    }
   });
   return { ok: true };
 }
