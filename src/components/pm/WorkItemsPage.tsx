@@ -8,6 +8,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WorkItemStatus } from '../../types/pm';
 
 import WorkItemDrawer from './WorkItemDrawer';
+import ColumnConfigPanel from './telecom/ColumnConfigPanel';
+import { TELECOM_COLUMN_REGISTRY, TELECOM_DEFAULT_COLUMNS, columnByKey } from './telecom/telecomColumns';
+import { fetchColumnPreference } from '../../services/pm/columnPreferences.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -40,6 +44,20 @@ const WorkItemsPage: React.FC = () => {
   const [filterAcceptance, setFilterAcceptance] = useState<string>('');
   const [filterSchedule, setFilterSchedule] = useState<string>('');
   const [filterFinance, setFilterFinance] = useState<string>('');
+  // DH7 — user column preferences for the telecom table.
+  const { user } = useAuth();
+  const [telecomColumns, setTelecomColumns] = useState<string[]>(TELECOM_DEFAULT_COLUMNS);
+  const [showColumnsPanel, setShowColumnsPanel] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    fetchColumnPreference('telecom_workitems', user.id)
+      .then((pref) => { if (!cancelled) setTelecomColumns(pref.columns); })
+      .catch(() => { /* keep defaults if fetch fails */ });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
   // D13 — expanded parents in the nested view. Parents collapsed by default.
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const toggleExpand = (id: string) => setExpandedIds((prev) => {
@@ -284,6 +302,16 @@ const WorkItemsPage: React.FC = () => {
                 <span className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[9px] font-bold bg-blue-600 text-white rounded-full">{activeFilterCount}</span>
               )}
             </button>
+            {isTelecom && (
+              <button
+                type="button"
+                onClick={() => setShowColumnsPanel(true)}
+                className="inline-flex items-center gap-1 p-2 rounded-lg transition-colors hover:bg-surface text-muted hover:text-primary"
+                title="Configure columns"
+              >
+                <Columns size={16} />
+              </button>
+            )}
             <button onClick={() => navigate(`/projects/${activeProjectId}/imports`)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-2">
               <Download size={16} /> Import Excel
             </button>
@@ -431,16 +459,24 @@ const WorkItemsPage: React.FC = () => {
                 onClick={toggleSelectAllPage}
                 title="Click to select all rows on this page"
               >
-                {isTelecom ? 'Legacy Site ID' : 'Title'}
+                {isTelecom ? 'Identifier' : 'Title'}
               </th>
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Site ID</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Site Name</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">PO Unit Price</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">Ticket Number</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">QA</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium">Acceptance</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">PO Unit Price Completed</th>}
-              {isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium text-right">Contractor Payable Amount</th>}
+              {/* DH7 — telecom columns rendered from user preference. */}
+              {isTelecom && telecomColumns.map((key) => {
+                const def = columnByKey.get(key);
+                if (!def) return null;
+                return (
+                  <th
+                    key={key}
+                    className={cn(
+                      'px-6 py-3 border-b border-border/60 font-medium whitespace-nowrap',
+                      def.align === 'right' ? 'text-right' : '',
+                    )}
+                  >
+                    {def.label}
+                  </th>
+                );
+              })}
               <th className="px-6 py-3 border-b border-border/60 font-medium w-[120px]">Status</th>
               {!isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium w-[100px]">Type</th>}
               {!isTelecom && <th className="px-6 py-3 border-b border-border/60 font-medium w-[150px]">Assignee</th>}
@@ -484,7 +520,12 @@ const WorkItemsPage: React.FC = () => {
                         <AlertTriangle size={13} className="text-rose-400 shrink-0" />
                       </span>
                     )}
-                    <span>{isTelecom ? (item.imported_fields?.legacy_site_id || '-') : item.title}</span>
+                    <span>{isTelecom
+                      ? (item.imported_fields?.legacy_site_id
+                        || item.imported_fields?.site_identifier
+                        || item.title
+                        || ('#' + item.id.slice(-6)))
+                      : item.title}</span>
                     {hasKids && (
                       <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface border border-border/60 text-muted">
                         {completedKids}/{kids.length}
@@ -492,42 +533,20 @@ const WorkItemsPage: React.FC = () => {
                     )}
                   </div>
                 </td>
-                {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_identifier || '-'}</td>}
-                {isTelecom && <td className="px-6 py-3 text-secondary">{item.imported_fields?.site_name || '-'}</td>}
-                {isTelecom && <td className="px-6 py-3 text-right text-secondary tabular-nums">{item.po_unit_price?.toLocaleString() || '-'}</td>}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right text-secondary tabular-nums">
-                    {item.ticket_number !== undefined && item.ticket_number > 0 ? item.ticket_number : '-'}
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3">
-                    <StatusChip status={item.qaStatus || 'pending'} className="h-5 text-[10px]" />
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3">
-                    <StatusChip status={item.acceptanceStatus || 'pending'} className="h-5 text-[10px]" />
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right tabular-nums">
-                    {item.po_unit_price_completed !== undefined && item.po_unit_price_completed > 0 ? (
-                      <span className="text-secondary">{item.po_unit_price_completed.toLocaleString()}</span>
-                    ) : (
-                      <span className="text-muted">-</span>
-                    )}
-                  </td>
-                )}
-                {isTelecom && (
-                  <td className="px-6 py-3 text-right tabular-nums">
-                    {item.is_financially_eligible && item.contractor_payable_amount !== undefined ? (
-                      <span className="text-emerald-300">{item.contractor_payable_amount.toLocaleString()}</span>
-                    ) : (
-                      <span className="text-muted">-</span>
-                    )}
-                  </td>
-                )}
+                {/* DH7 — telecom data cells rendered from user preference. */}
+                {isTelecom && telecomColumns.map((key) => {
+                  const def = columnByKey.get(key);
+                  if (!def) return null;
+                  const pageIndexBase = (page - 1) * ITEMS_PER_PAGE;
+                  const indexInPage = pagedItems.findIndex((d) => d.item.id === item.id);
+                  const ctx = { index: pageIndexBase + Math.max(0, indexInPage), projectName: project?.name };
+                  const value = def.accessor(item, ctx);
+                  return (
+                    <td key={key} className={cn('px-6 py-3 whitespace-nowrap', def.align === 'right' ? 'text-right tabular-nums' : 'text-secondary')}>
+                      {value || <span className="text-muted">-</span>}
+                    </td>
+                  );
+                })}
                 <td className="px-6 py-3">
                   {isTelecom && !item.ticket_number ? <span className="text-muted">-</span> : <StatusChip status={item.status as any} />}
                 </td>
@@ -590,6 +609,15 @@ const WorkItemsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {isTelecom && (
+        <ColumnConfigPanel
+          open={showColumnsPanel}
+          onClose={() => setShowColumnsPanel(false)}
+          onApplied={(cols) => setTelecomColumns(cols)}
+          initialColumns={telecomColumns}
+        />
+      )}
 
       <WorkItemDrawer
         workItemId={selectedItemId}
