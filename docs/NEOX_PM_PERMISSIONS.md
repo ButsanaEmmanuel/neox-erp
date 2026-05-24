@@ -6,7 +6,7 @@
 
 `GET /api/v1/access/permission-set?userId=<id>` → `PermissionSetPayload` (voir `src/types/access.ts`).
 
-Retour : `{ userId, roles, departmentId, authorityLevel, projectMembershipCount, managedProjectCount, engineeringTeamProjectCount, modules, permissions }`.
+Retour : `{ userId, roles, departmentId, authorityLevel, projectMembershipCount, managedProjectCount, modules, permissions }`.
 
 ## Consommation frontend (`src/hooks/usePermissions.ts`)
 
@@ -22,7 +22,7 @@ Bypass implicite : admin (`user.role === 'ADMIN'` OU `permissions['global:all:al
 
 ## Grille statique `baselineGrants`
 
-Keys toujours émises par `getUserPermissionSet`, valeur calculée à la volée. `hasProjectFullAccess` = `isAdmin || roleCodes ∋ PROJECT_MANAGER || hasExplicitProjectPermission || managedProjectCount > 0 || engineeringTeamProjectCount > 0 || projectMembershipCount > 0`.
+Keys toujours émises par `getUserPermissionSet`, valeur calculée à la volée. `hasProjectFullAccess` = `isAdmin || roleCodes ∋ PROJECT_MANAGER || hasExplicitProjectPermission || managedProjectCount > 0 || projectMembershipCount > 0`.
 
 | Key | Condition d'octroi |
 |---|---|
@@ -64,7 +64,6 @@ WHERE p."module" = 'project';
 | `project_manager_role` | `roleCodes ∋ PROJECT_MANAGER` |
 | `role_permission_grant` | `RolePermission.module === 'project'` |
 | `project_manager_assignment` | `managedProjectCount > 0` |
-| `engineering_team_assignment` | `engineeringTeamProjectCount > 0` |
 | `project_membership` | `projectMembershipCount > 0` |
 | `role_grant` | `DEFAULT_ROLE_MODULE_ACCESS[roleCode] ∋ 'project'` |
 | `sales_client_progress_readonly` | `roleCodes ∋ SALES \| SALES_ACCOUNT_MANAGER`, lecture seule |
