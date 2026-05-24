@@ -1371,7 +1371,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/settings') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.settings.manage'))) return;
       const settings = await getFinanceGovernanceSettings(prisma);
       return json(res, 200, { settings });
     }
@@ -1418,7 +1419,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/entries') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.entries.read'))) return;
       const entries = await listFinanceEntries(prisma, {
         entryType: url.searchParams.get('entryType') || undefined,
         direction: url.searchParams.get('direction') || undefined,
@@ -1437,7 +1439,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/receivables') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const receivables = await listReceivables(prisma, {
         status: url.searchParams.get('status') || undefined,
         collectionStatus: url.searchParams.get('collectionStatus') || undefined,
@@ -1450,7 +1453,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/payables') {
-      await assertModuleAccess(prisma, url, 'finance');
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.ledger.read'))) return;
       const payables = await listPayables(prisma, {
         status: url.searchParams.get('status') || undefined,
         paymentStatus: url.searchParams.get('paymentStatus') || undefined,
@@ -1604,11 +1608,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-schedules') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const schedules = await listPayrollSchedules(prisma);
       return json(res, 200, { schedules });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/salary-profiles') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const profiles = await listEmployeeSalaryProfiles(prisma, {
         userId: url.searchParams.get('userId') || undefined,
         isActive: url.searchParams.get('isActive') === null ? undefined : url.searchParams.get('isActive') === 'true',
@@ -1620,6 +1628,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/salary-profiles') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const profile = await upsertEmployeeSalaryProfile(prisma, body || {}, actor);
       return json(res, 201, { profile });
     }
@@ -1627,11 +1636,14 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-schedules') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const schedule = await upsertPayrollSchedule(prisma, body || {}, actor);
       return json(res, 201, { schedule });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-runs') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const runs = await listPayrollRuns(prisma, {
         status: url.searchParams.get('status') || undefined,
         postingStatus: url.searchParams.get('postingStatus') || undefined,
@@ -1643,6 +1655,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-runs/execute') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const run = await executePayrollRun(prisma, body || {}, actor);
       return json(res, 201, { run });
     }
@@ -1650,6 +1663,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-runs/run-due') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const runs = await runDuePayrollSchedules(prisma, actor);
       return json(res, 200, { runs });
     }
@@ -1657,6 +1671,8 @@ const server = http.createServer(async (req, res) => {
     const payrollRunDetailMatch = pathname.match(/^\/api\/v1\/finance\/hrm\/payroll-runs\/([^/]+)$/);
     if (method === 'GET' && payrollRunDetailMatch) {
       const [, payrollRunId] = payrollRunDetailMatch;
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const run = await getPayrollRunDetail(prisma, payrollRunId);
       if (!run) return json(res, 404, { message: 'Payroll run not found.' });
       return json(res, 200, { run });
@@ -1667,6 +1683,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollRunId] = payrollRunPostMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const result = await postPayrollRun(prisma, payrollRunId, body || {}, actor);
       return json(res, 200, result);
     }
@@ -1676,11 +1693,14 @@ const server = http.createServer(async (req, res) => {
       const [, payrollRunEmployeeId] = payrollRunAdjustMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const employeeLine = await adjustPayrollRunEmployee(prisma, payrollRunEmployeeId, body || {}, actor);
       return json(res, 200, { employeeLine });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/payroll-batches') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const batches = await listPayrollBatches(prisma, {
         status: url.searchParams.get('status') || undefined,
         approvalStatus: url.searchParams.get('approvalStatus') || undefined,
@@ -1692,6 +1712,7 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/payroll-batches') {
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await createPayrollBatch(prisma, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1703,6 +1724,8 @@ const server = http.createServer(async (req, res) => {
     const payrollBatchMatch = pathname.match(/^\/api\/v1\/finance\/hrm\/payroll-batches\/([^/]+)$/);
     if (method === 'GET' && payrollBatchMatch) {
       const [, payrollBatchId] = payrollBatchMatch;
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.read'))) return;
       const batch = await getPayrollBatchDetail(prisma, payrollBatchId);
       if (!batch) return json(res, 404, { message: 'Payroll batch not found.' });
       return json(res, 200, { batch });
@@ -1713,6 +1736,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollBatchId] = payrollBatchApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await approvePayrollBatch(prisma, payrollBatchId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1725,6 +1749,8 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && payrollBatchReconcileMatch) {
       const [, payrollBatchId] = payrollBatchReconcileMatch;
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const batch = await reconcilePayrollBatch(prisma, payrollBatchId, body || {});
       return json(res, 200, { batch });
     }
@@ -1734,6 +1760,7 @@ const server = http.createServer(async (req, res) => {
       const [, payrollLineId] = payrollLineDisburseMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.payroll.execute'))) return;
       const result = await disbursePayrollLine(prisma, payrollLineId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1743,6 +1770,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/expense-claims') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.read'))) return;
       const claims = await listExpenseClaims(prisma, {
         status: url.searchParams.get('status') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1752,6 +1781,8 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/expense-claims') {
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.write'))) return;
       const claim = await createExpenseClaim(prisma, body || {});
       return json(res, 201, { claim });
     }
@@ -1761,6 +1792,7 @@ const server = http.createServer(async (req, res) => {
       const [, claimId] = expenseClaimApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.expenses.execute'))) return;
       const claim = await approveExpenseClaim(prisma, claimId, {
         ...body,
         actorUserId: actor.actorUserId,
@@ -1770,6 +1802,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/hrm/employee-advances') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.read'))) return;
       const advances = await listEmployeeAdvances(prisma, {
         status: url.searchParams.get('status') || undefined,
         take: url.searchParams.get('take') || undefined,
@@ -1779,6 +1813,8 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && pathname === '/api/v1/finance/hrm/employee-advances') {
       const body = await parseBody(req);
+      const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.write'))) return;
       const advance = await createEmployeeAdvance(prisma, body || {});
       return json(res, 201, { advance });
     }
@@ -1788,6 +1824,7 @@ const server = http.createServer(async (req, res) => {
       const [, advanceId] = employeeAdvanceApproveMatch;
       const body = await parseBody(req);
       const actor = parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.advances.execute'))) return;
       const advance = await approveEmployeeAdvance(prisma, advanceId, {
         ...body,
         actorUserId: actor.actorUserId,
