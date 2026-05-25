@@ -29,7 +29,8 @@
         "test:finance-bills": "node backend/tests/finance/finance-bills.test.mjs",
         "test:finance-invoices": "node backend/tests/finance/finance-invoices.test.mjs",
         "test:finance-payments": "node backend/tests/finance/finance-payments.test.mjs",
-        "test:finance-receipts": "node backend/tests/finance/finance-receipts.test.mjs"
+        "test:finance-receipts": "node backend/tests/finance/finance-receipts.test.mjs",
+        "test:finance-receivables": "node backend/tests/finance/finance-receivables.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"

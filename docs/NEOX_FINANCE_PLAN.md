@@ -640,7 +640,11 @@ Sections requises :
   - Pas d'action Adjust pour ce sprint (DF10)
 
 Endpoints : GET /api/v1/finance/receivables + détail /:id
-Permissions : finance.receivables.read
+Permissions : finance.ledger.read (audit pré-écriture 2026-05-25 :
+les deux routes /receivables et /receivables/:id utilisent ledger.read,
+pas une permission receivables.* dédiée — qui n'existe pas dans le
+catalogue RBAC. Préservé tel quel pour ne pas casser les rôles
+existants ; documenté ici pour clarté.)
 Commits :
   feat(finance): receivables list + filters + aging — ref Finance-3
   feat(finance): receivables detail drawer — ref Finance-3
@@ -668,11 +672,11 @@ Pas de tests update/soft-delete : les routes n'existent pas (cf. note de scope, 
 
 ### Critères de sortie Sprint Finance-3
 
-- [ ] 5 pages opérationnelles (List + Filtres + Detail drawer, +Create pour 4 sur 5)
-- [ ] Aging report fonctionnel sur ReceivablesPage
-- [ ] 5 suites de tests vertes (interleaved)
-- [ ] Sidebar Finance entièrement consommée par pages opérationnelles
-- [ ] DF10 ouverte dans §8 — backend completion (PATCH/DELETE/detail/approve manquants)
+- [x] 5 pages opérationnelles (List + Filtres + Detail drawer, +Create pour 4 sur 5) — Bills/Invoices/Payments/Receipts/Receivables livrées
+- [x] Aging report fonctionnel sur ReceivablesPage — pivot par client × buckets (current/1-30/31-60/61-90/90+) avec teintes graduées et totals
+- [x] 5 suites de tests vertes (interleaved) — finance-bills/invoices/payments/receipts/receivables.test.mjs, 4/4 chacune
+- [x] Sidebar Finance entièrement consommée par pages opérationnelles
+- [x] DF10 ouverte dans §8 — backend completion (PATCH/DELETE/detail/approve manquants)
 
 ---
 
