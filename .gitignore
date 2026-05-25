@@ -38,3 +38,6 @@ temp_skills/
 Thumbs.db
 .vscode/
 .idea/
+
+# Finance evidence uploads (runtime artifacts)
+backend/storage/finance-evidence/
