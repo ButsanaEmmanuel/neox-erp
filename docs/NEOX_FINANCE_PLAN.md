@@ -1,7 +1,7 @@
 # NEOX ERP — Plan Module Finance
 
 **Branche :** `claude/sprint-finance` (worktree `.claude/worktrees/sprint-finance/`)
-**Statut global :** 🟢 **Sprints Finance-1 + Finance-2 fermés** (2026-05-25 — D2 + DH3 résolues). 2/4 sprints fermés, restent Finance-3 (pages shallow) + Finance-4 (Budgets). Backend ledger/AR/AP/payroll engine matures (~42 routes gatées DH9). UI Payroll découpée en 7 composants, workflow Execute→Adjust→Post→Disburse→Reconcile end-to-end opérationnel, 7/7 tests intégration verts. Plus de dette PM/HRM héritée ouverte.
+**Statut global :** 🟢 **Sprints Finance-1 + Finance-2 + Finance-3 + Finance-4 fermés** (2026-05-25 — D2 + DH3 résolues, pages shallow opérationnelles, Budgets livrés). **4/4 sprints fermés**, module Finance complet sur le périmètre prévu. Backend ledger/AR/AP/payroll engine matures, UI Payroll découpée en 7 composants, 5 pages shallow promues en opérationnelles, feature Budgets greenfield avec agrégation actuals depuis FinanceEntry (jointure logique via `categoryCode`, scope dept résolu via `Project.ownerDepartmentId`). Dettes ouvertes : DF10 (PATCH/DELETE/approve/send manquants Bills/Payments/Receipts/Invoices), DF11 (scope receivables super_admin). Plus de dette PM/HRM héritée ouverte.
 **Date de création :** 2026-05-25
 **Dernière mise à jour :** 2026-05-25
 
@@ -684,7 +684,7 @@ Pas de tests update/soft-delete : les routes n'existent pas (cf. note de scope, 
 
 **Objectif :** Implémenter Budgets de bout en bout, remplacer `BudgetsPlaceholder`.
 **Durée estimée :** 2 semaines
-**Statut :** 🔵 Planifié
+**Statut :** 🟢 **Fermé** (2026-05-25)
 **Dettes ciblées :** Aucune dette formelle — feature nouvelle (sidebar `finance-budgets` actuellement placeholder)
 
 ---
@@ -747,9 +747,9 @@ Commit : feat(finance): Budget + BudgetLine models — ref Finance-4
 ```
 
 **Critères de sortie F4.1**
-- [ ] Migration appliquée
-- [ ] `npx prisma generate` propre
-- [ ] Relation `FinanceCategorySetting.budgetLines` ajoutée
+- [x] Migration appliquée (`20260525121000_add_budget_budgetline` via `migrate deploy`)
+- [x] Tables `Budget` + `BudgetLine` confirmées en DB
+- [x] Relation `FinanceCategorySetting.budgetLines` ajoutée (+ back-refs `Department.budgets`, `Project.budgets`)
 
 ### F4.2 — Service backend `budgets.service.mjs`
 
@@ -771,8 +771,9 @@ Commit : feat(finance): budgets service + actuals aggregation — ref Finance-4
 ```
 
 **Critères de sortie F4.2**
-- [ ] `computeBudgetActuals` agrège correctement (test isolé)
-- [ ] Filtrage scope dept/project respecté
+- [x] `computeBudgetActuals` agrège correctement (vérifié F4.5 case 4 — entry EUR 9999 exclue, sum USD = 2000)
+- [x] Filtrage scope dept/project respecté (projet via `projectId` direct, dept via `Project.ownerDepartmentId`)
+- [x] 4 commentaires obligatoires `[1]` à `[4]` présents en en-tête + redits inline dans `computeBudgetActuals`
 
 ### F4.3 — Routes backend
 
@@ -803,9 +804,9 @@ Commit : feat(rbac): finance.budgets.* permissions — ref Finance-4
 ```
 
 **Critères de sortie F4.3**
-- [ ] 3 permissions seedées
-- [ ] 8 routes gated
-- [ ] Seed idempotent (2e run = 0 nouvelle perm)
+- [x] 3 permissions seedées (`finance.budgets.{read,write,execute}`) — auto-propagées super_admin/finance_admin/readonly via `ALL_KEYS`/`FIN_KEYS`/`READ_KEYS`
+- [x] 8 routes gated dans `auth-server.mjs` (1586-1665)
+- [x] Seed idempotent (2e run = 0 created)
 
 ### F4.4 — Frontend : `BudgetsPage.tsx`
 
@@ -835,9 +836,10 @@ Commit : feat(finance): budgets page + detail drawer — ref Finance-4
 **Routing :** `NeoxDashboard.tsx:498-501` — remplacer `<BudgetsPlaceholder />` par `<BudgetsPage />`.
 
 **Critères de sortie F4.4**
-- [ ] `BudgetsPlaceholder` supprimé (ou laissé pour exports inutilisés à nettoyer)
-- [ ] CRUD complet fonctionnel
-- [ ] Variance colorée selon seuil (vert <80% / jaune 80-100% / rouge >100%)
+- [x] `BudgetsPlaceholder` plus monté (import retiré de `NeoxDashboard.tsx`, export laissé pour cohérence avec PaymentsPlaceholder/ReportsPlaceholder/SettingsPlaceholder qui restent inutilisés)
+- [x] CRUD complet fonctionnel (List + Create + Detail drawer + Add/Delete line + Close)
+- [x] Variance colorée selon ratio actuel/planifié (vert ≤80% / ambre 80-100% / rose >100%)
+- [x] `tsc --noEmit` propre
 
 ### F4.5 — Tests d'intégration
 
@@ -856,16 +858,18 @@ Commit : test(finance): budgets integration — close Finance-4
 ```
 
 **Critères de sortie F4.5**
-- [ ] 7/7 assertions ✓
-- [ ] Runnable via `npm run test:finance-budgets`
+- [x] 7/7 assertions ✓ premier run
+- [x] Runnable via `npm run test:finance-budgets`
+- [x] Teardown ordonné FK strict (BudgetLine → Budget → FinanceActivity → FinanceEntry → Category → Project → Department)
 
 ### Critères de sortie Sprint Finance-4
 
-- [ ] Modèles `Budget` + `BudgetLine` en DB
-- [ ] 8 routes gated par 3 nouvelles permissions
-- [ ] `BudgetsPage` opérationnel, placeholder disparu
-- [ ] Tests F4.5 verts (7/7)
-- [ ] Sidebar `finance-budgets` route vers page complète
+- [x] Modèles `Budget` + `BudgetLine` en DB (F4.1)
+- [x] 8 routes gated par 3 nouvelles permissions (F4.3)
+- [x] `BudgetsPage` opérationnel, placeholder plus monté (F4.4)
+- [x] Tests F4.5 verts (7/7)
+- [x] Sidebar `finance-budgets` route vers page complète
+- [x] **Sprint Finance-4 fermé** — entrée déplacée vers §9 Dettes fermées
 
 ---
 
@@ -897,6 +901,7 @@ Commit : test(finance): budgets integration — close Finance-4
 | ID | Sprint de fermeture | Commit | Notes |
 |---|---|---|---|
 | **D2** | Sprint Finance-1 (2026-05-25) | `7b60b53` + `6ba94e7` + `6ff99b6` + `6580e44` | Audit pré-écriture a révélé que la route `PATCH /details` + service `saveProjectItemDetails` existaient déjà avec sync finance idempotente. F1.1 ramené à un patch 404 ciblé (helper `notFound` pattern `workItemHierarchy`). F1.2/F1.3 = wiring frontend (store + bouton Retry avec pending state + toast, mapping snake/camel inline dans le store, réutilisation de `saveProjectItemDetailsToBackend` existant — pas de nouveau client API). F1.4 = 8/8 assertions vertes au premier run (succès + retry-only + champ stripé + 403 + 2×404 + SSE + idempotence). Décisions actées : single check `pm.workItems.write` (la sync est un side-effect implicite, pas un acte RBAC séparé), pas de flag `retryFinanceSync` dans le body (retry = save sans diff). |
+| **Sprint Finance-4 (Budgets)** | 2026-05-25 | commit unique de clôture (cf. log Git) | Feature greenfield livrée bout-en-bout. **F4.1** : modèles `Budget` + `BudgetLine` + back-refs `Department.budgets`/`Project.budgets`/`FinanceCategorySetting.budgetLines`, migration `20260525121000` avec pattern défensif `IF NOT EXISTS` + `pg_constraint` guards (renommée pour rester APRÈS `20260525120000_add_milestone_parent` — Prisma utilise wall-clock UTC en avance sur la date projet). **F4.2** : `backend/services/finance/budgets.service.mjs` (8 exports, ~340 L) avec 4 décisions actées et documentées inline : `[1]` dept scope via `Project.ownerDepartmentId` (pas de departmentId sur FinanceEntry), `[2]` jointure logique `categoryCode` (pas de FK), `[3]` filtre `currencyCode` strict (DF6 deferred), `[4]` direction héritée de la catégorie. `computeBudgetActuals` fan-out par direction → `groupBy({by:['categoryCode'], _sum:{amount}})`. **F4.3** : 3 permissions `finance.budgets.{read,write,execute}` auto-propagées via `ALL_KEYS`/`FIN_KEYS`/`READ_KEYS`, 8 routes gatées dans `auth-server.mjs:1586-1665`, seed idempotent. **F4.4** : `budgetsApi.ts` (200 L, 8 endpoints typés + actor via URL query) + 3 composants (`BudgetsPage` 425 L, `BudgetDetailDrawer` 295 L, `BudgetLineEditor` 175 L), swap `BudgetsPlaceholder` → `BudgetsPage` dans `NeoxDashboard.tsx`, variance teintée (≤80% vert / 80-100% ambre / >100% rose), `tsc --noEmit` propre. **F4.5** : 7/7 assertions vertes au premier run, le filtre devise est vérifié par seeding d'une entry EUR de 9999 (ignorée → actual reste à 2000 USD), donc la régression sur `[3]` serait immédiate. |
 | **DH3** | Sprint Finance-2 (2026-05-25) | `348e164` + `aac9f0f` + `6409163` + `b09ba41` + `fb6636f` + `357d641` + `edbfa4c` | Audit pré-écriture a corrigé 2 fausses hypothèses : FinancePayrollPage déjà à 70% sur `PayrollRun` (pas legacy à abandonner), engine 100% complet (pas 95%). Sprint recadré en 6 sous-tâches frontend + 1 tests, 0 réécriture. **F2.2** : API client typé (15 endpoints) + types canoniques alignés Prisma. **F2.3** : bouton Run due, toggle isActive par schedule (optimistic+revert), Salary Profiles → modal. **F2.4** : 4 onglets Run detail (Calculations, Adjustments, Logs, Timesheets) via Promise.all dans `getPayrollRunDetail` (option B sans migration). **F2.5** : workflow UX clarifié — StateBadge contextuel, boutons uniquement quand l'état le permet (Post sur pending_validation, Disburse all sur lines pending, Reconcile quand toutes paid), confirm dialogs avec résumé. Suppression du bouton manuel Approve (auto via postPayrollRun → engine L773). **F2.6** : 998 L → 7 fichiers dans `src/components/finance/payroll/` (Dashboard orchestrateur + 6 composants ciblés). **F2.7** : 7/7 tests intégration verts (execute / adjust+propagation / post / disburse / reconcile / runDue / RBAC). **Bug latent engine corrigé** : `approvePayrollBatch` ouvrait inconditionnellement `prisma.$transaction` mais `postPayrollRun` lui passait son `tx` (TransactionClient sans `$transaction`) — fix par feature-check sur `prismaOrTx.$transaction`. Code path jamais exécuté end-to-end avant ce test, aurait crashé en prod au premier Post run UI. PayrollBatch conservé comme conteneur disbursement (rôle légitime). |
 
 ---

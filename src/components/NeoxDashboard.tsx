@@ -49,9 +49,7 @@ import PaymentsPage from './PaymentsPage';
 import ReceiptsPage from './ReceiptsPage';
 import FinancePayrollPage from './FinancePayrollPage';
 import FinanceReimbursementsPage from './FinanceReimbursementsPage';
-import {
-  BudgetsPlaceholder,
-} from './FinancePlaceholders';
+import BudgetsPage from './finance/budgets/BudgetsPage';
 import FinanceReportsPage from './FinanceReportsPage';
 import FinanceSettingsPage from './FinanceSettingsPage';
 import SettingsPage from './SettingsPage';
@@ -497,7 +495,7 @@ const DashboardContent: React.FC = () => {
               </motion.div>
             ) : activeView === 'finance-budgets' ? (
               <motion.div key="finance-budgets" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
-                <BudgetsPlaceholder />
+                <BudgetsPage />
               </motion.div>
             ) : activeView === 'finance-reports' ? (
               <motion.div key="finance-reports" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">

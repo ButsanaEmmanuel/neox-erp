@@ -126,6 +126,11 @@ export const PERMISSIONS = [
   { module: 'finance', resource: 'snapshot',       action: 'read',    description: 'Voir le snapshot finance global' },
   { module: 'finance', resource: 'snapshot',       action: 'execute', description: 'Déclencher un recalcul de snapshot finance' },
 
+  // --- Finance budgets (Finance-4 F4.3) ---
+  { module: 'finance', resource: 'budgets',        action: 'read',    description: 'Voir les budgets et leurs réalisés' },
+  { module: 'finance', resource: 'budgets',        action: 'write',   description: 'Créer et modifier des budgets et lignes' },
+  { module: 'finance', resource: 'budgets',        action: 'execute', description: 'Clôturer ou approuver un budget (workflow futur)' },
+
   // --- SCM ---
   { module: 'scm', resource: 'suppliers',      action: 'read',    description: 'Voir les fournisseurs' },
   { module: 'scm', resource: 'suppliers',      action: 'write',   description: 'Gérer les fournisseurs' },
