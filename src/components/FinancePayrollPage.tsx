@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, FileCheck2, Landmark, PlayCircle, RefreshCcw, CalendarClock, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, FileCheck2, Landmark, PlayCircle, RefreshCcw, CalendarClock, AlertTriangle, ShieldCheck, Zap, Plus } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { useAuth } from '../contexts/AuthContext';
+import { usePermissions } from '../lib/rbac';
+import { useToast } from './ui/Toast';
+import Modal from './ui/Modal';
 import type {
   PayrollBatch,
   PayrollRun,
@@ -22,6 +26,7 @@ import {
   approvePayrollBatch as approveBatchRequest,
   reconcilePayrollBatch as reconcileBatchRequest,
   disbursePayrollLine as disburseLineRequest,
+  runDuePayrollSchedules,
 } from '../services/finance/payrollEngineApi';
 
 const FinancePayrollPage: React.FC = () => {
@@ -49,6 +54,22 @@ const FinancePayrollPage: React.FC = () => {
   const [salaryUserId, setSalaryUserId] = useState('');
   const [salaryAmount, setSalaryAmount] = useState('');
   const [overtimeRate, setOvertimeRate] = useState('1.5');
+
+  // F2.3 — Run due + isActive toggle + Salary Profile modal.
+  const { user } = useAuth();
+  const { has } = usePermissions();
+  const toast = useToast();
+  const canExecutePayroll = has('hrm.payroll.execute');
+  const canWritePayroll = has('hrm.payroll.write');
+  const [runDueBusy, setRunDueBusy] = useState(false);
+  const [togglingScheduleId, setTogglingScheduleId] = useState<string | null>(null);
+  const [salaryModalOpen, setSalaryModalOpen] = useState(false);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+
+  const actor = useMemo(
+    () => ({ actorUserId: user?.id, actorDisplayName: user?.name }),
+    [user?.id, user?.name],
+  );
 
   const load = async () => {
     setLoading(true);
@@ -209,21 +230,86 @@ const FinancePayrollPage: React.FC = () => {
     setError(null);
     try {
       await upsertSalaryProfile({
+        id: editingProfileId || undefined,
         userId: salaryUserId.trim(),
         monthlyBaseSalary: Number(salaryAmount),
         overtimeMultiplier: Number(overtimeRate || 1.5),
         currencyCode: 'USD',
         effectiveFrom: new Date().toISOString(),
-        actorDisplayName: 'HR Admin',
+        ...actor,
       });
       setSalaryUserId('');
       setSalaryAmount('');
       setOvertimeRate('1.5');
+      setEditingProfileId(null);
+      setSalaryModalOpen(false);
       await load();
+      toast?.addToast(editingProfileId ? 'Salary profile updated' : 'Salary profile created', 'success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save salary profile.');
+      toast?.addToast(err instanceof Error ? err.message : 'Save failed', 'error');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openSalaryModal = (profile?: SalaryProfile) => {
+    if (profile) {
+      setEditingProfileId(profile.id);
+      setSalaryUserId(profile.userId);
+      setSalaryAmount(String(profile.monthlyBaseSalary || ''));
+      setOvertimeRate(String(profile.overtimeMultiplier || '1.5'));
+    } else {
+      setEditingProfileId(null);
+      setSalaryUserId('');
+      setSalaryAmount('');
+      setOvertimeRate('1.5');
+    }
+    setSalaryModalOpen(true);
+  };
+
+  const runDueNow = async () => {
+    if (runDueBusy) return;
+    setRunDueBusy(true);
+    try {
+      const { count } = await runDuePayrollSchedules(actor);
+      if (count > 0) {
+        toast?.addToast(`${count} schedule${count > 1 ? 's' : ''} déclenché${count > 1 ? 's' : ''}`, 'success');
+        await load();
+      } else {
+        toast?.addToast('Aucun schedule échu — rien à exécuter', 'error');
+      }
+    } catch (err) {
+      toast?.addToast(err instanceof Error ? err.message : 'Run due failed', 'error');
+    } finally {
+      setRunDueBusy(false);
+    }
+  };
+
+  const toggleScheduleActive = async (schedule: PayrollSchedule) => {
+    if (togglingScheduleId) return;
+    const nextActive = !(schedule.isActive ?? true);
+    setTogglingScheduleId(schedule.id);
+    // Optimistic update.
+    setSchedules((prev) => prev.map((s) => (s.id === schedule.id ? { ...s, isActive: nextActive } : s)));
+    try {
+      await upsertPayrollSchedule({
+        id: schedule.id,
+        code: schedule.code,
+        name: schedule.name,
+        executionRule: schedule.executionRule as 'day_of_month' | 'last_working_day',
+        dayOfMonth: schedule.dayOfMonth ?? null,
+        validationMode: schedule.validationMode as 'review_before_posting' | 'automatic_posting',
+        isActive: nextActive,
+        ...actor,
+      });
+      toast?.addToast(`Schedule ${nextActive ? 'activé' : 'désactivé'}`, 'success');
+    } catch (err) {
+      // Revert on error.
+      setSchedules((prev) => prev.map((s) => (s.id === schedule.id ? { ...s, isActive: !nextActive } : s)));
+      toast?.addToast(err instanceof Error ? err.message : 'Toggle failed', 'error');
+    } finally {
+      setTogglingScheduleId(null);
     }
   };
 
@@ -310,24 +396,72 @@ const FinancePayrollPage: React.FC = () => {
             <p>Last status: {schedules[0]?.lastRunStatus || '-'}</p>
           </div>
 
-          <div className="flex gap-2">
-            <button disabled={busy} onClick={() => void saveSchedule()} className="h-9 px-3 rounded-md bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-semibold disabled:opacity-50">Save schedule</button>
-            <button disabled={busy} onClick={() => void executeRun()} className="h-9 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"><PlayCircle size={13} /> Run now</button>
+          <div className="flex gap-2 flex-wrap">
+            <button disabled={busy || !canWritePayroll} onClick={() => void saveSchedule()} className="h-9 px-3 rounded-md bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-semibold disabled:opacity-50">Save schedule</button>
+            <button disabled={busy || !canExecutePayroll} onClick={() => void executeRun()} className="h-9 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"><PlayCircle size={13} /> Run now</button>
+            {canExecutePayroll && (
+              <button
+                disabled={runDueBusy || busy}
+                onClick={() => void runDueNow()}
+                title="Exécute tous les schedules dont nextRunAt est passé"
+                className="h-9 px-3 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <Zap size={13} /> {runDueBusy ? 'Running…' : 'Run due now'}
+              </button>
+            )}
           </div>
 
-          <div className="pt-3 border-t border-border/70 space-y-2">
-            <p className="text-xs font-semibold text-primary">Employee Salary Profile</p>
-            <input value={salaryUserId} onChange={(e) => setSalaryUserId(e.target.value)} placeholder="Employee User ID" className="w-full h-8 px-2 rounded border border-input bg-surface text-xs text-primary" />
-            <div className="grid grid-cols-2 gap-2">
-              <input type="number" step="0.01" value={salaryAmount} onChange={(e) => setSalaryAmount(e.target.value)} placeholder="Monthly salary" className="w-full h-8 px-2 rounded border border-input bg-surface text-xs text-primary" />
-              <input type="number" step="0.01" value={overtimeRate} onChange={(e) => setOvertimeRate(e.target.value)} placeholder="OT multiplier" className="w-full h-8 px-2 rounded border border-input bg-surface text-xs text-primary" />
+          {schedules.length > 0 && (
+            <div className="pt-3 border-t border-border/70 space-y-1.5">
+              <p className="text-xs font-semibold text-primary">All schedules</p>
+              {schedules.map((s) => {
+                const active = s.isActive ?? true;
+                return (
+                  <div key={s.id} className="flex items-center justify-between gap-2 text-[11px] py-1">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-secondary truncate">{s.name || s.code}</p>
+                      <p className="text-muted">{s.executionRule}{s.dayOfMonth ? ` (day ${s.dayOfMonth})` : ''}</p>
+                    </div>
+                    <button
+                      disabled={!canWritePayroll || togglingScheduleId === s.id}
+                      onClick={() => void toggleScheduleActive(s)}
+                      title={canWritePayroll ? (active ? 'Désactiver' : 'Activer') : 'hrm.payroll.write requis'}
+                      className={`h-6 px-2 rounded text-[10px] font-semibold border disabled:opacity-50 transition-colors ${
+                        active
+                          ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                          : 'bg-surface border-border text-muted'
+                      }`}
+                    >
+                      {togglingScheduleId === s.id ? '…' : active ? 'Active' : 'Inactive'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <button disabled={busy || !salaryUserId || !salaryAmount} onClick={() => void saveSalaryProfile()} className="h-8 px-3 rounded bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold disabled:opacity-50">Save salary profile</button>
-            <div className="max-h-28 overflow-y-auto rounded border border-border/70 p-2 space-y-1">
-              {salaryProfiles.slice(0, 8).map((sp) => (
-                <div key={sp.id} className="text-[11px] text-secondary">
-                  {(sp.user?.name || sp.user?.email || sp.userId)} - {formatCurrency(Number(sp.monthlyBaseSalary || 0))} / OT x{Number(sp.overtimeMultiplier || 1.5)}
-                </div>
+          )}
+
+          <div className="pt-3 border-t border-border/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-primary">Salary Profiles</p>
+              {canWritePayroll && (
+                <button
+                  onClick={() => openSalaryModal()}
+                  className="h-7 px-2 rounded bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[10px] font-semibold flex items-center gap-1"
+                >
+                  <Plus size={11} /> Add
+                </button>
+              )}
+            </div>
+            <div className="max-h-40 overflow-y-auto rounded border border-border/70 p-2 space-y-1">
+              {salaryProfiles.map((sp) => (
+                <button
+                  key={sp.id}
+                  onClick={() => canWritePayroll && openSalaryModal(sp)}
+                  disabled={!canWritePayroll}
+                  className="w-full text-left text-[11px] text-secondary hover:text-primary hover:bg-surface px-1 py-0.5 rounded disabled:cursor-default disabled:hover:text-secondary disabled:hover:bg-transparent"
+                >
+                  {(sp.user?.name || sp.user?.email || sp.userId)} — {formatCurrency(Number(sp.monthlyBaseSalary || 0))} / OT ×{Number(sp.overtimeMultiplier || 1.5)}
+                </button>
               ))}
               {salaryProfiles.length === 0 && <div className="text-[11px] text-muted">No salary profile found.</div>}
             </div>
@@ -515,6 +649,68 @@ const FinancePayrollPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      <Modal
+        isOpen={salaryModalOpen}
+        onClose={() => { setSalaryModalOpen(false); setEditingProfileId(null); }}
+        title={editingProfileId ? 'Modifier le profil salarial' : 'Ajouter un profil salarial'}
+        size="sm"
+        footer={
+          <>
+            <button
+              onClick={() => { setSalaryModalOpen(false); setEditingProfileId(null); }}
+              className="h-9 px-4 rounded-md border border-border text-secondary text-sm font-semibold hover:bg-surface"
+            >
+              Annuler
+            </button>
+            <button
+              disabled={busy || !salaryUserId || !salaryAmount || !canWritePayroll}
+              onClick={() => void saveSalaryProfile()}
+              className="h-9 px-4 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-sm font-semibold disabled:opacity-50"
+            >
+              {busy ? 'Saving…' : editingProfileId ? 'Update' : 'Create'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-xs text-secondary">Employee User ID</label>
+            <input
+              value={salaryUserId}
+              onChange={(e) => setSalaryUserId(e.target.value)}
+              placeholder="usr_..."
+              disabled={!!editingProfileId}
+              className="w-full h-9 px-3 rounded-md border border-input bg-surface text-sm text-primary disabled:opacity-60"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs text-secondary">Monthly salary</label>
+              <input
+                type="number"
+                step="0.01"
+                value={salaryAmount}
+                onChange={(e) => setSalaryAmount(e.target.value)}
+                className="w-full h-9 px-3 rounded-md border border-input bg-surface text-sm text-primary"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs text-secondary">Overtime multiplier</label>
+              <input
+                type="number"
+                step="0.01"
+                value={overtimeRate}
+                onChange={(e) => setOvertimeRate(e.target.value)}
+                className="w-full h-9 px-3 rounded-md border border-input bg-surface text-sm text-primary"
+              />
+            </div>
+          </div>
+          {!canWritePayroll && (
+            <p className="text-xs text-rose-400">Permission requise : hrm.payroll.write</p>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 };
