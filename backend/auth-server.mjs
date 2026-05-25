@@ -2260,6 +2260,15 @@ void ensureLockedAdminIdentity().catch((error) => {
   console.error('Failed to enforce locked admin identity:', error);
 });
 
+void (async () => {
+  try {
+    const { warnOnMissingPermissions } = await import('./services/auth/rbacGuard.mjs');
+    await warnOnMissingPermissions(prisma);
+  } catch (error) {
+    console.warn('[rbacGuard] startup check skipped:', error?.message ?? error);
+  }
+})();
+
 server.listen(PORT, () => {
   console.log(`Auth API listening on http://localhost:${PORT}`);
 });
