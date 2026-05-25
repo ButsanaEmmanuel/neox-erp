@@ -85,6 +85,57 @@ export interface PayrollRunNotification {
   createdAt: string;
 }
 
+// F2.4 — collections stitched on by getPayrollRunDetail (Promise.all, no
+// Prisma backRefs). All hold payrollRunId; PayrollAdjustment + the calc
+// detail also carry payrollRunEmployeeId for per-employee filtering.
+
+export interface PayrollAdjustment {
+  id: string;
+  payrollRunId: string;
+  payrollRunEmployeeId: string;
+  originalAmount: number;
+  adjustedAmount: number;
+  reason: string;
+  comment?: string | null;
+  adjustedByUserId?: string | null;
+  adjustedByName?: string | null;
+  createdAt: string;
+}
+
+export interface PayrollCalculationDetail {
+  id: string;
+  payrollRunId: string;
+  payrollRunEmployeeId: string;
+  ruleCode: string;
+  ruleDescription?: string | null;
+  inputJson?: Record<string, unknown> | null;
+  outputJson?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface PayrollRunTimesheetLink {
+  id: string;
+  payrollRunId: string;
+  payrollRunEmployeeId: string;
+  timesheetEntryId: string;
+  workedDate: string;
+  weekdayType: string;
+  hours: number;
+  createdAt: string;
+}
+
+export interface PayrollRunLog {
+  id: string;
+  payrollRunId: string;
+  actorUserId?: string | null;
+  actorDisplayName?: string | null;
+  actionType: string;
+  level: string;
+  message: string;
+  detailJson?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface PayrollRun {
   id: string;
   runCode: string;
@@ -106,6 +157,11 @@ export interface PayrollRun {
   payrollBatch?: PayrollBatch | null;
   notifications?: PayrollRunNotification[];
   employees?: PayrollRunEmployee[];
+  // F2.4 — stitched-on collections (only present in getPayrollRunDetail).
+  logs?: PayrollRunLog[];
+  adjustments?: PayrollAdjustment[];
+  calculations?: PayrollCalculationDetail[];
+  timesheetLinks?: PayrollRunTimesheetLink[];
 }
 
 export interface SalaryProfile {

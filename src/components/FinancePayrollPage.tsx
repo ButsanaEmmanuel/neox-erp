@@ -66,6 +66,10 @@ const FinancePayrollPage: React.FC = () => {
   const [salaryModalOpen, setSalaryModalOpen] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 
+  // F2.4 — Run detail tabs.
+  type RunDetailTab = 'employees' | 'calculations' | 'adjustments' | 'logs' | 'timesheets' | 'notifications';
+  const [activeRunTab, setActiveRunTab] = useState<RunDetailTab>('employees');
+
   const actor = useMemo(
     () => ({ actorUserId: user?.id, actorDisplayName: user?.name }),
     [user?.id, user?.name],
@@ -511,17 +515,182 @@ const FinancePayrollPage: React.FC = () => {
                 </div>
               )}
 
-              {(runDetail.notifications || []).length > 0 && (
-                <div className="rounded-lg border border-border/80 bg-surface p-3">
-                  <p className="text-xs font-semibold text-primary mb-2">Notifications</p>
-                  <div className="space-y-2">
-                    {(runDetail.notifications || []).slice(0, 5).map((n) => (
-                      <div key={n.id} className="text-xs text-secondary flex items-start gap-2">
-                        {n.severity === 'warning' ? <AlertTriangle size={12} className="text-amber-300 mt-0.5" /> : <CheckCircle2 size={12} className="text-emerald-300 mt-0.5" />}
-                        <div><span className="text-primary">{n.title}</span> - {n.message}</div>
+              {/* F2.4 — Run detail tabs */}
+              <div className="border-b border-border/70 flex gap-1 overflow-x-auto -mx-5 px-5">
+                {([
+                  ['employees', `Employees (${runDetail.employees?.length || 0})`],
+                  ['calculations', `Calculations (${runDetail.calculations?.length || 0})`],
+                  ['adjustments', `Adjustments (${runDetail.adjustments?.length || 0})`],
+                  ['logs', `Logs (${runDetail.logs?.length || 0})`],
+                  ['timesheets', `Timesheets (${runDetail.timesheetLinks?.length || 0})`],
+                  ['notifications', `Notifications (${runDetail.notifications?.length || 0})`],
+                ] as Array<[RunDetailTab, string]>).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setActiveRunTab(key)}
+                    className={`px-3 py-2 text-[11px] font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                      activeRunTab === key
+                        ? 'border-blue-400 text-primary'
+                        : 'border-transparent text-secondary hover:text-primary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {activeRunTab === 'employees' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70 divide-y divide-border/60">
+                  {(runDetail.employees || []).map((emp) => (
+                    <div key={emp.id} className="px-3 py-2 text-xs flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-primary font-medium truncate">{emp.userId.slice(-8).toUpperCase()}</p>
+                        <p className="text-muted">{emp.inclusionStatus}{emp.exclusionReason ? ` — ${emp.exclusionReason}` : ''}</p>
                       </div>
-                    ))}
-                  </div>
+                      <p className="text-secondary tabular-nums whitespace-nowrap">
+                        {formatCurrency(Number(emp.adjustedGrossPay ?? emp.grossPay ?? 0))}
+                      </p>
+                    </div>
+                  ))}
+                  {(runDetail.employees || []).length === 0 && (
+                    <div className="px-3 py-4 text-xs text-muted text-center">No employees on this run.</div>
+                  )}
+                </div>
+              )}
+
+              {activeRunTab === 'calculations' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-surface text-muted">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold">Employee</th>
+                        <th className="text-left px-3 py-2 font-semibold">Rule</th>
+                        <th className="text-left px-3 py-2 font-semibold">Description</th>
+                        <th className="text-right px-3 py-2 font-semibold">Output</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {(runDetail.calculations || []).map((c) => {
+                        const emp = runDetail.employees?.find((e) => e.id === c.payrollRunEmployeeId);
+                        const out = c.outputJson && typeof c.outputJson === 'object' ? JSON.stringify(c.outputJson) : '-';
+                        return (
+                          <tr key={c.id} className="text-secondary">
+                            <td className="px-3 py-1.5 text-primary">{emp?.userId.slice(-8).toUpperCase() ?? c.payrollRunEmployeeId.slice(-8)}</td>
+                            <td className="px-3 py-1.5 font-mono">{c.ruleCode}</td>
+                            <td className="px-3 py-1.5">{c.ruleDescription || '-'}</td>
+                            <td className="px-3 py-1.5 text-right font-mono text-muted truncate max-w-[200px]">{out}</td>
+                          </tr>
+                        );
+                      })}
+                      {(runDetail.calculations || []).length === 0 && (
+                        <tr><td colSpan={4} className="px-3 py-4 text-center text-muted">No calculation details for this run.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {activeRunTab === 'adjustments' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-surface text-muted">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold">Employee</th>
+                        <th className="text-right px-3 py-2 font-semibold">Original</th>
+                        <th className="text-right px-3 py-2 font-semibold">Adjusted</th>
+                        <th className="text-left px-3 py-2 font-semibold">Reason</th>
+                        <th className="text-left px-3 py-2 font-semibold">By</th>
+                        <th className="text-left px-3 py-2 font-semibold">When</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {(runDetail.adjustments || []).map((a) => {
+                        const emp = runDetail.employees?.find((e) => e.id === a.payrollRunEmployeeId);
+                        return (
+                          <tr key={a.id} className="text-secondary">
+                            <td className="px-3 py-1.5 text-primary">{emp?.userId.slice(-8).toUpperCase() ?? a.payrollRunEmployeeId.slice(-8)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{formatCurrency(Number(a.originalAmount))}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-amber-300">{formatCurrency(Number(a.adjustedAmount))}</td>
+                            <td className="px-3 py-1.5">{a.reason}</td>
+                            <td className="px-3 py-1.5 text-muted">{a.adjustedByName || '-'}</td>
+                            <td className="px-3 py-1.5 text-muted">{formatDate(a.createdAt, 'short')}</td>
+                          </tr>
+                        );
+                      })}
+                      {(runDetail.adjustments || []).length === 0 && (
+                        <tr><td colSpan={6} className="px-3 py-4 text-center text-muted">No adjustments on this run.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {activeRunTab === 'logs' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70 divide-y divide-border/60">
+                  {(runDetail.logs || []).map((log) => (
+                    <div key={log.id} className="px-3 py-2 text-[11px]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-mono text-[10px] uppercase ${log.level === 'error' ? 'text-rose-300' : log.level === 'warning' ? 'text-amber-300' : 'text-secondary'}`}>{log.actionType}</span>
+                        <span className="text-muted text-[10px]">{formatDate(log.createdAt, 'short')}</span>
+                      </div>
+                      <p className="text-secondary mt-0.5">{log.message}</p>
+                      {log.actorDisplayName && <p className="text-muted text-[10px] mt-0.5">by {log.actorDisplayName}</p>}
+                    </div>
+                  ))}
+                  {(runDetail.logs || []).length === 0 && (
+                    <div className="px-3 py-4 text-xs text-muted text-center">No logs yet.</div>
+                  )}
+                </div>
+              )}
+
+              {activeRunTab === 'timesheets' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-surface text-muted">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold">Employee</th>
+                        <th className="text-left px-3 py-2 font-semibold">Date</th>
+                        <th className="text-left px-3 py-2 font-semibold">Type</th>
+                        <th className="text-right px-3 py-2 font-semibold">Hours</th>
+                        <th className="text-left px-3 py-2 font-semibold">Entry</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {(runDetail.timesheetLinks || []).map((tl) => {
+                        const emp = runDetail.employees?.find((e) => e.id === tl.payrollRunEmployeeId);
+                        return (
+                          <tr key={tl.id} className="text-secondary">
+                            <td className="px-3 py-1.5 text-primary">{emp?.userId.slice(-8).toUpperCase() ?? tl.payrollRunEmployeeId.slice(-8)}</td>
+                            <td className="px-3 py-1.5">{formatDate(tl.workedDate, 'short')}</td>
+                            <td className="px-3 py-1.5">{tl.weekdayType}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{Number(tl.hours).toFixed(2)}</td>
+                            <td className="px-3 py-1.5 font-mono text-[10px] text-muted">{tl.timesheetEntryId.slice(-8)}</td>
+                          </tr>
+                        );
+                      })}
+                      {(runDetail.timesheetLinks || []).length === 0 && (
+                        <tr><td colSpan={5} className="px-3 py-4 text-center text-muted">No timesheets linked.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {activeRunTab === 'notifications' && (
+                <div className="max-h-[420px] overflow-y-auto rounded-lg border border-border/70 divide-y divide-border/60">
+                  {(runDetail.notifications || []).map((n) => (
+                    <div key={n.id} className="px-3 py-2 text-xs flex items-start gap-2">
+                      {n.severity === 'warning' ? <AlertTriangle size={12} className="text-amber-300 mt-0.5 flex-shrink-0" /> : <CheckCircle2 size={12} className="text-emerald-300 mt-0.5 flex-shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="text-primary font-medium">{n.title}</p>
+                        <p className="text-secondary">{n.message}</p>
+                        <p className="text-muted text-[10px] mt-0.5">{formatDate(n.createdAt, 'short')}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {(runDetail.notifications || []).length === 0 && (
+                    <div className="px-3 py-4 text-xs text-muted text-center">No notifications.</div>
+                  )}
                 </div>
               )}
             </div>
