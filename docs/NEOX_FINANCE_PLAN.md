@@ -888,6 +888,7 @@ Commit : test(finance): budgets integration — close Finance-4
 | DF8 | Route `DELETE /api/v1/finance/hrm/payroll-schedules/:id` absente (toggle isActive uniquement via POST upsert) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
 | DF9 | Route `GET /api/v1/finance/hrm/payroll-periods` absente (sélecteur autonome côté UI fait via inférence depuis `run.payrollPeriodId`) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
 | DF10 | Routes manquantes pour Bills/Payments/Receipts/Invoices : aucun PATCH (update notes/status/dueDate), aucun DELETE soft, aucun GET detail (sauf Payables/Receivables), aucun Approve/Reject sur Bills, aucun Send/Cancel sur Invoices, aucun Adjust sur Receivables. Permission `finance.bills.execute` mentionnée dans le plan original §6 mais absente du catalogue RBAC. Identifié pendant audit pré-écriture Sprint Finance-3. Détail drawer read-only en attendant. | Sprint Finance-Infra |
+| DF11 | GET /api/v1/finance/receivables (et /payables) applique un scope strict par `ProjectMember.userId` quand userId est passé en query. Super_admin sans memberships → retourne 0 receivables, alors qu'il devrait voir tout. Identifié pendant seed démo aging Sprint Finance-3. Workaround actuel : assigner manuellement une membership ou seed les données via un user avec memberships. Fix : bypass scope si user a une permission `system.*.admin` (ou un super_admin role explicite). Inconsistant avec /payments et /receipts qui ne scopent pas. | Sprint Finance-Infra |
 
 ---
 
