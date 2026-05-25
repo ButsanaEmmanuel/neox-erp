@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, X } from 'lucide-react';
+import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
-import { CustomerInvoiceRecord } from '../types/finance';
+import { CustomerInvoiceRecord, ReceivableRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
 
@@ -15,6 +15,10 @@ interface CustomerInvoicesResponse {
 
 interface CreateInvoiceResponse {
     invoice: CustomerInvoiceRecord;
+}
+
+interface ReceivableDetailResponse {
+    receivable: ReceivableRecord | null;
 }
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
@@ -34,6 +38,11 @@ const InvoicesPage: React.FC = () => {
     const [clientFilter, setClientFilter] = useState('');
     const [issueFromFilter, setIssueFromFilter] = useState('');
     const [issueToFilter, setIssueToFilter] = useState('');
+
+    const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+    const [selectedParentReceivable, setSelectedParentReceivable] = useState<ReceivableRecord | null>(null);
+    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [detailError, setDetailError] = useState<string | null>(null);
 
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createReceivableId, setCreateReceivableId] = useState('');
@@ -114,6 +123,30 @@ const InvoicesPage: React.FC = () => {
     const refreshInvoices = async () => {
         const data = await apiRequest<CustomerInvoicesResponse>('/api/v1/finance/invoices?take=200');
         setInvoices(data.invoices || []);
+    };
+
+    const selectedInvoice = useMemo(() => invoices.find((i) => i.id === selectedInvoiceId) || null, [invoices, selectedInvoiceId]);
+
+    const openInvoiceDetail = async (invoice: CustomerInvoiceRecord) => {
+        setSelectedInvoiceId(invoice.id);
+        setSelectedParentReceivable(null);
+        setDetailError(null);
+        if (!invoice.receivableId) return;
+        setLoadingDetail(true);
+        try {
+            const data = await apiRequest<ReceivableDetailResponse>(`/api/v1/finance/receivables/${invoice.receivableId}`);
+            setSelectedParentReceivable(data.receivable || null);
+        } catch (err) {
+            setDetailError(err instanceof Error ? err.message : 'Unable to load parent receivable.');
+        } finally {
+            setLoadingDetail(false);
+        }
+    };
+
+    const closeInvoiceDetail = () => {
+        setSelectedInvoiceId(null);
+        setSelectedParentReceivable(null);
+        setDetailError(null);
     };
 
     const openCreateModal = () => {
@@ -285,7 +318,11 @@ const InvoicesPage: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
                                 {filteredRows.map((invoice) => (
-                                    <tr key={invoice.id} className="hover:bg-surface transition-colors">
+                                    <tr
+                                        key={invoice.id}
+                                        onClick={() => void openInvoiceDetail(invoice)}
+                                        className="hover:bg-surface transition-colors cursor-pointer"
+                                    >
                                         <td className="px-6 py-4 text-sm font-semibold text-primary">{invoice.invoiceNumber}</td>
                                         <td className="px-6 py-4 text-sm text-secondary">{invoice.receivable?.clientName || '-'}</td>
                                         <td className="px-6 py-4 text-xs text-secondary">{invoice.receivable?.referenceCode || '-'}</td>
@@ -308,6 +345,133 @@ const InvoicesPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {selectedInvoiceId && selectedInvoice && (
+                <div
+                    className="fixed inset-0 z-40 bg-black/60 flex justify-end"
+                    onMouseDown={(e) => { if (e.target === e.currentTarget) closeInvoiceDetail(); }}
+                >
+                    <div
+                        className="w-full max-w-2xl h-full bg-[#0f172a] border-l border-border/80 flex flex-col"
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs uppercase tracking-wider text-secondary">Customer Invoice</p>
+                                <h3 className="text-lg font-semibold text-primary">{selectedInvoice.invoiceNumber}</h3>
+                            </div>
+                            <button type="button" onClick={closeInvoiceDetail} className="text-secondary hover:text-primary"><X size={20} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                            <div className="flex items-center justify-between">
+                                <StatusPill status={selectedInvoice.status} />
+                                <p className="text-xs text-muted">
+                                    Updated {selectedInvoice.updatedAt ? formatDate(selectedInvoice.updatedAt, 'short') : '-'}
+                                </p>
+                            </div>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <h4 className="text-sm font-semibold text-primary">Invoice</h4>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <Field label="Issue date" value={selectedInvoice.issueDate ? formatDate(selectedInvoice.issueDate, 'short') : '-'} />
+                                    <Field label="Due date" value={selectedInvoice.dueDate ? formatDate(selectedInvoice.dueDate, 'short') : '-'} />
+                                    <Field label="Subtotal" value={`${formatCurrency(Number(selectedInvoice.subtotalAmount || 0))} ${selectedInvoice.currencyCode || ''}`} />
+                                    <Field label="Tax" value={`${formatCurrency(Number(selectedInvoice.taxAmount || 0))} ${selectedInvoice.currencyCode || ''}`} />
+                                    <Field label="Total" value={`${formatCurrency(Number(selectedInvoice.totalAmount || 0))} ${selectedInvoice.currencyCode || ''}`} />
+                                    <Field label="Currency" value={selectedInvoice.currencyCode || '-'} />
+                                </div>
+                                {selectedInvoice.notes && (
+                                    <div>
+                                        <p className="text-[11px] uppercase tracking-wider text-muted mb-1">Notes</p>
+                                        <p className="text-sm text-primary whitespace-pre-wrap">{selectedInvoice.notes}</p>
+                                    </div>
+                                )}
+                                <div className="text-[11px] text-muted">
+                                    Created by {selectedInvoice.createdByName || 'unknown'}{selectedInvoice.createdAt ? ` on ${formatDate(selectedInvoice.createdAt, 'short')}` : ''}
+                                </div>
+                            </section>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-semibold text-primary">Parent Receivable</h4>
+                                    {loadingDetail && <span className="text-xs text-secondary">Loading...</span>}
+                                </div>
+                                {detailError && <p className="text-xs text-rose-400">{detailError}</p>}
+
+                                {!loadingDetail && selectedParentReceivable && (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-3 text-sm">
+                                            <Field label="Reference" value={selectedParentReceivable.referenceCode || '-'} />
+                                            <Field label="Client" value={selectedParentReceivable.clientName || '-'} />
+                                            <Field label="Total" value={formatCurrency(Number(selectedParentReceivable.totalAmount || 0))} />
+                                            <Field label="Outstanding" value={formatCurrency(Number(selectedParentReceivable.outstandingAmount || 0))} />
+                                            <Field label="Collected" value={formatCurrency(Number(selectedParentReceivable.collectedAmount || 0))} />
+                                            <Field label="Due date" value={selectedParentReceivable.dueDate ? formatDate(selectedParentReceivable.dueDate, 'short') : '-'} />
+                                            <Field label="Status" value={selectedParentReceivable.status || '-'} />
+                                            <Field label="Collection" value={selectedParentReceivable.collectionStatus || '-'} />
+                                        </div>
+
+                                        {selectedParentReceivable.isOverdue && (
+                                            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">
+                                                ⚠ This receivable is currently overdue.
+                                            </div>
+                                        )}
+
+                                        {(selectedParentReceivable.financeEntry?.sourceLinks || []).filter((l) => l.sourceModule === 'crm').length > 0 && (
+                                            <div>
+                                                <p className="text-[11px] uppercase tracking-wider text-muted mb-2">CRM source links (deals)</p>
+                                                <div className="space-y-2">
+                                                    {(selectedParentReceivable.financeEntry?.sourceLinks || []).filter((l) => l.sourceModule === 'crm').map((link) => (
+                                                        <div key={link.id} className="flex items-center justify-between text-xs border border-border rounded-lg px-3 py-2 bg-slate-900/40">
+                                                            <span className="text-primary">{link.sourceEntity}:{link.sourceEntityId}</span>
+                                                            <span className="text-secondary">{link.sourceEvent}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {(selectedParentReceivable.financeEntry?.activities || []).length > 0 && (
+                                            <div>
+                                                <p className="text-[11px] uppercase tracking-wider text-muted mb-2">Recent activity</p>
+                                                <div className="space-y-2">
+                                                    {(selectedParentReceivable.financeEntry?.activities || []).slice(0, 5).map((activity) => (
+                                                        <div key={activity.id} className="rounded-lg border border-border bg-slate-900/40 px-3 py-2">
+                                                            <div className="flex items-center justify-between text-[11px] text-muted">
+                                                                <span>{activity.actorDisplayName || 'System'} - {activity.eventSource}</span>
+                                                                <span>{new Date(activity.createdAt).toLocaleString()}</span>
+                                                            </div>
+                                                            <p className="text-xs text-primary mt-1">{activity.message}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {!loadingDetail && !selectedParentReceivable && !detailError && (
+                                    <p className="text-xs text-muted">No parent receivable data available.</p>
+                                )}
+                            </section>
+
+                            <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex gap-3">
+                                <Info size={16} className="text-blue-300 mt-0.5 flex-shrink-0" />
+                                <div className="text-xs text-blue-100 space-y-2">
+                                    <p>
+                                        Collection recording, evidence uploads, and adjustments for this invoice happen on the parent receivable.
+                                    </p>
+                                    <p className="text-blue-300 flex items-center gap-1.5">
+                                        <ExternalLink size={12} /> Open the <strong>Receivables</strong> page and search for{' '}
+                                        <code className="bg-blue-500/20 rounded px-1.5 py-0.5">{selectedParentReceivable?.referenceCode || selectedInvoice.receivableId}</code>.
+                                    </p>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showCreateModal && (
                 <div
@@ -445,6 +609,13 @@ const InvoicesPage: React.FC = () => {
         </>
     );
 };
+
+const Field: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+    <div className="rounded-lg border border-border bg-card px-3 py-2">
+        <p className="text-[11px] uppercase tracking-wider text-muted">{label}</p>
+        <p className="text-sm text-primary mt-1">{value}</p>
+    </div>
+);
 
 const FormField: React.FC<{ label: string; required?: boolean; children: React.ReactNode }> = ({ label, required, children }) => (
     <div className="w-full">
