@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, X } from 'lucide-react';
+import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
-import { VendorBillRecord } from '../types/finance';
+import { PayableRecord, VendorBillRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
 
@@ -15,6 +15,10 @@ interface VendorBillsResponse {
 
 interface CreateBillResponse {
     bill: VendorBillRecord;
+}
+
+interface PayableDetailResponse {
+    payable: PayableRecord | null;
 }
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
@@ -34,6 +38,11 @@ const BillsPage: React.FC = () => {
     const [vendorFilter, setVendorFilter] = useState('');
     const [issueFromFilter, setIssueFromFilter] = useState('');
     const [issueToFilter, setIssueToFilter] = useState('');
+
+    const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
+    const [selectedParentPayable, setSelectedParentPayable] = useState<PayableRecord | null>(null);
+    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [detailError, setDetailError] = useState<string | null>(null);
 
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createPayableId, setCreatePayableId] = useState('');
@@ -110,6 +119,30 @@ const BillsPage: React.FC = () => {
     const refreshBills = async () => {
         const data = await apiRequest<VendorBillsResponse>('/api/v1/finance/bills?take=200');
         setBills(data.bills || []);
+    };
+
+    const selectedBill = useMemo(() => bills.find((b) => b.id === selectedBillId) || null, [bills, selectedBillId]);
+
+    const openBillDetail = async (bill: VendorBillRecord) => {
+        setSelectedBillId(bill.id);
+        setSelectedParentPayable(null);
+        setDetailError(null);
+        if (!bill.payableId) return;
+        setLoadingDetail(true);
+        try {
+            const data = await apiRequest<PayableDetailResponse>(`/api/v1/finance/payables/${bill.payableId}`);
+            setSelectedParentPayable(data.payable || null);
+        } catch (err) {
+            setDetailError(err instanceof Error ? err.message : 'Unable to load parent payable.');
+        } finally {
+            setLoadingDetail(false);
+        }
+    };
+
+    const closeBillDetail = () => {
+        setSelectedBillId(null);
+        setSelectedParentPayable(null);
+        setDetailError(null);
     };
 
     const openCreateModal = () => {
@@ -276,7 +309,11 @@ const BillsPage: React.FC = () => {
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
                                 {filteredRows.map((bill) => (
-                                    <tr key={bill.id} className="hover:bg-surface transition-colors">
+                                    <tr
+                                        key={bill.id}
+                                        onClick={() => void openBillDetail(bill)}
+                                        className="hover:bg-surface transition-colors cursor-pointer"
+                                    >
                                         <td className="px-6 py-4 text-sm font-semibold text-primary">{bill.billNumber}</td>
                                         <td className="px-6 py-4 text-sm text-secondary">{bill.payable?.vendorName || '-'}</td>
                                         <td className="px-6 py-4 text-xs text-secondary">{bill.payable?.referenceCode || '-'}</td>
@@ -299,6 +336,127 @@ const BillsPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {selectedBillId && selectedBill && (
+                <div
+                    className="fixed inset-0 z-40 bg-black/60 flex justify-end"
+                    onMouseDown={(e) => { if (e.target === e.currentTarget) closeBillDetail(); }}
+                >
+                    <div
+                        className="w-full max-w-2xl h-full bg-[#0f172a] border-l border-border/80 flex flex-col"
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs uppercase tracking-wider text-secondary">Vendor Bill</p>
+                                <h3 className="text-lg font-semibold text-primary">{selectedBill.billNumber}</h3>
+                            </div>
+                            <button type="button" onClick={closeBillDetail} className="text-secondary hover:text-primary"><X size={20} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                            <div className="flex items-center justify-between">
+                                <StatusPill status={selectedBill.status} />
+                                <p className="text-xs text-muted">
+                                    Updated {selectedBill.updatedAt ? formatDate(selectedBill.updatedAt, 'short') : '-'}
+                                </p>
+                            </div>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <h4 className="text-sm font-semibold text-primary">Bill</h4>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <Field label="Issue date" value={selectedBill.issueDate ? formatDate(selectedBill.issueDate, 'short') : '-'} />
+                                    <Field label="Due date" value={selectedBill.dueDate ? formatDate(selectedBill.dueDate, 'short') : '-'} />
+                                    <Field label="Subtotal" value={`${formatCurrency(Number(selectedBill.subtotalAmount || 0))} ${selectedBill.currencyCode || ''}`} />
+                                    <Field label="Tax" value={`${formatCurrency(Number(selectedBill.taxAmount || 0))} ${selectedBill.currencyCode || ''}`} />
+                                    <Field label="Total" value={`${formatCurrency(Number(selectedBill.totalAmount || 0))} ${selectedBill.currencyCode || ''}`} />
+                                    <Field label="Currency" value={selectedBill.currencyCode || '-'} />
+                                </div>
+                                {selectedBill.notes && (
+                                    <div>
+                                        <p className="text-[11px] uppercase tracking-wider text-muted mb-1">Notes</p>
+                                        <p className="text-sm text-primary whitespace-pre-wrap">{selectedBill.notes}</p>
+                                    </div>
+                                )}
+                                <div className="text-[11px] text-muted">
+                                    Created by {selectedBill.createdByName || 'unknown'}{selectedBill.createdAt ? ` on ${formatDate(selectedBill.createdAt, 'short')}` : ''}
+                                </div>
+                            </section>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="text-sm font-semibold text-primary">Parent Payable</h4>
+                                    {loadingDetail && <span className="text-xs text-secondary">Loading...</span>}
+                                </div>
+                                {detailError && <p className="text-xs text-rose-400">{detailError}</p>}
+
+                                {!loadingDetail && selectedParentPayable && (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-3 text-sm">
+                                            <Field label="Reference" value={selectedParentPayable.referenceCode || '-'} />
+                                            <Field label="Vendor" value={selectedParentPayable.vendorName || '-'} />
+                                            <Field label="Total" value={formatCurrency(Number(selectedParentPayable.totalAmount || 0))} />
+                                            <Field label="Outstanding" value={formatCurrency(Number(selectedParentPayable.outstandingAmount || 0))} />
+                                            <Field label="Paid" value={formatCurrency(Number(selectedParentPayable.paidAmount || 0))} />
+                                            <Field label="Due date" value={selectedParentPayable.dueDate ? formatDate(selectedParentPayable.dueDate, 'short') : '-'} />
+                                            <Field label="Approval" value={selectedParentPayable.financeEntry?.approvalStatus || '-'} />
+                                            <Field label="Evidence" value={selectedParentPayable.financeEntry?.evidenceStatus || '-'} />
+                                        </div>
+
+                                        {(selectedParentPayable.financeEntry?.sourceLinks || []).filter((l) => l.sourceModule === 'scm').length > 0 && (
+                                            <div>
+                                                <p className="text-[11px] uppercase tracking-wider text-muted mb-2">SCM source links</p>
+                                                <div className="space-y-2">
+                                                    {(selectedParentPayable.financeEntry?.sourceLinks || []).filter((l) => l.sourceModule === 'scm').map((link) => (
+                                                        <div key={link.id} className="flex items-center justify-between text-xs border border-border rounded-lg px-3 py-2 bg-slate-900/40">
+                                                            <span className="text-primary">{link.sourceEntity}:{link.sourceEntityId}</span>
+                                                            <span className="text-secondary">{link.sourceEvent}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {(selectedParentPayable.financeEntry?.activities || []).length > 0 && (
+                                            <div>
+                                                <p className="text-[11px] uppercase tracking-wider text-muted mb-2">Recent activity</p>
+                                                <div className="space-y-2">
+                                                    {(selectedParentPayable.financeEntry?.activities || []).slice(0, 5).map((activity) => (
+                                                        <div key={activity.id} className="rounded-lg border border-border bg-slate-900/40 px-3 py-2">
+                                                            <div className="flex items-center justify-between text-[11px] text-muted">
+                                                                <span>{activity.actorDisplayName || 'System'} - {activity.eventSource}</span>
+                                                                <span>{new Date(activity.createdAt).toLocaleString()}</span>
+                                                            </div>
+                                                            <p className="text-xs text-primary mt-1">{activity.message}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {!loadingDetail && !selectedParentPayable && !detailError && (
+                                    <p className="text-xs text-muted">No parent payable data available.</p>
+                                )}
+                            </section>
+
+                            <section className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex gap-3">
+                                <Info size={16} className="text-blue-300 mt-0.5 flex-shrink-0" />
+                                <div className="text-xs text-blue-100 space-y-2">
+                                    <p>
+                                        Approvals, evidence uploads, and payment recording for this bill happen on the parent payable.
+                                    </p>
+                                    <p className="text-blue-300 flex items-center gap-1.5">
+                                        <ExternalLink size={12} /> Open the <strong>Payables</strong> page and search for{' '}
+                                        <code className="bg-blue-500/20 rounded px-1.5 py-0.5">{selectedParentPayable?.referenceCode || selectedBill.payableId}</code>.
+                                    </p>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showCreateModal && (
                 <div
@@ -436,6 +594,13 @@ const BillsPage: React.FC = () => {
         </>
     );
 };
+
+const Field: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+    <div className="rounded-lg border border-border bg-card px-3 py-2">
+        <p className="text-[11px] uppercase tracking-wider text-muted">{label}</p>
+        <p className="text-sm text-primary mt-1">{value}</p>
+    </div>
+);
 
 const FormField: React.FC<{ label: string; required?: boolean; children: React.ReactNode }> = ({ label, required, children }) => (
     <div className="w-full">
