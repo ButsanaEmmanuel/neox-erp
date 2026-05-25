@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, FileCheck2, Landmark, PlayCircle, RefreshCcw, CalendarClock, AlertTriangle, ShieldCheck, Zap, Plus } from 'lucide-react';
+import { CheckCircle2, Landmark, PlayCircle, RefreshCcw, CalendarClock, AlertTriangle, ShieldCheck, Zap, Plus } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useAuth } from '../contexts/AuthContext';
 import { usePermissions } from '../lib/rbac';
 import { useToast } from './ui/Toast';
 import Modal from './ui/Modal';
+import ConfirmDialog from './ui/ConfirmDialog';
 import type {
   PayrollBatch,
   PayrollRun,
@@ -23,7 +24,6 @@ import {
   executePayrollRun as execPayrollRun,
   postPayrollRun as postRunRequest,
   adjustPayrollRunEmployee as adjustRunEmployee,
-  approvePayrollBatch as approveBatchRequest,
   reconcilePayrollBatch as reconcileBatchRequest,
   disbursePayrollLine as disburseLineRequest,
   runDuePayrollSchedules,
@@ -69,6 +69,14 @@ const FinancePayrollPage: React.FC = () => {
   // F2.4 — Run detail tabs.
   type RunDetailTab = 'employees' | 'calculations' | 'adjustments' | 'logs' | 'timesheets' | 'notifications';
   const [activeRunTab, setActiveRunTab] = useState<RunDetailTab>('employees');
+
+  // F2.5 — Workflow confirm dialog (shared for Post / Disburse all / Reconcile).
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  } | null>(null);
 
   const actor = useMemo(
     () => ({ actorUserId: user?.id, actorDisplayName: user?.name }),
@@ -317,19 +325,6 @@ const FinancePayrollPage: React.FC = () => {
     }
   };
 
-  const approveBatch = async (batchId: string) => {
-    setBusy(true);
-    try {
-      await approveBatchRequest(batchId, {
-        registerProofReference: `REGISTER-${Date.now()}`,
-        actorDisplayName: 'Finance User',
-      });
-      await load();
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const disburseLine = async (lineId: string) => {
     setBusy(true);
     try {
@@ -348,9 +343,51 @@ const FinancePayrollPage: React.FC = () => {
     try {
       await reconcileBatchRequest(batchId, { notes: 'Payroll reconciliation completed.' });
       await load();
+      toast?.addToast('Batch reconciled', 'success');
+    } catch (err) {
+      toast?.addToast(err instanceof Error ? err.message : 'Reconcile failed', 'error');
     } finally {
       setBusy(false);
     }
+  };
+
+  // F2.5 — bulk disbursement for all pending lines of the selected batch.
+  const disburseAllPending = async (batch: PayrollBatch) => {
+    const pending = batch.lines.filter((l) => l.status !== 'paid' && l.status !== 'reconciled');
+    if (pending.length === 0) return;
+    setBusy(true);
+    try {
+      for (const line of pending) {
+        await disburseLineRequest(line.id, {
+          proofReference: `BANK-${Date.now()}-${line.id.slice(-6)}`,
+          actorDisplayName: actor.actorDisplayName,
+          actorUserId: actor.actorUserId,
+        });
+      }
+      await refreshBatchDetail(batch.id);
+      await load();
+      toast?.addToast(`${pending.length} ligne${pending.length > 1 ? 's' : ''} disbursée${pending.length > 1 ? 's' : ''}`, 'success');
+    } catch (err) {
+      toast?.addToast(err instanceof Error ? err.message : 'Disburse failed', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // F2.5 — StateBadge helper. Colour by lifecycle state, fallback grey.
+  const RUN_STATE_LABELS: Record<string, { label: string; cls: string }> = {
+    pending_validation: { label: 'Pending validation', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+    auto_posting: { label: 'Auto-posting', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+    posted: { label: 'Posted', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+  };
+  const BATCH_STATE_LABELS: Record<string, { label: string; cls: string }> = {
+    draft: { label: 'Draft', cls: 'bg-surface text-muted border-border' },
+    approved: { label: 'Approved', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
+    reconciled: { label: 'Reconciled', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  };
+  const StateBadge: React.FC<{ value: string; map: Record<string, { label: string; cls: string }> }> = ({ value, map }) => {
+    const entry = map[value] || { label: value, cls: 'bg-surface text-muted border-border' };
+    return <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider border ${entry.cls}`}>{entry.label}</span>;
   };
 
   return (
@@ -498,9 +535,24 @@ const FinancePayrollPage: React.FC = () => {
                 <div className="rounded-lg border border-border/80 bg-surface p-3"><p className="text-[10px] text-muted uppercase">Errors</p><p className="text-sm text-rose-300 font-semibold">{runDetail.errorCount}</p></div>
               </div>
 
+              {/* F2.5 — Contextual ActionBar : show buttons only when state allows the action. */}
               <div className="flex items-center gap-2 flex-wrap">
-                <button disabled={busy || runDetail.postingStatus === 'posted'} onClick={() => void postRun()} className="h-8 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5"><ShieldCheck size={13} /> Validate & Post</button>
-                <span className="text-xs text-secondary">Posting status: {runDetail.postingStatus}</span>
+                <StateBadge value={runDetail.postingStatus} map={RUN_STATE_LABELS} />
+                {runDetail.postingStatus === 'pending_validation' && (
+                  <button
+                    disabled={busy || !canExecutePayroll}
+                    title={!canExecutePayroll ? 'Permission requise : hrm.payroll.execute' : 'Valide le run et le poste vers Finance — irréversible'}
+                    onClick={() => setConfirmDialog({
+                      title: 'Poster le payroll run',
+                      description: `Valider et poster ${runDetail.runCode} ? ${runDetail.includedEmployees} employé(s), total ${formatCurrency(Number(runDetail.totalGrossPay || 0))}. Cette action crée les FinanceEntries et est irréversible.`,
+                      confirmLabel: 'Poster',
+                      onConfirm: () => { void postRun(); },
+                    })}
+                    className="h-8 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <ShieldCheck size={13} /> Post run
+                  </button>
+                )}
               </div>
 
               {selectedRunEmployee && (
@@ -725,20 +777,60 @@ const FinancePayrollPage: React.FC = () => {
             <div className="p-6 text-sm text-muted">Select a payroll batch.</div>
           ) : (
             <>
-              <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="text-sm font-semibold text-primary">{selectedBatch.batchCode}</p>
-                  <p className="text-xs text-secondary mt-1">Status: {selectedBatch.status} - Approval: {selectedBatch.approvalStatus}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button disabled={busy || selectedBatch.approvalStatus === 'approved'} onClick={() => void approveBatch(selectedBatch.id)} className="h-8 px-3 rounded-md bg-blue-500/20 border border-blue-500/30 text-blue-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5">
-                    <FileCheck2 size={13} /> Approve
-                  </button>
-                  <button disabled={busy || selectedBatch.status === 'reconciled'} onClick={() => void reconcileBatch(selectedBatch.id)} className="h-8 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5">
-                    <CheckCircle2 size={13} /> Reconcile
-                  </button>
-                </div>
-              </div>
+              {(() => {
+                const pendingLines = selectedBatch.lines.filter((l) => l.status !== 'paid' && l.status !== 'reconciled');
+                const pendingCount = pendingLines.length;
+                const pendingTotal = pendingLines.reduce((sum, l) => sum + Number(l.totalAmount || 0), 0);
+                const allDisbursed = pendingCount === 0 && selectedBatch.lines.length > 0;
+                const canDisburse = canExecutePayroll && pendingCount > 0 && selectedBatch.status !== 'reconciled';
+                const canReconcile = canExecutePayroll && allDisbursed && selectedBatch.status !== 'reconciled';
+                return (
+                  <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <p className="text-sm font-semibold text-primary">{selectedBatch.batchCode}</p>
+                      <StateBadge value={selectedBatch.status} map={BATCH_STATE_LABELS} />
+                    </div>
+                    {/* F2.5 — only render buttons valid for the current state. */}
+                    <div className="flex items-center gap-2">
+                      {canDisburse && (
+                        <button
+                          disabled={busy}
+                          title={`Paie groupée des ${pendingCount} ligne(s) restante(s)`}
+                          onClick={() => setConfirmDialog({
+                            title: 'Disburse all pending lines',
+                            description: `Régler ${pendingCount} ligne${pendingCount > 1 ? 's' : ''} en attente pour un total de ${formatCurrency(pendingTotal)} ? Chaque ligne déclenche un PaymentDisbursement séparé.`,
+                            confirmLabel: 'Disburse',
+                            onConfirm: () => { void disburseAllPending(selectedBatch); },
+                          })}
+                          className="h-8 px-3 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <Landmark size={13} /> Disburse all pending ({pendingCount})
+                        </button>
+                      )}
+                      {canReconcile && (
+                        <button
+                          disabled={busy}
+                          title="Toutes les lignes sont payées — la batch peut être réconciliée"
+                          onClick={() => setConfirmDialog({
+                            title: 'Reconcile batch',
+                            description: `Réconcilier la batch ${selectedBatch.batchCode} ? ${selectedBatch.lines.length} ligne(s), total ${formatCurrency(Number(selectedBatch.totalAmount || 0))}. La batch passera en statut "reconciled".`,
+                            confirmLabel: 'Reconcile',
+                            onConfirm: () => { void reconcileBatch(selectedBatch.id); },
+                          })}
+                          className="h-8 px-3 rounded-md bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <CheckCircle2 size={13} /> Reconcile batch
+                        </button>
+                      )}
+                      {!canExecutePayroll && (
+                        <span title="Permission requise : hrm.payroll.execute" className="text-[10px] text-muted italic">
+                          hrm.payroll.execute requis
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="max-h-[280px] overflow-y-auto border-b border-border">
                 <table className="w-full text-left">
@@ -762,7 +854,16 @@ const FinancePayrollPage: React.FC = () => {
                         <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-300">{formatCurrency(Number(line.totalAmount || 0))}</td>
                         <td className="px-4 py-3 text-xs text-secondary uppercase">{line.status}</td>
                         <td className="px-4 py-3">
-                          <button disabled={busy || line.status === 'paid' || line.status === 'reconciled'} onClick={() => void disburseLine(line.id)} className="h-7 px-2.5 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[11px] font-semibold disabled:opacity-50 flex items-center gap-1">
+                          <button
+                            disabled={busy || !canExecutePayroll || line.status === 'paid' || line.status === 'reconciled'}
+                            title={
+                              line.status === 'paid' || line.status === 'reconciled' ? 'Déjà disbursée'
+                                : !canExecutePayroll ? 'Permission requise : hrm.payroll.execute'
+                                : 'Disbursement unique pour cette ligne'
+                            }
+                            onClick={() => void disburseLine(line.id)}
+                            className="h-7 px-2.5 rounded-md bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-[11px] font-semibold disabled:opacity-50 flex items-center gap-1"
+                          >
                             <Landmark size={12} /> Payout
                           </button>
                         </td>
@@ -880,6 +981,16 @@ const FinancePayrollPage: React.FC = () => {
           )}
         </div>
       </Modal>
+
+      <ConfirmDialog
+        isOpen={!!confirmDialog}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={() => { confirmDialog?.onConfirm(); }}
+        title={confirmDialog?.title || ''}
+        description={confirmDialog?.description || ''}
+        confirmLabel={confirmDialog?.confirmLabel || 'Confirm'}
+        destructive={false}
+      />
     </div>
   );
 };
