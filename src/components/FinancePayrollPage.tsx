@@ -1,100 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, FileCheck2, Landmark, PlayCircle, RefreshCcw, CalendarClock, AlertTriangle, ShieldCheck } from 'lucide-react';
-import { apiRequest } from '../lib/apiClient';
 import { formatCurrency, formatDate } from '../utils/formatters';
-
-interface PayrollLine {
-  id: string;
-  employeeName: string;
-  employeeCode?: string | null;
-  totalAmount: number;
-  status: string;
-  payableId?: string | null;
-  paidAt?: string | null;
-  payable?: {
-    id: string;
-    paymentStatus: string;
-    payments?: Array<{ id: string; paymentReference: string; paymentDate: string; proofDocumentId?: string | null }>;
-    financeEntry?: {
-      id: string;
-      referenceCode: string;
-      evidenceDocuments?: Array<{ id: string; documentType: string; originalFileName: string; createdAt: string }>;
-    };
-  } | null;
-}
-
-interface PayrollBatch {
-  id: string;
-  batchCode: string;
-  periodStart: string;
-  periodEnd: string;
-  payoutDate?: string | null;
-  status: string;
-  approvalStatus: string;
-  totalAmount: number;
-  lines: PayrollLine[];
-}
-
-interface PayrollSchedule {
-  id: string;
-  code: string;
-  name: string;
-  executionRule: string;
-  dayOfMonth?: number | null;
-  validationMode: string;
-  nextRunAt?: string | null;
-  lastRunAt?: string | null;
-  lastRunStatus?: string | null;
-}
-
-interface PayrollRunEmployee {
-  id: string;
-  userId: string;
-  inclusionStatus: string;
-  exclusionReason?: string | null;
-  regularWorkedDays: number;
-  weekendWorkedDays: number;
-  dailyRate: number;
-  regularPay: number;
-  overtimePay: number;
-  grossPay: number;
-  adjustedGrossPay?: number | null;
-  payrollLineId?: string | null;
-}
-
-interface PayrollRun {
-  id: string;
-  runCode: string;
-  status: string;
-  postingStatus: string;
-  validationMode: string;
-  startedAt: string;
-  completedAt?: string | null;
-  totalEmployees: number;
-  includedEmployees: number;
-  excludedEmployees: number;
-  blockedEmployees: number;
-  warningCount: number;
-  errorCount: number;
-  totalRegularPay: number;
-  totalOvertimePay: number;
-  totalGrossPay: number;
-  payrollBatchId?: string | null;
-  payrollBatch?: PayrollBatch | null;
-  notifications?: Array<{ id: string; severity: string; title: string; message: string; createdAt: string }>;
-  employees?: PayrollRunEmployee[];
-}
-
-interface SalaryProfile {
-  id: string;
-  userId: string;
-  monthlyBaseSalary: number;
-  overtimeMultiplier: number;
-  currencyCode: string;
-  effectiveFrom: string;
-  isActive: boolean;
-  user?: { id: string; name?: string | null; email?: string | null } | null;
-}
+import type {
+  PayrollBatch,
+  PayrollRun,
+  PayrollSchedule,
+  SalaryProfile,
+} from '../types/payroll';
+import {
+  listPayrollSchedules,
+  listPayrollRuns,
+  listPayrollBatches,
+  listSalaryProfiles,
+  getPayrollRunDetail as fetchPayrollRunDetail,
+  getPayrollBatchDetail as fetchPayrollBatchDetail,
+  upsertPayrollSchedule,
+  upsertSalaryProfile,
+  executePayrollRun as execPayrollRun,
+  postPayrollRun as postRunRequest,
+  adjustPayrollRunEmployee as adjustRunEmployee,
+  approvePayrollBatch as approveBatchRequest,
+  reconcilePayrollBatch as reconcileBatchRequest,
+  disbursePayrollLine as disburseLineRequest,
+} from '../services/finance/payrollEngineApi';
 
 const FinancePayrollPage: React.FC = () => {
   const [batches, setBatches] = useState<PayrollBatch[]>([]);
@@ -126,19 +54,19 @@ const FinancePayrollPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [batchData, scheduleData, runData, profileData] = await Promise.all([
-        apiRequest<{ batches: PayrollBatch[] }>('/api/v1/finance/hrm/payroll-batches?take=100'),
-        apiRequest<{ schedules: PayrollSchedule[] }>('/api/v1/finance/hrm/payroll-schedules'),
-        apiRequest<{ runs: PayrollRun[] }>('/api/v1/finance/hrm/payroll-runs?take=50'),
-        apiRequest<{ profiles: SalaryProfile[] }>('/api/v1/finance/hrm/salary-profiles?take=200'),
+      const [batchList, scheduleList, runList, profileList] = await Promise.all([
+        listPayrollBatches({ take: 100 }),
+        listPayrollSchedules(),
+        listPayrollRuns({ take: 50 }),
+        listSalaryProfiles({ take: 200 }),
       ]);
-      setSalaryProfiles(profileData.profiles || []);
+      setSalaryProfiles(profileList);
 
-      setBatches(batchData.batches || []);
-      if (!selectedBatchId && batchData.batches?.length) setSelectedBatchId(batchData.batches[0].id);
+      setBatches(batchList);
+      if (!selectedBatchId && batchList.length) setSelectedBatchId(batchList[0].id);
 
-      setSchedules(scheduleData.schedules || []);
-      const active = scheduleData.schedules?.[0];
+      setSchedules(scheduleList);
+      const active = scheduleList[0];
       if (active) {
         setScheduleName(active.name || 'Default Monthly Payroll');
         setExecutionRule((active.executionRule === 'last_working_day' ? 'last_working_day' : 'day_of_month'));
@@ -146,8 +74,8 @@ const FinancePayrollPage: React.FC = () => {
         setValidationMode((active.validationMode === 'automatic_posting' ? 'automatic_posting' : 'review_before_posting'));
       }
 
-      setRuns(runData.runs || []);
-      if (!selectedRunId && runData.runs?.length) setSelectedRunId(runData.runs[0].id);
+      setRuns(runList);
+      if (!selectedRunId && runList.length) setSelectedRunId(runList[0].id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load payroll data.');
     } finally {
@@ -156,9 +84,9 @@ const FinancePayrollPage: React.FC = () => {
   };
 
   const refreshRunDetail = async (runId: string) => {
-    const data = await apiRequest<{ run: PayrollRun }>(`/api/v1/finance/hrm/payroll-runs/${runId}`);
-    setRunDetail(data.run || null);
-    setRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, ...data.run } : r)));
+    const run = await fetchPayrollRunDetail(runId);
+    setRunDetail(run);
+    if (run) setRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, ...run } : r)));
   };
 
   useEffect(() => {
@@ -189,25 +117,22 @@ const FinancePayrollPage: React.FC = () => {
   }, [runDetail]);
 
   const refreshBatchDetail = async (batchId: string) => {
-    const data = await apiRequest<{ batch: PayrollBatch }>(`/api/v1/finance/hrm/payroll-batches/${batchId}`);
-    setBatches((prev) => prev.map((row) => (row.id === batchId ? data.batch : row)));
+    const batch = await fetchPayrollBatchDetail(batchId);
+    if (batch) setBatches((prev) => prev.map((row) => (row.id === batchId ? batch : row)));
   };
 
   const saveSchedule = async () => {
     setBusy(true);
     setError(null);
     try {
-      await apiRequest('/api/v1/finance/hrm/payroll-schedules', {
-        method: 'POST',
-        body: {
-          id: schedules[0]?.id,
-          code: schedules[0]?.code || 'default',
-          name: scheduleName,
-          executionRule,
-          dayOfMonth: executionRule === 'day_of_month' ? Number(dayOfMonth) : null,
-          validationMode,
-          actorDisplayName: 'Finance Admin',
-        },
+      await upsertPayrollSchedule({
+        id: schedules[0]?.id,
+        code: schedules[0]?.code || 'default',
+        name: scheduleName,
+        executionRule,
+        dayOfMonth: executionRule === 'day_of_month' ? Number(dayOfMonth) : null,
+        validationMode,
+        actorDisplayName: 'Finance Admin',
       });
       await load();
     } catch (err) {
@@ -221,19 +146,16 @@ const FinancePayrollPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      const data = await apiRequest<{ run: PayrollRun }>('/api/v1/finance/hrm/payroll-runs/execute', {
-        method: 'POST',
-        body: {
-          scheduleId: schedules[0]?.id,
-          validationMode,
-          triggerType: 'manual',
-          actorDisplayName: 'Finance Operator',
-        },
+      const run = await execPayrollRun({
+        scheduleId: schedules[0]?.id,
+        validationMode,
+        triggerType: 'manual',
+        actorDisplayName: 'Finance Operator',
       });
       await load();
-      if (data.run?.id) {
-        setSelectedRunId(data.run.id);
-        await refreshRunDetail(data.run.id);
+      if (run?.id) {
+        setSelectedRunId(run.id);
+        await refreshRunDetail(run.id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to execute payroll run.');
@@ -247,12 +169,9 @@ const FinancePayrollPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      await apiRequest(`/api/v1/finance/hrm/payroll-runs/${selectedRunId}/post`, {
-        method: 'POST',
-        body: {
-          registerProofReference: `REGISTER-${Date.now()}`,
-          actorDisplayName: 'Finance Approver',
-        },
+      await postRunRequest(selectedRunId, {
+        registerProofReference: `REGISTER-${Date.now()}`,
+        actorDisplayName: 'Finance Approver',
       });
       await refreshRunDetail(selectedRunId);
       await load();
@@ -268,13 +187,10 @@ const FinancePayrollPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      await apiRequest(`/api/v1/finance/hrm/payroll-runs/employees/${selectedRunEmployee.id}/adjust`, {
-        method: 'PATCH',
-        body: {
-          adjustedAmount: Number(adjustAmount),
-          reason: adjustReason,
-          actorDisplayName: 'Finance Manager',
-        },
+      await adjustRunEmployee(selectedRunEmployee.id, {
+        adjustedAmount: Number(adjustAmount),
+        reason: adjustReason,
+        actorDisplayName: 'Finance Manager',
       });
       if (selectedRunId) await refreshRunDetail(selectedRunId);
       await load();
@@ -292,16 +208,13 @@ const FinancePayrollPage: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      await apiRequest('/api/v1/finance/hrm/salary-profiles', {
-        method: 'POST',
-        body: {
-          userId: salaryUserId.trim(),
-          monthlyBaseSalary: Number(salaryAmount),
-          overtimeMultiplier: Number(overtimeRate || 1.5),
-          currencyCode: 'USD',
-          effectiveFrom: new Date().toISOString(),
-          actorDisplayName: 'HR Admin',
-        },
+      await upsertSalaryProfile({
+        userId: salaryUserId.trim(),
+        monthlyBaseSalary: Number(salaryAmount),
+        overtimeMultiplier: Number(overtimeRate || 1.5),
+        currencyCode: 'USD',
+        effectiveFrom: new Date().toISOString(),
+        actorDisplayName: 'HR Admin',
       });
       setSalaryUserId('');
       setSalaryAmount('');
@@ -317,12 +230,9 @@ const FinancePayrollPage: React.FC = () => {
   const approveBatch = async (batchId: string) => {
     setBusy(true);
     try {
-      await apiRequest(`/api/v1/finance/hrm/payroll-batches/${batchId}/approve`, {
-        method: 'POST',
-        body: {
-          registerProofReference: `REGISTER-${Date.now()}`,
-          actorDisplayName: 'Finance User',
-        },
+      await approveBatchRequest(batchId, {
+        registerProofReference: `REGISTER-${Date.now()}`,
+        actorDisplayName: 'Finance User',
       });
       await load();
     } finally {
@@ -333,12 +243,9 @@ const FinancePayrollPage: React.FC = () => {
   const disburseLine = async (lineId: string) => {
     setBusy(true);
     try {
-      await apiRequest(`/api/v1/finance/hrm/payroll-lines/${lineId}/disburse`, {
-        method: 'POST',
-        body: {
-          proofReference: `BANK-${Date.now()}`,
-          actorDisplayName: 'Finance Cashier',
-        },
+      await disburseLineRequest(lineId, {
+        proofReference: `BANK-${Date.now()}`,
+        actorDisplayName: 'Finance Cashier',
       });
       if (selectedBatchId) await refreshBatchDetail(selectedBatchId);
     } finally {
@@ -349,10 +256,7 @@ const FinancePayrollPage: React.FC = () => {
   const reconcileBatch = async (batchId: string) => {
     setBusy(true);
     try {
-      await apiRequest(`/api/v1/finance/hrm/payroll-batches/${batchId}/reconcile`, {
-        method: 'POST',
-        body: { notes: 'Payroll reconciliation completed.' },
-      });
+      await reconcileBatchRequest(batchId, { notes: 'Payroll reconciliation completed.' });
       await load();
     } finally {
       setBusy(false);
