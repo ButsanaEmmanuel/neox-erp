@@ -74,6 +74,16 @@ import {
 } from './services/finance/financeEntries.service.mjs';
 import { getFinanceReports } from './services/finance/financeReporting.service.mjs';
 import {
+  listBudgets,
+  getBudgetDetail,
+  createBudget,
+  updateBudget,
+  deleteBudget,
+  upsertBudgetLine,
+  deleteBudgetLine,
+  computeBudgetActuals,
+} from './services/finance/budgets.service.mjs';
+import {
   getFinanceGovernanceSettings,
   rolloutFinanceGovernance,
   upsertFinanceApprovalThreshold,
@@ -1582,6 +1592,80 @@ const server = http.createServer(async (req, res) => {
       const payable = await getPayableDetail(prisma, payableId);
       if (!payable) return json(res, 404, { message: 'Payable not found.' });
       return json(res, 200, { payable });
+    }
+
+    // ── Finance budgets (Sprint Finance-4 F4.3) ────────────────────────
+    if (method === 'GET' && pathname === '/api/v1/finance/budgets') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+      const budgets = await listBudgets(prisma, {
+        status: url.searchParams.get('status') || undefined,
+        departmentId: url.searchParams.get('departmentId') || undefined,
+        projectId: url.searchParams.get('projectId') || undefined,
+        currencyCode: url.searchParams.get('currencyCode') || undefined,
+        periodFrom: url.searchParams.get('periodFrom') || undefined,
+        periodTo: url.searchParams.get('periodTo') || undefined,
+        take: url.searchParams.get('take') || undefined,
+      });
+      return json(res, 200, { budgets });
+    }
+
+    if (method === 'POST' && pathname === '/api/v1/finance/budgets') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.write'))) return;
+      const body = await parseBody(req);
+      const budget = await createBudget(prisma, body || {}, actor);
+      return json(res, 201, { budget });
+    }
+
+    const budgetActualsMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/actuals$/);
+    if (method === 'GET' && budgetActualsMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+      const [, budgetId] = budgetActualsMatch;
+      const actuals = await computeBudgetActuals(prisma, budgetId);
+      return json(res, 200, { actuals });
+    }
+
+    const budgetLinesMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/lines$/);
+    if (method === 'POST' && budgetLinesMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.write'))) return;
+      const [, budgetId] = budgetLinesMatch;
+      const body = await parseBody(req);
+      const line = await upsertBudgetLine(prisma, budgetId, body || {}, actor);
+      return json(res, 201, { line });
+    }
+
+    const budgetLineDetailMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/lines\/([^/]+)$/);
+    if (method === 'DELETE' && budgetLineDetailMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.write'))) return;
+      const [, budgetId, lineId] = budgetLineDetailMatch;
+      const result = await deleteBudgetLine(prisma, budgetId, lineId, actor);
+      return json(res, 200, result);
+    }
+
+    const budgetDetailMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)$/);
+    if (budgetDetailMatch) {
+      const [, budgetId] = budgetDetailMatch;
+      const actor = parseActorFromUrl(url);
+      if (method === 'GET') {
+        if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+        const budget = await getBudgetDetail(prisma, budgetId);
+        return json(res, 200, { budget });
+      }
+      if (method === 'PATCH') {
+        if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.write'))) return;
+        const body = await parseBody(req);
+        const budget = await updateBudget(prisma, budgetId, body || {}, actor);
+        return json(res, 200, { budget });
+      }
+      if (method === 'DELETE') {
+        if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.write'))) return;
+        const result = await deleteBudget(prisma, budgetId, actor);
+        return json(res, 200, result);
+      }
     }
     if (method === 'GET' && pathname === '/api/v1/finance/invoices') {
       const actor = parseActorFromUrl(url);

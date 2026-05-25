@@ -1,0 +1,442 @@
+// Sprint Finance-4 (F4.2) — Budgets service.
+//
+// Four design decisions actées (cf. NEOX_FINANCE_PLAN §7 + handoff 2026-05-25) :
+// [1] No direct departmentId on FinanceEntry — dept scope resolved via Project.ownerDepartmentId
+// [2] No FK between FinanceEntry.categoryCode and FinanceCategorySetting — logical join via code
+// [3] Currency: entries filtered by budget.currencyCode — cross-currency aggregation deferred to DF6
+// [4] Direction: inherited from FinanceCategorySetting.direction — entries filtered accordingly
+
+function err(statusCode, code, message, extra = {}) {
+  const e = new Error(message);
+  e.statusCode = statusCode;
+  e.code = code;
+  Object.assign(e, extra);
+  return e;
+}
+const notFound = (msg, extra) => err(404, 'NOT_FOUND', msg, extra);
+const badRequest = (msg, extra) => err(400, 'BAD_REQUEST', msg, extra);
+const conflict = (msg, extra) => err(409, 'CONFLICT', msg, extra);
+
+const ALLOWED_STATUSES = new Set(['draft', 'active', 'closed']);
+
+function decimalToNumber(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  const raw = typeof value === 'object' && typeof value.toString === 'function' ? value.toString() : value;
+  const out = Number(raw);
+  return Number.isFinite(out) ? out : 0;
+}
+
+function parseDate(value, fieldName) {
+  if (value === null || value === undefined || value === '') {
+    throw badRequest(`${fieldName} is required.`);
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw badRequest(`${fieldName} is not a valid date.`, { value });
+  }
+  return d;
+}
+
+function parsePlannedAmount(value) {
+  if (value === null || value === undefined || value === '') {
+    throw badRequest('plannedAmount is required.');
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw badRequest('plannedAmount must be numeric.', { value });
+  if (n < 0) throw badRequest('plannedAmount must be ≥ 0.', { value });
+  return n;
+}
+
+function assertScopeXor(departmentId, projectId) {
+  const hasDept = !!(departmentId && String(departmentId).trim());
+  const hasProj = !!(projectId && String(projectId).trim());
+  if (!hasDept && !hasProj) {
+    throw badRequest('Budget scope required: provide departmentId OR projectId.');
+  }
+  if (hasDept && hasProj) {
+    throw badRequest('Budget scope conflict: provide departmentId OR projectId, not both.');
+  }
+}
+
+export async function listBudgets(prisma, filters = {}) {
+  const where = { isDeleted: false };
+  if (filters.status) where.status = String(filters.status);
+  if (filters.departmentId) where.departmentId = String(filters.departmentId);
+  if (filters.projectId) where.projectId = String(filters.projectId);
+  if (filters.currencyCode) where.currencyCode = String(filters.currencyCode);
+  if (filters.periodFrom || filters.periodTo) {
+    where.AND = [];
+    if (filters.periodFrom) where.AND.push({ periodEnd: { gte: new Date(filters.periodFrom) } });
+    if (filters.periodTo) where.AND.push({ periodStart: { lte: new Date(filters.periodTo) } });
+  }
+
+  return prisma.budget.findMany({
+    where,
+    orderBy: [{ periodStart: 'desc' }, { createdAt: 'desc' }],
+    include: {
+      department: { select: { id: true, code: true, name: true } },
+      project: { select: { id: true, name: true } },
+      lines: {
+        include: { category: { select: { id: true, code: true, name: true, direction: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+    take: filters.take ? Number(filters.take) : 200,
+  });
+}
+
+export async function getBudgetDetail(prisma, budgetId) {
+  const id = String(budgetId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+
+  const budget = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    include: {
+      department: { select: { id: true, code: true, name: true } },
+      project: { select: { id: true, name: true, ownerDepartmentId: true } },
+      lines: {
+        include: { category: { select: { id: true, code: true, name: true, direction: true } } },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  });
+  if (!budget) throw notFound(`Budget '${id}' not found.`, { id });
+
+  const actuals = await computeBudgetActuals(prisma, id, { budget });
+  return { ...budget, actuals };
+}
+
+export async function createBudget(prisma, payload = {}, actor = {}) {
+  const name = String(payload.name || '').trim();
+  if (!name) throw badRequest('name is required.');
+
+  const periodStart = parseDate(payload.periodStart, 'periodStart');
+  const periodEnd = parseDate(payload.periodEnd, 'periodEnd');
+  if (periodEnd <= periodStart) {
+    throw badRequest('periodEnd must be after periodStart.', { periodStart, periodEnd });
+  }
+
+  assertScopeXor(payload.departmentId, payload.projectId);
+
+  const currencyCode = String(payload.currencyCode || 'USD').trim().toUpperCase();
+  const status = String(payload.status || 'draft');
+  if (!ALLOWED_STATUSES.has(status)) {
+    throw badRequest(`status must be one of ${[...ALLOWED_STATUSES].join(', ')}.`, { status });
+  }
+
+  const createdBy = String(actor.actorUserId || payload.createdBy || '').trim();
+  if (!createdBy) throw badRequest('createdBy (actor.actorUserId) is required.');
+
+  if (payload.departmentId) {
+    const dept = await prisma.department.findFirst({
+      where: { id: String(payload.departmentId), isDeleted: false },
+      select: { id: true },
+    });
+    if (!dept) throw notFound(`Department '${payload.departmentId}' not found.`, { id: payload.departmentId });
+  }
+  if (payload.projectId) {
+    const proj = await prisma.project.findFirst({
+      where: { id: String(payload.projectId), isDeleted: false },
+      select: { id: true },
+    });
+    if (!proj) throw notFound(`Project '${payload.projectId}' not found.`, { id: payload.projectId });
+  }
+
+  return prisma.budget.create({
+    data: {
+      name,
+      periodStart,
+      periodEnd,
+      departmentId: payload.departmentId ? String(payload.departmentId) : null,
+      projectId: payload.projectId ? String(payload.projectId) : null,
+      currencyCode,
+      status,
+      createdBy,
+    },
+    include: {
+      department: { select: { id: true, code: true, name: true } },
+      project: { select: { id: true, name: true } },
+      lines: true,
+    },
+  });
+}
+
+export async function updateBudget(prisma, budgetId, payload = {}, actor = {}) {
+  const id = String(budgetId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+
+  const existing = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    select: { id: true, status: true, departmentId: true, projectId: true },
+  });
+  if (!existing) throw notFound(`Budget '${id}' not found.`, { id });
+  if (existing.status === 'closed') {
+    throw conflict(`Budget '${id}' is closed and cannot be updated.`, { id });
+  }
+
+  const data = {};
+  if (payload.name !== undefined) {
+    const name = String(payload.name).trim();
+    if (!name) throw badRequest('name cannot be empty.');
+    data.name = name;
+  }
+  if (payload.periodStart !== undefined) data.periodStart = parseDate(payload.periodStart, 'periodStart');
+  if (payload.periodEnd !== undefined) data.periodEnd = parseDate(payload.periodEnd, 'periodEnd');
+
+  const nextStart = data.periodStart ?? undefined;
+  const nextEnd = data.periodEnd ?? undefined;
+  if (nextStart && nextEnd && nextEnd <= nextStart) {
+    throw badRequest('periodEnd must be after periodStart.', { periodStart: nextStart, periodEnd: nextEnd });
+  }
+
+  if (payload.currencyCode !== undefined) {
+    data.currencyCode = String(payload.currencyCode).trim().toUpperCase();
+  }
+  if (payload.status !== undefined) {
+    const status = String(payload.status);
+    if (!ALLOWED_STATUSES.has(status)) {
+      throw badRequest(`status must be one of ${[...ALLOWED_STATUSES].join(', ')}.`, { status });
+    }
+    data.status = status;
+  }
+
+  // Scope updates: allow swap dept↔project but enforce XOR.
+  const wantsDeptUpdate = payload.departmentId !== undefined;
+  const wantsProjUpdate = payload.projectId !== undefined;
+  if (wantsDeptUpdate || wantsProjUpdate) {
+    const nextDept = wantsDeptUpdate ? payload.departmentId : existing.departmentId;
+    const nextProj = wantsProjUpdate ? payload.projectId : existing.projectId;
+    assertScopeXor(nextDept, nextProj);
+    if (wantsDeptUpdate) {
+      data.departmentId = nextDept ? String(nextDept) : null;
+      if (nextDept) {
+        const dept = await prisma.department.findFirst({
+          where: { id: String(nextDept), isDeleted: false },
+          select: { id: true },
+        });
+        if (!dept) throw notFound(`Department '${nextDept}' not found.`, { id: nextDept });
+      }
+    }
+    if (wantsProjUpdate) {
+      data.projectId = nextProj ? String(nextProj) : null;
+      if (nextProj) {
+        const proj = await prisma.project.findFirst({
+          where: { id: String(nextProj), isDeleted: false },
+          select: { id: true },
+        });
+        if (!proj) throw notFound(`Project '${nextProj}' not found.`, { id: nextProj });
+      }
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return getBudgetDetail(prisma, id);
+  }
+
+  await prisma.budget.update({ where: { id }, data });
+  return getBudgetDetail(prisma, id);
+}
+
+export async function deleteBudget(prisma, budgetId, actor = {}) {
+  const id = String(budgetId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+
+  const existing = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    select: { id: true },
+  });
+  if (!existing) throw notFound(`Budget '${id}' not found.`, { id });
+
+  return prisma.budget.update({
+    where: { id },
+    data: { isDeleted: true, deletedAt: new Date() },
+    select: { id: true, isDeleted: true, deletedAt: true },
+  });
+}
+
+export async function upsertBudgetLine(prisma, budgetId, payload = {}, actor = {}) {
+  const id = String(budgetId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+
+  const budget = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    select: { id: true, status: true },
+  });
+  if (!budget) throw notFound(`Budget '${id}' not found.`, { id });
+  if (budget.status === 'closed') {
+    throw conflict(`Budget '${id}' is closed and cannot accept line changes.`, { id });
+  }
+
+  const categoryId = String(payload.categoryId || '').trim();
+  if (!categoryId) throw badRequest('categoryId is required.');
+
+  const category = await prisma.financeCategorySetting.findUnique({
+    where: { id: categoryId },
+    select: { id: true, isActive: true },
+  });
+  if (!category) throw notFound(`FinanceCategorySetting '${categoryId}' not found.`, { id: categoryId });
+  if (!category.isActive) {
+    throw badRequest(`FinanceCategorySetting '${categoryId}' is not active.`, { id: categoryId });
+  }
+
+  const plannedAmount = parsePlannedAmount(payload.plannedAmount);
+  const notes = payload.notes === undefined || payload.notes === null ? null : String(payload.notes);
+
+  return prisma.budgetLine.upsert({
+    where: { budgetId_categoryId: { budgetId: id, categoryId } },
+    update: { plannedAmount, notes },
+    create: { budgetId: id, categoryId, plannedAmount, notes },
+    include: { category: { select: { id: true, code: true, name: true, direction: true } } },
+  });
+}
+
+export async function deleteBudgetLine(prisma, budgetId, lineId, actor = {}) {
+  const id = String(budgetId || '').trim();
+  const lid = String(lineId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+  if (!lid) throw badRequest('lineId is required.');
+
+  const budget = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    select: { id: true, status: true },
+  });
+  if (!budget) throw notFound(`Budget '${id}' not found.`, { id });
+  if (budget.status === 'closed') {
+    throw conflict(`Budget '${id}' is closed and cannot accept line changes.`, { id });
+  }
+
+  const line = await prisma.budgetLine.findFirst({
+    where: { id: lid, budgetId: id },
+    select: { id: true },
+  });
+  if (!line) throw notFound(`BudgetLine '${lid}' not found in budget '${id}'.`, { id: lid, budgetId: id });
+
+  await prisma.budgetLine.delete({ where: { id: lid } });
+  return { id: lid, deleted: true };
+}
+
+// Aggregates FinanceEntry rows mapped to each BudgetLine's category.
+// Filters applied:
+//   - categoryCode IN (lines.category.code)  ← [2] logical join, no FK
+//   - currencyCode = budget.currencyCode     ← [3] cross-currency deferred
+//   - direction = line.category.direction    ← [4] inherited from category
+//   - sourceEventAt ∈ [periodStart, periodEnd]
+//   - isDeleted = false
+//   - if budget.projectId : projectId = budget.projectId
+//   - else if budget.departmentId : projectId IN (Project where ownerDepartmentId = ...)  ← [1]
+export async function computeBudgetActuals(prisma, budgetId, opts = {}) {
+  const id = String(budgetId || '').trim();
+  if (!id) throw badRequest('budgetId is required.');
+
+  const budget = opts.budget || await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    include: {
+      lines: {
+        include: { category: { select: { id: true, code: true, name: true, direction: true } } },
+      },
+    },
+  });
+  if (!budget) throw notFound(`Budget '${id}' not found.`, { id });
+
+  const lines = budget.lines || [];
+  if (lines.length === 0) {
+    return { lines: [], totals: { planned: 0, actual: 0, variance: 0, variancePct: null } };
+  }
+
+  // [1] Resolve dept scope → set of projectIds. Null = no scope filter on projectId.
+  let scopedProjectIds = null;
+  if (budget.projectId) {
+    scopedProjectIds = [budget.projectId];
+  } else if (budget.departmentId) {
+    const projects = await prisma.project.findMany({
+      where: { ownerDepartmentId: budget.departmentId, isDeleted: false },
+      select: { id: true },
+    });
+    scopedProjectIds = projects.map((p) => p.id);
+    // If the department has no projects, no entries can match — short-circuit with zero actuals.
+    if (scopedProjectIds.length === 0) {
+      return {
+        lines: lines.map((line) => buildEmptyActual(line)),
+        totals: aggregateTotals(lines.map((line) => buildEmptyActual(line))),
+      };
+    }
+  }
+
+  // [4] Group categories by direction so we can fan out one groupBy per direction bucket.
+  const byDirection = new Map();
+  for (const line of lines) {
+    const dir = line.category?.direction;
+    const code = line.category?.code;
+    if (!dir || !code) continue;
+    if (!byDirection.has(dir)) byDirection.set(dir, new Set());
+    byDirection.get(dir).add(code);
+  }
+
+  const sumsByCode = new Map();
+  for (const [direction, codeSet] of byDirection.entries()) {
+    const codes = [...codeSet];
+    if (codes.length === 0) continue;
+
+    const where = {
+      isDeleted: false,
+      categoryCode: { in: codes },        // [2] logical join via code
+      direction,                          // [4] direction inherited from category
+      currencyCode: budget.currencyCode,  // [3] same-currency only
+      sourceEventAt: { gte: budget.periodStart, lte: budget.periodEnd },
+    };
+    if (scopedProjectIds) where.projectId = { in: scopedProjectIds };
+
+    const grouped = await prisma.financeEntry.groupBy({
+      by: ['categoryCode'],
+      where,
+      _sum: { amount: true },
+    });
+    for (const row of grouped) {
+      sumsByCode.set(row.categoryCode, decimalToNumber(row._sum?.amount));
+    }
+  }
+
+  const enriched = lines.map((line) => {
+    const code = line.category?.code || null;
+    const planned = decimalToNumber(line.plannedAmount);
+    const actual = code && sumsByCode.has(code) ? sumsByCode.get(code) : 0;
+    const variance = planned - actual;
+    const variancePct = planned > 0 ? Number(((variance / planned) * 100).toFixed(2)) : null;
+    return {
+      lineId: line.id,
+      categoryId: line.categoryId,
+      categoryCode: code,
+      categoryName: line.category?.name || null,
+      direction: line.category?.direction || null,
+      plannedAmount: planned,
+      actualAmount: actual,
+      variance,
+      variancePct,
+    };
+  });
+
+  return { lines: enriched, totals: aggregateTotals(enriched) };
+}
+
+function buildEmptyActual(line) {
+  const planned = decimalToNumber(line.plannedAmount);
+  return {
+    lineId: line.id,
+    categoryId: line.categoryId,
+    categoryCode: line.category?.code || null,
+    categoryName: line.category?.name || null,
+    direction: line.category?.direction || null,
+    plannedAmount: planned,
+    actualAmount: 0,
+    variance: planned,
+    variancePct: planned > 0 ? 100 : null,
+  };
+}
+
+function aggregateTotals(lines) {
+  const planned = lines.reduce((acc, l) => acc + (l.plannedAmount || 0), 0);
+  const actual = lines.reduce((acc, l) => acc + (l.actualAmount || 0), 0);
+  const variance = planned - actual;
+  const variancePct = planned > 0 ? Number(((variance / planned) * 100).toFixed(2)) : null;
+  return { planned, actual, variance, variancePct };
+}
