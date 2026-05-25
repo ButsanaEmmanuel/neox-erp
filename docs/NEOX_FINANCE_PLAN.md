@@ -263,152 +263,276 @@ Commit : test(pm): work-item details integration — close D2
 
 ## 5. Sprint Finance-2
 
-**Objectif :** Fermer DH3 — Payroll UI complète sur le nouveau modèle `PayrollRun`, abandonner `PayrollBatch` côté UI.
-**Durée estimée :** 2–3 semaines
+**Objectif :** Fermer DH3 — finir les gaps UX de la Payroll UI, extraire l'API client, découper la page monolithique en sous-composants. **Pas de réécriture** : la page est déjà branchée à ~70% sur `PayrollRun`.
+**Durée estimée :** 1–2 semaines (réduit vs spec initiale après audit)
 **Statut :** 🔵 Planifié
 **Dettes ciblées :** DH3
 
 ---
 
-### F2.1 — Préparation : audit consumers `PayrollBatch`
+### F2.1 — Note d'architecture (compte-rendu d'audit, pas de code)
 
-**Objectif :** Confirmer que `PayrollBatch` peut être abandonné côté UI sans casser de flow legacy.
+**Audit réalisé 2026-05-25 — deux fausses hypothèses du plan original corrigées avant d'écrire du code :**
 
-#### Tâches
+**Hypothèse 1 (fausse) : "FinancePayrollPage est branchée sur PayrollBatch legacy, à abandonner."**
+- Réalité : la page consomme déjà `PayrollRun[]`, `getPayrollRunDetail`, `executePayrollRun`, `postPayrollRun`, `adjustPayrollRunEmployee` (cf. `src/components/FinancePayrollPage.tsx:130-340`)
+- `PayrollBatch` n'est PAS legacy : c'est le **conteneur de `PayrollDisbursementLine`** créé par `executePayrollRun:688-706` quand des lignes deviennent payables. Cohérent avec l'engine, à conserver.
+- **Décision : `PayrollBatch` reste utilisé pour l'aval (disbursement + reconciliation). Pas de migration model.**
 
-**T1 — Grep + audit**
+**Hypothèse 2 (fausse) : "Engine 95%, manque 5%."**
+- Réalité : `payrollEngine.service.mjs` (895 L) = 10 exports, 0 TODO, 0 stub. Workflow Execute → Adjust → Post → Disburse → Reconcile **100% couvert** par engine + helpers `approvePayrollBatch`/`disbursePayrollLine`/`reconcilePayrollBatch` du `financeEntries.service.mjs`.
+- **Décision : aucune fonction engine à écrire dans Sprint Finance-2. Le sprint est purement frontend + tests.**
+
+**Vraies dettes UX restantes (priorisées 🔴 bloquant > 🟡 important > 🟢 nice-to-have) :**
+
+| Gap | Sévérité | Sous-tâche |
+|---|---|---|
+| API client absent — 9 `apiRequest` inline dans la page | 🔴 | F2.2 |
+| Page Salary Profiles absente (data chargée, jamais affichée) | 🟡 | F2.3 |
+| Bouton "Run due" pas exposé en UI | 🟡 | F2.3 |
+| Toggle isActive sur schedule pas visible | 🟡 | F2.3 |
+| Onglet "Calculations" (PayrollCalculationDetail) absent | 🟡 | F2.4 |
+| Onglet "Adjustments" dédié absent (uniquement modal éphémère) | 🟡 | F2.4 |
+| Onglet "Logs" (PayrollRunLog) absent | 🟢 | F2.4 |
+| Onglet "Timesheets" (PayrollRunTimesheetLink) absent | 🟢 | F2.4 |
+| UX workflow flou : Approve vs Post vs Disburse pas guidé | 🟡 | F2.5 |
+| Page 618 L monolithique — pas de découpe par responsabilité | 🟢 | F2.6 |
+
+### F2.2 — Extraire `payrollEngineApi.ts`
+
+**Fichier :** `src/services/finance/payrollEngineApi.ts` (nouveau dossier `src/services/finance/`)
+
 ```
-grep -rn 'PayrollBatch\|payrollBatch' src/
-Lister :
-  - Composants UI consommateurs
-  - Routes backend encore actives (/finance/hrm/payroll-batches existent)
-  - SSE liés
-Décision : garder routes backend (back-compat externe), supprimer UI batch
-Commit : docs(finance): payroll batch consumer audit — ref DH3
-```
+Source : extraire les 9 apiRequest inline de FinancePayrollPage.tsx (L130-340)
+Endpoints à exposer (tous existent — cf. audit §F2.1) :
+  listPayrollSchedules() → GET /api/v1/finance/hrm/payroll-schedules
+  upsertPayrollSchedule(payload) → POST /api/v1/finance/hrm/payroll-schedules
+  listSalaryProfiles(filters?) → GET /api/v1/finance/hrm/salary-profiles
+  upsertSalaryProfile(payload) → POST /api/v1/finance/hrm/salary-profiles
+  listPayrollRuns(filters?) → GET /api/v1/finance/hrm/payroll-runs
+  getPayrollRunDetail(runId) → GET /api/v1/finance/hrm/payroll-runs/:id
+  executePayrollRun(payload) → POST /api/v1/finance/hrm/payroll-runs/execute
+  runDuePayrollSchedules() → POST /api/v1/finance/hrm/payroll-runs/run-due
+  postPayrollRun(runId, payload) → POST /api/v1/finance/hrm/payroll-runs/:id/post
+  adjustPayrollRunEmployee(employeeLineId, payload) → POST /api/v1/finance/hrm/payroll-runs/employees/:id/adjust
+  listPayrollBatches(filters?) → GET /api/v1/finance/hrm/payroll-batches
+  getPayrollBatchDetail(batchId) → GET /api/v1/finance/hrm/payroll-batches/:id
+  approvePayrollBatch(batchId, payload) → POST /api/v1/finance/hrm/payroll-batches/:id/approve
+  reconcilePayrollBatch(batchId, payload) → POST /api/v1/finance/hrm/payroll-batches/:id/reconcile
+  disbursePayrollLine(lineId, payload) → POST /api/v1/finance/hrm/payroll-lines/:id/disburse
 
-**Critères de sortie F2.1**
-- [ ] Liste exhaustive des consumers UI
-- [ ] Décision documentée (garder backend, dégager UI)
+Types : déplacer les interfaces PayrollRun / PayrollBatch / PayrollSchedule / PayrollRunEmployee
+        depuis FinancePayrollPage.tsx vers src/types/payroll.ts (nouveau fichier).
+        Sources canoniques : aligner sur prisma/schema.prisma (PayrollRun, PayrollBatch, etc.).
 
-### F2.2 — Service client `payrollEngineApi.ts`
+Migration : remplacer chaque apiRequest inline par l'appel typed depuis le client.
+            Suppression des interfaces locales dans FinancePayrollPage.tsx.
 
-**Fichier :** `src/services/payrollEngineApi.ts`
-
-```
-Endpoints à exposer (tous existent côté backend) :
-  - listPayrollSchedules() / upsertPayrollSchedule(payload)
-  - listPayrollRuns(filters) / getPayrollRunDetail(runId)
-  - executePayrollRun(scheduleId, periodId) → POST /payroll-runs/execute
-  - runDuePayrollSchedules() → POST /payroll-runs/run-due
-  - adjustPayrollRunEmployee(runId, employeeId, adjustment) → existe service backend
-  - approvePayrollRun(runId), postPayrollRun(runId) → mappés sur services backend
-  - listSalaryProfiles() / upsertSalaryProfile(payload)
-Commit : feat(finance): payroll engine API client — ref DH3
+Commit : feat(finance): extract payrollEngineApi.ts + types — ref DH3
 ```
 
 **Critères de sortie F2.2**
-- [ ] Types stricts (générer depuis `prisma/schema.prisma`)
-- [ ] Tous les endpoints engine accessibles
+- [ ] `src/services/finance/payrollEngineApi.ts` créé avec 15 endpoints typés
+- [ ] `src/types/payroll.ts` créé avec interfaces alignées Prisma
+- [ ] Plus aucun `apiRequest` inline dans `FinancePayrollPage.tsx`
+- [ ] `tsc --noEmit` ✓
 
-### F2.3 — Écran Schedules
+### F2.3 — Schedules + Salary Profiles UX gaps
 
-**Fichier :** `src/components/finance/payroll/PayrollSchedulesPage.tsx` (nouveau dossier `src/components/finance/payroll/`)
+**Fichier :** modifications dans `FinancePayrollPage.tsx` (pas de nouveau fichier — découpe en F2.6)
 
 ```
-Sections :
-  - Liste PayrollSchedule (departmentId, cadence, nextRunAt, isActive)
-  - Modal create/edit (cohérent FormKit existant)
-  - Bouton "Run due now" → runDuePayrollSchedules()
-  - Historique : PayrollScheduleHistory par schedule (drawer)
-Permissions : hrm.payroll.read pour liste, hrm.payroll.write pour CRUD, hrm.payroll.execute pour run-due
-Commit : feat(finance): payroll schedules UI — ref DH3
+Gap 1 — Bouton "Run due" :
+  Ajouter dans la section Schedules un bouton "Run due now"
+  → confirm modal ("Cela exécutera les payrolls de N schedules échus")
+  → appel runDuePayrollSchedules()
+  → toast feedback + refresh runs list
+  Permission : hrm.payroll.execute (gate UI + check backend)
+
+Gap 2 — Toggle isActive sur schedule :
+  Sur chaque PayrollSchedule, switch isActive (read + edit)
+  → appel upsertPayrollSchedule({ id, isActive })
+  → optimistic update + revert si erreur
+  Permission : hrm.payroll.write
+
+Gap 3 — Salary Profiles affichage :
+  Nouvelle section "Salary Profiles" (sous-tab ou panneau dépliable)
+  → liste paginée : user, baseSalary, currency, effectiveFrom/To
+  → modal create/edit (FormKit pattern existant)
+  Permission : hrm.payroll.read pour liste, hrm.payroll.write pour CRUD
+
+Commit : feat(finance): payroll schedules + salary profiles UX gaps — ref DH3
 ```
 
 **Critères de sortie F2.3**
-- [ ] Créer un schedule, l'activer/désactiver
-- [ ] "Run due" déclenche les schedules échus
-- [ ] Historique visible
+- [ ] Bouton "Run due" fonctionnel + feedback toast
+- [ ] Toggle isActive sur chaque schedule + persistence
+- [ ] Section Salary Profiles avec CRUD complet
 
-### F2.4 — Écran Runs (liste + détail)
+### F2.4 — Run detail : 4 onglets manquants
 
-**Fichiers :**
-- `src/components/finance/payroll/PayrollRunsListPage.tsx`
-- `src/components/finance/payroll/PayrollRunDetailPage.tsx`
+**Fichier :** modifications dans `FinancePayrollPage.tsx` (sous-composants extraits en F2.6)
 
 ```
-Liste :
-  - Colonnes : runNumber, period, status (draft/calculated/approved/posted), totalGross, totalNet, runDate
-  - Filtres : status, period, schedule
-  - Action : "Execute new run" (depuis schedule + period)
+Architecture : structurer le run detail panel en tabs strict
+  [Employees] [Calculations] [Adjustments] [Logs] [Timesheets] [Notifications] [Disbursements]
+  (Employees + Notifications + Disbursements existent déjà — à fusionner dans la structure tabs)
 
-Détail (drawer ou page) :
-  - En-tête : status, totals, schedule lien
-  - Onglet "Employees" : PayrollRunEmployee (employee, grossPay, netPay, status, bouton "Adjust")
-  - Onglet "Calculations" : PayrollCalculationDetail par employee (allowances, deductions, taxes)
-  - Onglet "Adjustments" : PayrollAdjustment (créateur, raison, montant, approuvé)
-  - Onglet "Timesheets" : PayrollRunTimesheetLink (lien vers TimesheetEntry)
-  - Onglet "Logs" : PayrollRunLog (audit trail)
-  - Onglet "Notifications" : PayrollNotification (envoyées aux employés)
-  - Onglet "Disbursements" : PayrollDisbursementLine (status payment per employee)
+Onglet Calculations :
+  - Table : employee | regularPay | overtimePay | grossPay | deductions | netPay
+  - Source : PayrollCalculationDetail joint via getPayrollRunDetail include
+  - Si include manquant côté backend : ajouter prisma.payrollCalculationDetail dans getPayrollRunDetail (1 ligne)
 
-Workflow buttons :
-  - draft → "Calculate" (recalculer)
-  - calculated → "Approve" (hrm.payroll.execute)
-  - approved → "Post" (crée FinanceEntries)
-  - posted → "Disburse" (déclenche PaymentDisbursement par ligne)
+Onglet Adjustments :
+  - Table : employee | originalAmount | adjustedAmount | reason | adjustedBy | createdAt
+  - Source : PayrollAdjustment joint via getPayrollRunDetail include
+  - Action : "Revert" si statut run encore éditable (hrm.payroll.write) — uniquement si engine supporte
 
-Commit : feat(finance): payroll runs UI — ref DH3
+Onglet Logs :
+  - Table read-only : actionType | message | actorName | createdAt | detailJson (collapsed)
+  - Source : PayrollRunLog joint via getPayrollRunDetail include
+  - Filtres : type d'événement
+
+Onglet Timesheets :
+  - Table : employee | workDate | hoursTotal | overtime | statusCode
+  - Source : PayrollRunTimesheetLink joint via getPayrollRunDetail include
+  - Lien : cliquer sur ligne → ouvrir TimesheetEntry detail (modal légère ou navigation)
+
+Avant de coder : vérifier que getPayrollRunDetail include déjà ces 4 relations.
+Si non, étendre l'include dans le service (1 PR backend de support, scope minimal).
+
+Note : Logs (PayrollRunLog) et Timesheets (PayrollRunTimesheetLink)
+inclus dans ce commit mais classés nice-to-have — non bloquants
+pour la fermeture de DH3 (cf. DF8/DF9 si déprioritisés en cours de sprint).
+
+Commit : feat(finance): payroll run detail tabs (calculations, adjustments, logs, timesheets) — ref DH3
 ```
 
 **Critères de sortie F2.4**
-- [ ] Exécuter un run → ajuster une ligne → approuver → poster → disburser, end-to-end
-- [ ] Logs et notifications visibles
-- [ ] Lien timesheets fonctionnel
+- [ ] 4 nouveaux onglets rendus avec données réelles
+- [ ] `getPayrollRunDetail` include les 4 relations (vérifier ou patcher service backend)
+- [ ] Navigation tabs fluide (pas de re-fetch inutile)
 
-### F2.5 — Migration `FinancePayrollPage.tsx`
+### F2.5 — Workflow UX : Approve vs Post vs Disburse
 
-**Objectif :** L'ancien `FinancePayrollPage.tsx` (618 L, branché `PayrollBatch`) devient le shell qui héberge Schedules/Runs/Salary Profiles via tabs.
+**Objectif :** Rendre le cycle de vie d'un run lisible — l'utilisateur sait à chaque instant quel bouton presser et pourquoi.
 
 ```
-Options :
-  (a) Réécrire FinancePayrollPage.tsx en orchestrateur (tabs : Runs / Schedules / Salary Profiles / Legacy Batches optionnel)
-  (b) Supprimer FinancePayrollPage.tsx, router activeView 'finance-hrm-payroll' vers PayrollRunsListPage
-Recommandation : (a) pour garder un point d'entrée unique sidebar
-Commit : refactor(finance): replace PayrollBatch UI with PayrollRun — ref DH3
+Cycle de vie réel (vérifié dans engine) :
+  PayrollRun.postingStatus : pending_validation | auto_posting | posted
+  PayrollBatch.status      : draft | approved | reconciled
+  PayrollDisbursementLine.status : pending | paid | reconciled
+
+États affichés :
+  1. Run "pending_validation"
+     → bouton primaire "Post run" (gate hrm.payroll.execute)
+        ⤷ déclenche approvePayrollBatch (interne) + run.postingStatus = posted
+     → bouton secondaire "Adjust line" (sur chaque PayrollRunEmployee, gate hrm.payroll.write)
+  2. Run "posted"
+     → bouton primaire "Disburse all pending" (gate hrm.payroll.execute)
+        ⤷ boucle disbursePayrollLine sur lignes status=pending
+     → ou bouton ligne par ligne "Disburse" sur PayrollDisbursementLine
+  3. Run "posted" + batch.status = "approved" + toutes lignes disbursed
+     → bouton "Reconcile batch" (gate hrm.payroll.execute) → batch.status = reconciled
+
+Implémentation :
+  - StateBadge component : couleurs par état (gris/jaune/vert)
+  - ActionBar component : affiche uniquement les boutons valides pour l'état courant
+  - Guards : disabled + tooltip explicatif si action invalide pour l'état
+  - Confirm modal sur actions destructives (Post + Reconcile)
+
+Commit : feat(finance): payroll workflow UX clarifié — ref DH3
 ```
 
 **Critères de sortie F2.5**
-- [ ] Sidebar "HRM Payroll" affiche le nouveau shell
-- [ ] Aucun composant UI ne lit/écrit `PayrollBatch` (audit grep)
-- [ ] Routes backend `/payroll-batches` restent mais non consommées UI (annotation TODO backlog)
+- [ ] Aucun bouton "actif" qui mène à 400/409 backend (guard front-strict)
+- [ ] Tooltip sur chaque bouton disabled (explique pourquoi)
+- [ ] Confirm modal sur Post et Reconcile
+- [ ] StateBadge consistent sur tout le module
 
-### F2.6 — Tests d'intégration
+### F2.6 — Découpage de `FinancePayrollPage.tsx` (618 L → composants ciblés)
 
-**Fichier :** `backend/tests/finance/finance-payroll-engine.test.mjs`
+**Objectif :** Page principale devient un orchestrateur léger ; chaque section a son fichier.
 
 ```
-Tests requis :
-  1. executePayrollRun → run draft créé avec employees + calculations
-  2. adjustPayrollRunEmployee → adjustment ajouté, totaux recalculés
-  3. approvePayrollRun → status = approved, log écrit
-  4. postPayrollRun → FinanceEntries créées, status = posted
-  5. disbursePayrollLine → PaymentDisbursement créé
-  6. runDuePayrollSchedules → schedules échus déclenchés, autres ignorés
-  7. RBAC : 403 sans hrm.payroll.execute sur approve/post/disburse
-Commit : test(finance): payroll engine integration — close DH3
+Cible :
+  src/components/finance/payroll/
+    PayrollDashboard.tsx          # shell + tabs Runs / Schedules / Salary Profiles
+    PayrollRunsList.tsx           # liste runs + filtres
+    PayrollRunDetail.tsx          # detail + 7 onglets (F2.4)
+    PayrollRunActionBar.tsx       # workflow buttons (F2.5)
+    PayrollSchedulesPanel.tsx     # liste schedules + toggle + Run due (F2.3)
+    PayrollSalaryProfilesPanel.tsx # liste + modal CRUD (F2.3)
+    tabs/
+      EmployeesTab.tsx
+      CalculationsTab.tsx
+      AdjustmentsTab.tsx
+      LogsTab.tsx
+      TimesheetsTab.tsx
+      NotificationsTab.tsx
+      DisbursementsTab.tsx
+    modals/
+      AdjustLineModal.tsx
+      PostRunConfirmModal.tsx
+      ReconcileBatchConfirmModal.tsx
+
+  src/components/FinancePayrollPage.tsx → wrapper minimal
+    (ou supprimé, sidebar route vers PayrollDashboard directement)
+
+Critère qualité :
+  - Aucun composant > 200 L
+  - Chaque tab ne lit que les données dont elle a besoin (props slicing)
+  - Hooks data-fetch dans le shell, pas dans les tabs (descendent en props)
+
+Commit : refactor(finance): split payroll page into focused components — ref DH3
 ```
 
 **Critères de sortie F2.6**
+- [ ] Tous les nouveaux fichiers < 200 L
+- [ ] `tsc --noEmit` ✓
+- [ ] Aucune régression UX vs avant (vérification manuelle des 5 actions clés)
+
+### F2.7 — Tests d'intégration
+
+**Fichier :** `backend/tests/finance/finance-payroll-workflow.test.mjs`
+
+```
+Pattern : isolé style pm-work-item-details-d2.test.mjs (RUN-prefixed users + teardown finally)
+
+Tests requis (7 assertions sur workflow complet) :
+  1. executePayrollRun → PayrollRun créé status=running puis completed, PayrollRunEmployee
+     créés pour users avec salaryProfile, PayrollBatch créé avec disbursement lines
+  2. adjustPayrollRunEmployee → PayrollAdjustment créé, PayrollRunEmployee.adjustedGrossPay
+     mis à jour, run.totalGrossPay recalculé, propagation à Payable + FinanceEntry
+  3. postPayrollRun → run.postingStatus = posted, batch.status = approved (via
+     approvePayrollBatch interne), PayrollRunLog 'run_posted' écrit
+  4. disbursePayrollLine → PaymentDisbursement créé, PayrollDisbursementLine.status = paid
+  5. reconcilePayrollBatch → batch.status = reconciled (après toutes lignes disbursed)
+  6. runDuePayrollSchedules → seuls les schedules avec nextRunAt <= now sont exécutés,
+     les autres ignorés (count assertion)
+  7. RBAC : 403 sans hrm.payroll.execute sur postPayrollRun (assertPermission mock + user orphan)
+
+Setup : créer 1 schedule actif + 2 users avec EmployeeSalaryProfile + TimesheetEntry approvés
+Teardown : ordre FK strict (financeEntry → payable → disbursementLine → batch →
+            payrollAdjustment → payrollRunEmployee → payrollRun → payrollPeriod →
+            schedule → salaryProfile → timesheet → user)
+
+Commit : test(finance): payroll workflow integration 7/7 — close DH3
+```
+
+**Critères de sortie F2.7**
 - [ ] 7/7 assertions ✓
-- [ ] Runnable via `npm run test:finance-payroll`
+- [ ] Runnable via `npm run test:finance-payroll-workflow`
+- [ ] Teardown propre (aucune ligne orpheline après run)
 
 ### Critères de sortie Sprint Finance-2
 
-- [ ] Écrans Schedules, Runs (list + detail), Salary Profiles opérationnels
-- [ ] Workflow Execute → Adjust → Approve → Post → Disburse end-to-end UI
-- [ ] Aucun composant UI ne lit `PayrollBatch`
-- [ ] Tests F2.6 verts (7/7)
+- [ ] API client `payrollEngineApi.ts` extrait + types canoniques (F2.2)
+- [ ] Schedules + Salary Profiles UX gaps comblés (F2.3)
+- [ ] 4 onglets Run detail manquants ajoutés (F2.4)
+- [ ] Workflow UX clarifié — boutons + guards + confirms (F2.5)
+- [ ] Page découpée en composants < 200 L (F2.6)
+- [ ] Tests F2.7 verts (7/7)
 - [ ] **DH3 fermée** — entrée déplacée vers §9 Dettes fermées
 
 ---
@@ -726,6 +850,8 @@ Commit : test(finance): budgets integration — close Finance-4
 | DF5 | Aucun `TaxRate` / `TaxLine` (TVA, IPR) | Sprint Finance-Fiscal |
 | DF6 | Aucun `FxRate` (multi-currency réel) | Sprint Finance-Fiscal |
 | DF7 | Aucun `CashFlowForecast` | Sprint Finance-Forecast |
+| DF8 | Route `DELETE /api/v1/finance/hrm/payroll-schedules/:id` absente (toggle isActive uniquement via POST upsert) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
+| DF9 | Route `GET /api/v1/finance/hrm/payroll-periods` absente (sélecteur autonome côté UI fait via inférence depuis `run.payrollPeriodId`) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
 
 ---
 
