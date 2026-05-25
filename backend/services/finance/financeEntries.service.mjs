@@ -2039,8 +2039,12 @@ export async function createPayrollBatch(prisma, payload) {
   });
 }
 
-export async function approvePayrollBatch(prisma, payrollBatchId, payload) {
-  return prisma.$transaction(async (tx) => {
+export async function approvePayrollBatch(prismaOrTx, payrollBatchId, payload) {
+  // Accept either a PrismaClient (opens its own tx) or a TransactionClient
+  // (reuses the caller's tx). postPayrollRun passes its tx in directly —
+  // the previous unconditional prisma.$transaction(...) crashed there
+  // because TransactionClient lacks $transaction. Detected by F2.7 test 3.
+  const run = async (tx) => {
     const batch = await tx.payrollBatch.findUnique({
       where: { id: payrollBatchId },
       include: { lines: true },
@@ -2100,7 +2104,11 @@ export async function approvePayrollBatch(prisma, payrollBatchId, payload) {
     });
 
     return getPayrollBatchDetail(tx, payrollBatchId);
-  });
+  };
+  if (typeof prismaOrTx.$transaction === 'function') {
+    return prismaOrTx.$transaction(run);
+  }
+  return run(prismaOrTx);
 }
 
 export async function disbursePayrollLine(prisma, payrollLineId, payload) {
