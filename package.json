@@ -26,7 +26,8 @@
         "test:hrm-regression": "node backend/tests/hrm/hrm-regression.test.mjs",
         "test:pm-work-item-details": "node backend/tests/pm/pm-work-item-details-d2.test.mjs",
         "test:finance-payroll-workflow": "node backend/tests/finance/finance-payroll-workflow.test.mjs",
-        "test:finance-bills": "node backend/tests/finance/finance-bills.test.mjs"
+        "test:finance-bills": "node backend/tests/finance/finance-bills.test.mjs",
+        "test:finance-invoices": "node backend/tests/finance/finance-invoices.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"
