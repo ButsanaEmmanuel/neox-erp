@@ -139,49 +139,49 @@ Le module Finance n'avait pas de plan dédié jusqu'ici. Ce document devient la 
 
 ---
 
-### F1.1 — Route backend `PATCH /api/v1/pm/projects/:id/work-items/:itemId/details`
+### F1.1 — Audit & patch minimal du backend existant
 
-**Objectif :** Permettre depuis l'UI télécom de patcher `ticket_number`, `operational_manual_fields`, `acceptance_manual_fields` d'un `WorkItem` ET de re-déclencher la sync finance (création/update `FinanceEntry` correspondante).
+**Découverte 2026-05-25 (avant écriture)** : la route et le service existent déjà.
+- Route : `PATCH /api/v1/pm/projects/:id/work-items/:itemId/details` à `backend/auth-server.mjs:2133-2169`, gated `pm.workItems.write`
+- Service : `saveProjectItemDetails` dans `backend/services/projects/projectItemDetails.service.mjs:218` — 593 L, mature
+- Sync finance déjà appelée inconditionnellement à `:398` via `syncProjectItemStateToFinance` (idempotente)
+- Validation D9 (`assertOptional*`) déjà en place à `auth-server.mjs:2142-2153`, retourne 400 propre
+
+**Conséquence** : F1.1 n'est plus une création mais un **audit + patch ciblé** sur deux 404s.
+
+**Test "retry only" validé par lecture (2026-05-25)** : `PATCH /details` avec body vide → tous les `input.X` sont undefined → `next === current` (pattern `input.X !== undefined ? input.X : current.X` lignes 274-288) → upsert idempotent → `syncProjectItemStateToFinance` re-tentée inconditionnellement. Le bouton Retry envoie juste `{ actorUserId, actorDisplayName }`. **Aucune modification de `saveProjectItemDetails` requise sur la logique de sync.**
+
+**Décisions actées avec l'utilisateur (2026-05-25)** :
+- **Single check `pm.workItems.write` conservé** — la sync finance est un side-effect implicite du save, pas une opération RBAC séparée. Pas de double check `pm.finance.execute`.
+- **Pas de flag `retryFinanceSync` dans le body** — le retry = un save sans diff, le service re-tente la sync à chaque appel.
+- **Patch 404 uniquement** — aligner les 2 `throw new Error()` (`Project not found`, `Work item not found`) sur le pattern `err(404, 'NOT_FOUND', { id })` de `workItemHierarchy.service.mjs`. Scope strict.
+- **Payload réel de la route** : `poUnitPrice, ticketNumber, contractorPayableAmount, qaStatus, acceptanceStatus, importedFields, operationalManualFields, acceptanceManualFields` (camelCase, pas snake_case comme l'ancien plan). Mapping snake/camel fait côté `pmApi.ts` (F1.2).
 
 #### Tâches
 
-**T1 — Service `workItemDetails.service.mjs`**
+**T1 — Patch 404 dans `saveProjectItemDetails` ✅**
 ```
-Fichier : backend/services/pm/workItemDetails.service.mjs
-Exports :
-  - patchWorkItemDetails(prisma, projectId, itemId, { ticket_number?, operational_manual_fields?, acceptance_manual_fields?, actor })
-  - retryFinanceSync(prisma, projectId, itemId, actor)
-Logique :
-  - Vérifier WorkItem existe + appartient au projet (404 sinon)
-  - Patch champs autorisés uniquement (whitelist strip silencieux — champs hors whitelist ignorés sans erreur)
-  - Recalcul side-effect finance : appeler syncProjectItemStateToFinance(tx, { projectId, workItemId, state, actor }) — existe déjà dans financeEntries.service.mjs:419, déjà scopé par workItemId
-    * NE PAS utiliser backfillProjectFinanceEntries (signature (prisma) sans filtre → recalcule tout le projet, hors scope)
-    * Si syncProjectItemStateToFinance s'avère insuffisant côté payload, créer backfillSingleWorkItemFinanceEntry(prisma, projectId, itemId, actor) dans le même service — PAS de workaround
-  - Émettre SSE work_item_updated (cohérent avec routes existantes)
-  - Activity log dans ProjectItemActivity
-Commit : feat(pm): workItemDetails service — ref D2
-```
-
-**T2 — Route Express-like dans `auth-server.mjs` (ou nouveau `backend/routes/pm/workItemDetails.routes.mjs`)**
-```
-PATCH /api/v1/pm/projects/:id/work-items/:itemId/details
-  → assertPermission(ctx, 'pm.workItems.write')        # gate patch des champs
-  → si body.retryFinanceSync === true :
-       assertPermission(ctx, 'pm.finance.execute')     # gate supplémentaire pour la sync
-  → body : { ticket_number?, operational_manual_fields?, acceptance_manual_fields?, retryFinanceSync? }
-  → 200 { workItem, financeEntry? }
-  → 403 si pm.workItems.write manquante (toujours)
-  → 403 si retryFinanceSync demandé sans pm.finance.execute
-  → 404 si item/projet inconnu
-Commit : feat(pm): PATCH work-item details route — ref D2
+Fichier : backend/services/projects/projectItemDetails.service.mjs
+Avant :
+  if (!project) throw new Error('Project not found...')
+  if (!workItem) throw new Error('Work item not found...')
+Après :
+  if (!project) throw notFound(`Project '${id}' not found.`, { id })
+  if (!workItem) throw notFound(`Work item '${id}' not found in project '${pid}'.`, { id, projectId: pid })
+Avec helper local en tête de fichier :
+  function err(statusCode, code, message, extra = {}) { ... }
+  const notFound = (msg, extra) => err(404, 'NOT_FOUND', msg, extra)
+Scope strict : ces 2 throw uniquement. Aucune autre modification du service.
+Le handler top-level `auth-server.mjs:2253` lit `err.statusCode` → réponse HTTP 404 propre.
+Commit : fix(pm): proper 404 on project/workItem not found — ref D2
 ```
 
 **Critères de sortie F1.1**
-- [ ] Service créé avec whitelist strip silencieux (pas de 400 sur champ inconnu)
-- [ ] Route gated `pm.workItems.write` (patch champs) + `pm.finance.execute` conditionnel (si `retryFinanceSync: true`)
-- [ ] Réutilise `syncProjectItemStateToFinance` existant — OU crée `backfillSingleWorkItemFinanceEntry` si payload incompatible
-- [ ] SSE émis (`work_item_updated`)
-- [ ] Activity log enregistré
+- [x] Audit fait — route + service existants identifiés, payload réel documenté
+- [x] Test "retry only" validé par lecture (body vide → sync re-tentée)
+- [x] Helper `notFound` ajouté, 2 `throw new Error` remplacés
+- [x] `node --check projectItemDetails.service.mjs` ✓
+- [ ] Test runtime 404 (validé en F1.4)
 
 ### F1.2 — Brancher le store frontend
 
@@ -237,12 +237,12 @@ Commit : feat(pm): retry finance sync UX — ref D2
 Tests requis :
   1. PATCH /details succès — ticket_number + manual_fields mis à jour + FinanceEntry recréée
   2. PATCH /details avec retryFinanceSync: true — FinanceEntry resynchronisée même sans changement de champs
-  3a. 403 patch sans pm.workItems.write (user readonly)
-  3b. 403 retryFinanceSync: true sans pm.finance.execute (user avec write mais sans execute)
-  4. 404 item inconnu (itemId valide mais pas dans le projet)
-  5. 404 projet inconnu
-  6. Whitelist strip silencieux : body inclut `status: "done"` → ignoré, 200 retourné, status DB inchangé (PAS de 400)
-  7. SSE work_item_updated émis (mock listener)
+  3. 403 sans pm.workItems.write (user readonly) — single check, pas de double avec finance.execute (décision actée F1.1)
+  4. 404 item inconnu (workItemId valide mais pas dans le projet ciblé) → err.statusCode=404, err.code='NOT_FOUND'
+  5. 404 projet inconnu → idem
+  6. Retry-only : body `{ actorUserId, actorDisplayName }` (zéro champ data) → 200, FinanceEntry re-synchronisée même sans diff (syncProjectItemStateToFinance idempotente)
+  7. Champ hors payload (ex: body inclut `status: "done"`) → ignoré silencieusement par le destructuring ligne 2155-2166, 200 retourné, ProjectItemState.status inchangé
+  8. SSE work_item_updated émis (sseBroadcast à projectItemDetails.service.mjs:585) — vérifier via mock listener
 Commit : test(pm): work-item details integration — close D2
 ```
 
