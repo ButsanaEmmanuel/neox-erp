@@ -85,6 +85,18 @@ interface ProjectStore {
     }>,
   ) => Promise<void>;
   deleteMilestone: (projectId: string, milestoneId: string) => Promise<void>;
+  createSubMilestone: (
+    projectId: string,
+    parentId: string,
+    data: {
+      title: string;
+      dueDate: string;
+      description?: string;
+      status?: 'planned' | 'in_progress' | 'done' | 'blocked';
+      ownerId?: string | null;
+      completionPct?: number;
+    },
+  ) => Promise<void>;
 }
 
 const MOCK_PROJECTS: Project[] = [];
@@ -456,28 +468,24 @@ export const useProjectStore = create<ProjectStore>()(
         },
 
         updateMilestone: async (projectId, milestoneId, data) => {
-          const updated = await projectApi.updateMilestone(projectId, milestoneId, data);
-          set((state) => {
-            const list = state.milestones[projectId] ?? [];
-            const next = list
-              .map((m) => (m.id === milestoneId ? updated : m))
-              .sort((a, b) => {
-                if (!a.dueDate) return 1;
-                if (!b.dueDate) return -1;
-                return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-              });
-            return { milestones: { ...state.milestones, [projectId]: next } };
-          });
+          await projectApi.updateMilestone(projectId, milestoneId, data);
+          // DH12 — un PATCH status peut roll-up jusqu'à la racine ;
+          // refetch garantit que les parents reflètent le nouveau status.
+          await get().fetchProjectMilestones(projectId);
         },
 
         deleteMilestone: async (projectId, milestoneId) => {
           await projectApi.deleteMilestone(projectId, milestoneId);
-          set((state) => ({
-            milestones: {
-              ...state.milestones,
-              [projectId]: (state.milestones[projectId] ?? []).filter((m) => m.id !== milestoneId),
-            },
-          }));
+          // DH12 — l'arbre peut contenir le milestone à n'importe quelle profondeur.
+          // Refetch plutôt qu'un filter à plat (qui ne traverse pas children).
+          await get().fetchProjectMilestones(projectId);
+        },
+
+        createSubMilestone: async (projectId, parentId, data) => {
+          await projectApi.createSubMilestone(parentId, data);
+          // L'API retourne l'enfant mais le store stocke un arbre par racine ;
+          // refetch garantit cohérence + rollup parent côté backend.
+          await get().fetchProjectMilestones(projectId);
         },
 
         addScopeItem: async (projectId, type, text) => {

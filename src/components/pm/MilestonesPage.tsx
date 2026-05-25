@@ -10,10 +10,13 @@ import {
   Link2,
   Check,
   AlertCircle,
+  AlertTriangle,
   Loader2,
   X,
   Calendar,
   User,
+  ChevronRight,
+  ChevronDown,
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useProjectStore } from '../../store/pm/useProjectStore';
@@ -23,6 +26,10 @@ import { ApiError } from '../../lib/apiClient';
 import type { Milestone, MilestoneStatus } from '../../types/pm';
 
 // ── Constants ──────────────────────────────────────────────────────────────
+
+// DH12 — root = level 1, max = level 3. depth prop est 0-based (racine = 0).
+const MAX_DEPTH = 3;
+const INDENT_REM = 1.5;
 
 const STATUS_OPTIONS: { value: MilestoneStatus; label: string }[] = [
   { value: 'planned', label: 'Planned' },
@@ -56,6 +63,20 @@ function isoToInputDate(iso: string): string {
   return iso ? new Date(iso).toISOString().slice(0, 10) : '';
 }
 
+// DH12 — depth-first flatten preserving order. Used for header counts and
+// for the dependency picker pool (must include nested milestones).
+function flattenTree(nodes: Milestone[]): Milestone[] {
+  const out: Milestone[] = [];
+  const walk = (list: Milestone[]) => {
+    for (const n of list) {
+      out.push(n);
+      if (n.children?.length) walk(n.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
 function statusLabel(s: MilestoneStatus): string {
   return STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s;
 }
@@ -80,6 +101,7 @@ const MilestonesPage: React.FC = () => {
   const loadingByProject = useProjectStore((s) => s.milestonesLoading);
   const fetchProjectMilestones = useProjectStore((s) => s.fetchProjectMilestones);
   const createMilestone = useProjectStore((s) => s.createMilestone);
+  const createSubMilestone = useProjectStore((s) => s.createSubMilestone);
   const updateMilestone = useProjectStore((s) => s.updateMilestone);
   const deleteMilestone = useProjectStore((s) => s.deleteMilestone);
   const projectMembersByProject = useProjectStore((s) => s.projectMembers);
@@ -91,6 +113,7 @@ const MilestonesPage: React.FC = () => {
   const members = id ? (projectMembersByProject[id] ?? []) : [];
 
   const [editing, setEditing] = useState<Milestone | 'new' | null>(null);
+  const [subParentFor, setSubParentFor] = useState<Milestone | null>(null);
   const [depsModalFor, setDepsModalFor] = useState<Milestone | null>(null);
   const [deleting, setDeleting] = useState<Milestone | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -106,11 +129,15 @@ const MilestonesPage: React.FC = () => {
     }
   }, [id]);
 
+  // DH12 — flatten the tree once (used for header counts + dep picker pool).
+  const flatMilestones = useMemo(() => flattenTree(milestones), [milestones]);
+  const roots = useMemo(() => milestones.filter((m) => !m.parentId), [milestones]);
+
   const counts = useMemo(() => {
     const c = { planned: 0, in_progress: 0, done: 0, blocked: 0 };
-    for (const m of milestones) c[m.status] += 1;
+    for (const m of flatMilestones) c[m.status] += 1;
     return c;
-  }, [milestones]);
+  }, [flatMilestones]);
 
   if (!id) {
     return <div className="p-8 text-sm text-muted">Select a project to view milestones.</div>;
@@ -186,46 +213,34 @@ const MilestonesPage: React.FC = () => {
             />
           )}
 
-          {/* Timeline */}
+          {/* Timeline (DH12 — recursive tree) */}
           {loaded && milestones.length > 0 && (
-            <ol className="relative pl-8">
-              {/* Rail vertical */}
+            <div className="relative pl-8">
+              {/* Rail vertical (racines uniquement) */}
               <div className="absolute left-2 top-1.5 bottom-1.5 w-px bg-border/60" aria-hidden />
 
               <AnimatePresence initial={false}>
-                {milestones.map((m) => (
-                  <motion.li
+                {roots.map((m) => (
+                  <MilestoneNode
                     key={m.id}
-                    layout
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    transition={{ duration: 0.18 }}
-                    className="relative mb-5 last:mb-0"
-                  >
-                    {/* Dot */}
-                    <span
-                      className={`absolute -left-[26px] top-3.5 h-3 w-3 rounded-full ring-4 ring-app ${STATUS_STYLES[m.status].dot}`}
-                      aria-hidden
-                    />
-                    <MilestoneCard
-                      milestone={m}
-                      members={members}
-                      onEdit={() => setEditing(m)}
-                      onDelete={() => { setDeleting(m); setDeleteError(null); }}
-                      onShowDeps={() => setDepsModalFor(m)}
-                      onCommitCompletion={async (pct) => {
-                        try {
-                          await updateMilestone(id, m.id, { completionPct: pct });
-                        } catch (err) {
-                          setErrorMsg(err instanceof Error ? err.message : 'Update failed');
-                        }
-                      }}
-                    />
-                  </motion.li>
+                    milestone={m}
+                    depth={0}
+                    members={members}
+                    onEdit={(node) => setEditing(node)}
+                    onDelete={(node) => { setDeleting(node); setDeleteError(null); }}
+                    onShowDeps={(node) => setDepsModalFor(node)}
+                    onAddSub={(node) => setSubParentFor(node)}
+                    onCommitCompletion={async (node, pct) => {
+                      try {
+                        await updateMilestone(id, node.id, { completionPct: pct });
+                      } catch (err) {
+                        setErrorMsg(err instanceof Error ? err.message : 'Update failed');
+                      }
+                    }}
+                  />
                 ))}
               </AnimatePresence>
-            </ol>
+            </div>
           )}
         </div>
       </div>
@@ -235,7 +250,7 @@ const MilestonesPage: React.FC = () => {
         <MilestoneFormModal
           mode={editing === 'new' ? 'create' : 'edit'}
           initial={editing === 'new' ? null : editing}
-          allMilestones={milestones}
+          allMilestones={flatMilestones}
           members={members}
           onClose={() => setEditing(null)}
           onSubmit={async (data) => {
@@ -246,6 +261,36 @@ const MilestonesPage: React.FC = () => {
                 await updateMilestone(id, editing.id, data);
               }
               setEditing(null);
+            } catch (err) {
+              const msg = err instanceof ApiError
+                ? `${err.message}${err.payload && typeof err.payload === 'object' && 'code' in err.payload ? ` [${(err.payload as { code?: string }).code}]` : ''}`
+                : err instanceof Error ? err.message : 'Save failed';
+              throw new Error(msg);
+            }
+          }}
+        />
+      )}
+
+      {/* DH12 — Sub-milestone create modal */}
+      {subParentFor && (
+        <MilestoneFormModal
+          mode="create-sub"
+          initial={null}
+          parentTitle={subParentFor.title}
+          allMilestones={flatMilestones}
+          members={members}
+          onClose={() => setSubParentFor(null)}
+          onSubmit={async (data) => {
+            try {
+              await createSubMilestone(id, subParentFor.id, {
+                title: data.title,
+                dueDate: data.dueDate,
+                description: data.description,
+                status: data.status,
+                ownerId: data.ownerId,
+                completionPct: data.completionPct,
+              });
+              setSubParentFor(null);
             } catch (err) {
               const msg = err instanceof ApiError
                 ? `${err.message}${err.payload && typeof err.payload === 'object' && 'code' in err.payload ? ` [${(err.payload as { code?: string }).code}]` : ''}`
@@ -301,6 +346,68 @@ const MilestonesPage: React.FC = () => {
   );
 };
 
+// ── Recursive Node (DH12) ─────────────────────────────────────────────────
+
+interface NodeHandlers {
+  members: MemberLike[];
+  onEdit: (m: Milestone) => void;
+  onDelete: (m: Milestone) => void;
+  onShowDeps: (m: Milestone) => void;
+  onAddSub: (m: Milestone) => void;
+  onCommitCompletion: (m: Milestone, pct: number) => Promise<void>;
+}
+
+const MilestoneNode: React.FC<{
+  milestone: Milestone;
+  depth: number;
+} & NodeHandlers> = ({ milestone, depth, ...handlers }) => {
+  const [expanded, setExpanded] = useState(true);
+  const children = milestone.children ?? [];
+  const hasChildren = children.length > 0;
+  const doneCount = children.filter((c) => c.status === 'done').length;
+  const hasBlockedChild = children.some((c) => c.status === 'blocked');
+  // depth 0-based ; max niveau = MAX_DEPTH (1-based). canAddSub si depth+1 < MAX_DEPTH.
+  const canAddSub = depth < MAX_DEPTH - 1;
+
+  return (
+    <>
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        transition={{ duration: 0.18 }}
+        className="relative mb-5 last:mb-0"
+        style={{ marginLeft: `${depth * INDENT_REM}rem` }}
+      >
+        <span
+          className={`absolute -left-[26px] top-3.5 h-3 w-3 rounded-full ring-4 ring-app ${STATUS_STYLES[milestone.status].dot}`}
+          aria-hidden
+        />
+        <MilestoneCard
+          milestone={milestone}
+          members={handlers.members}
+          hasChildren={hasChildren}
+          expanded={expanded}
+          onToggleExpanded={hasChildren ? () => setExpanded((x) => !x) : undefined}
+          childDoneCount={doneCount}
+          childTotalCount={children.length}
+          hasBlockedChild={hasBlockedChild}
+          canAddSub={canAddSub}
+          onAddSub={() => handlers.onAddSub(milestone)}
+          onEdit={() => handlers.onEdit(milestone)}
+          onDelete={() => handlers.onDelete(milestone)}
+          onShowDeps={() => handlers.onShowDeps(milestone)}
+          onCommitCompletion={(pct) => handlers.onCommitCompletion(milestone, pct)}
+        />
+      </motion.div>
+      {hasChildren && expanded && children.map((c) => (
+        <MilestoneNode key={c.id} milestone={c} depth={depth + 1} {...handlers} />
+      ))}
+    </>
+  );
+};
+
 // ── Card ───────────────────────────────────────────────────────────────────
 
 interface MemberLike { userId: string; userName: string }
@@ -308,11 +415,23 @@ interface MemberLike { userId: string; userName: string }
 const MilestoneCard: React.FC<{
   milestone: Milestone;
   members: MemberLike[];
+  hasChildren: boolean;
+  expanded: boolean;
+  onToggleExpanded?: () => void;
+  childDoneCount: number;
+  childTotalCount: number;
+  hasBlockedChild: boolean;
+  canAddSub: boolean;
+  onAddSub: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onShowDeps: () => void;
   onCommitCompletion: (pct: number) => Promise<void>;
-}> = ({ milestone, members, onEdit, onDelete, onShowDeps, onCommitCompletion }) => {
+}> = ({
+  milestone, members, hasChildren, expanded, onToggleExpanded,
+  childDoneCount, childTotalCount, hasBlockedChild, canAddSub,
+  onAddSub, onEdit, onDelete, onShowDeps, onCommitCompletion,
+}) => {
   const owner = members.find((u) => u.userId === milestone.ownerId);
   const due = milestone.dueDate ? new Date(milestone.dueDate) : null;
   const overdue = due && milestone.status !== 'done' && due.getTime() < Date.now();
@@ -323,8 +442,27 @@ const MilestoneCard: React.FC<{
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
+            {onToggleExpanded ? (
+              <button
+                onClick={onToggleExpanded}
+                className="p-0.5 -ml-1 rounded text-muted hover:text-primary hover:bg-surface transition-colors flex-none"
+                aria-label={expanded ? 'Collapse sub-milestones' : 'Expand sub-milestones'}
+              >
+                {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              </button>
+            ) : null}
             <h3 className="text-[14px] font-semibold text-primary truncate">{milestone.title}</h3>
             <StatusBadge status={milestone.status} />
+            {hasChildren && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface text-secondary border border-border/60">
+                {childDoneCount}/{childTotalCount} done
+              </span>
+            )}
+            {hasBlockedChild && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-rose-400" title="One or more sub-milestones are blocked">
+                <AlertTriangle size={12} /> Child blocked
+              </span>
+            )}
             {overdue && (
               <span className="inline-flex items-center gap-1 text-[11px] text-rose-400">
                 <AlertCircle size={12} /> Overdue
@@ -363,6 +501,15 @@ const MilestoneCard: React.FC<{
 
         <div className="flex items-center gap-1 flex-none">
           <CompletionPopover value={milestone.completionPct} onCommit={onCommitCompletion} />
+          <button
+            onClick={canAddSub ? onAddSub : undefined}
+            disabled={!canAddSub}
+            title={canAddSub ? 'Add sub-milestone' : `Maximum nesting depth (${MAX_DEPTH}) reached`}
+            className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted"
+            aria-label="Add sub-milestone"
+          >
+            <Plus size={14} />
+          </button>
           <button
             onClick={onEdit}
             className="p-1.5 rounded-lg text-muted hover:text-primary hover:bg-surface transition-colors"
@@ -471,13 +618,14 @@ interface MilestoneFormData {
 }
 
 const MilestoneFormModal: React.FC<{
-  mode: 'create' | 'edit';
+  mode: 'create' | 'edit' | 'create-sub';
   initial: Milestone | null;
+  parentTitle?: string;
   allMilestones: Milestone[];
   members: MemberLike[];
   onClose: () => void;
   onSubmit: (data: Partial<MilestoneFormData> & { title: string; dueDate: string }) => Promise<void>;
-}> = ({ mode, initial, allMilestones, members, onClose, onSubmit }) => {
+}> = ({ mode, initial, parentTitle, allMilestones, members, onClose, onSubmit }) => {
   const [form, setForm] = useState<MilestoneFormData>({
     title: initial?.title ?? '',
     dueDate: initial?.dueDate ? isoToInputDate(initial.dueDate) : '',
@@ -521,7 +669,7 @@ const MilestoneFormModal: React.FC<{
     <Modal
       isOpen
       onClose={onClose}
-      title={mode === 'create' ? 'New Milestone' : 'Edit Milestone'}
+      title={mode === 'create' ? 'New Milestone' : mode === 'create-sub' ? `New Sub-milestone of "${parentTitle ?? ''}"` : 'Edit Milestone'}
       size="md"
       footer={
         <>
@@ -537,7 +685,7 @@ const MilestoneFormModal: React.FC<{
             className="px-4 py-2 rounded-lg bg-brand text-brand-fg text-[13px] font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity inline-flex items-center gap-2"
           >
             {submitting && <Loader2 size={14} className="animate-spin" />}
-            {mode === 'create' ? 'Create' : 'Save'}
+            {mode === 'edit' ? 'Save' : 'Create'}
           </button>
         </>
       }
@@ -624,6 +772,7 @@ const MilestoneFormModal: React.FC<{
           />
         </div>
 
+        {mode !== 'create-sub' && (
         <div>
           <label className="block text-[11px] text-muted mb-1.5 uppercase tracking-wider">
             Depends on ({form.dependsOnIds.length})
@@ -655,6 +804,7 @@ const MilestoneFormModal: React.FC<{
             </div>
           )}
         </div>
+        )}
       </div>
     </Modal>
   );

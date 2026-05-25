@@ -312,6 +312,7 @@ export interface MilestoneDependencyEdge {
 export interface Milestone {
   id: string;
   projectId: string;
+  parentId?: string | null;
   title: string;
   description?: string | null;
   dueDate: string;
@@ -323,6 +324,7 @@ export interface Milestone {
   createdAt: string;
   updatedAt: string;
   dependencies: MilestoneDependencyEdge[];
+  children?: Milestone[];
 }
 
 
