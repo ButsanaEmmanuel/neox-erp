@@ -16,6 +16,7 @@ interface PaymentsResponse {
 
 interface CreatePaymentResponse {
     payment: PaymentDisbursementRecord;
+    payable: PayableRecord;
 }
 
 interface PayableDetailResponse {
