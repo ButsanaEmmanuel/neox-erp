@@ -185,3 +185,41 @@ export async function deleteMilestone(projectId: string, milestoneId: string): P
     { method: 'DELETE' },
   );
 }
+
+// ── Milestone hierarchy (DH12) ────────────────────────────────────────────
+
+export async function createSubMilestone(
+  parentId: string,
+  data: {
+    title: string;
+    dueDate: string;
+    description?: string;
+    status?: 'planned' | 'in_progress' | 'done' | 'blocked';
+    ownerId?: string | null;
+    completionPct?: number;
+  },
+): Promise<Milestone> {
+  const { milestone } = await apiRequest<{ milestone: Milestone }>(
+    `/api/v1/pm/milestones/${parentId}/sub-milestones`,
+    { method: 'POST', body: data },
+  );
+  return milestone;
+}
+
+export async function listSubMilestones(milestoneId: string): Promise<Milestone[]> {
+  const { subMilestones } = await apiRequest<{ subMilestones: Milestone[] }>(
+    `/api/v1/pm/milestones/${milestoneId}/sub-milestones`,
+  );
+  return subMilestones;
+}
+
+export async function moveSubMilestone(
+  milestoneId: string,
+  newParentId: string | null,
+): Promise<Milestone> {
+  const { milestone } = await apiRequest<{ milestone: Milestone }>(
+    `/api/v1/pm/milestones/${milestoneId}/parent`,
+    { method: 'PATCH', body: { parentId: newParentId } },
+  );
+  return milestone;
+}

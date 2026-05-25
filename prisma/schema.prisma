@@ -531,6 +531,7 @@ model ProjectScope {
 model Milestone {
   id              String    @id @default(cuid())
   projectId       String
+  parentId        String?
   title           String
   description     String?
   dueDate         DateTime
@@ -543,11 +544,14 @@ model Milestone {
   deletedAt       DateTime?
 
   project         Project                @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parent          Milestone?             @relation("MilestoneChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children        Milestone[]            @relation("MilestoneChildren")
   owner           User?                  @relation("MilestoneOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   dependencies    MilestoneDependency[]  @relation("MilestoneDependent")
   dependents      MilestoneDependency[]  @relation("MilestoneBlocker")
 
   @@index([projectId])
+  @@index([parentId])
   @@index([ownerId])
   @@index([isDeleted])
 }
