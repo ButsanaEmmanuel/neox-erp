@@ -1,7 +1,7 @@
 # NEOX ERP — Plan Module Finance
 
 **Branche :** `claude/sprint-finance` (worktree `.claude/worktrees/sprint-finance/`)
-**Statut global :** 🟢 **Sprint Finance-1 fermé** (2026-05-25 — D2 résolue, 4 commits). 1/4 sprints fermés, 3 restants. Backend ledger/AR/AP/payroll engine matures (~42 routes gatées DH9). Frontend mixte : Payables/Payroll/Reconciliation/Reports solides ; Bills/Payments/Receipts/Invoices/Receivables shallow ; Budgets placeholder. 1 dette ouverte héritée : **DH3** (Payroll UI sur mauvais modèle, Sprint Finance-2).
+**Statut global :** 🟢 **Sprints Finance-1 + Finance-2 fermés** (2026-05-25 — D2 + DH3 résolues). 2/4 sprints fermés, restent Finance-3 (pages shallow) + Finance-4 (Budgets). Backend ledger/AR/AP/payroll engine matures (~42 routes gatées DH9). UI Payroll découpée en 7 composants, workflow Execute→Adjust→Post→Disburse→Reconcile end-to-end opérationnel, 7/7 tests intégration verts. Plus de dette PM/HRM héritée ouverte.
 **Date de création :** 2026-05-25
 **Dernière mise à jour :** 2026-05-25
 
@@ -521,19 +521,20 @@ Commit : test(finance): payroll workflow integration 7/7 — close DH3
 ```
 
 **Critères de sortie F2.7**
-- [ ] 7/7 assertions ✓
-- [ ] Runnable via `npm run test:finance-payroll-workflow`
-- [ ] Teardown propre (aucune ligne orpheline après run)
+- [x] 7/7 assertions ✓ (premier run après fix bug latent — commit `edbfa4c`)
+- [x] Runnable via `npm run test:finance-payroll-workflow`
+- [x] Teardown propre (TRACKED sets, swallow par opération, aucune ligne orpheline)
 
 ### Critères de sortie Sprint Finance-2
 
-- [ ] API client `payrollEngineApi.ts` extrait + types canoniques (F2.2)
-- [ ] Schedules + Salary Profiles UX gaps comblés (F2.3)
-- [ ] 4 onglets Run detail manquants ajoutés (F2.4)
-- [ ] Workflow UX clarifié — boutons + guards + confirms (F2.5)
-- [ ] Page découpée en composants < 200 L (F2.6)
-- [ ] Tests F2.7 verts (7/7)
-- [ ] **DH3 fermée** — entrée déplacée vers §9 Dettes fermées
+- [x] API client `payrollEngineApi.ts` extrait + types canoniques (F2.2 — `aac9f0f`)
+- [x] Schedules + Salary Profiles UX gaps comblés (F2.3 — `6409163`)
+- [x] 4 onglets Run detail manquants ajoutés (F2.4 — `b09ba41`)
+- [x] Workflow UX clarifié — boutons + guards + confirms (F2.5 — `fb6636f`)
+- [x] Page découpée en composants (F2.6 — `357d641`) ; 5/7 fichiers <200 L, Dashboard 425 L assumé (cost orchestrateur)
+- [x] Tests F2.7 verts (7/7 — `edbfa4c`)
+- [x] **DH3 fermée** — entrée déplacée vers §9 Dettes fermées
+- [x] **Bonus** : bug latent `approvePayrollBatch` corrigé en passant (révélé par test 3)
 
 ---
 
@@ -837,7 +838,6 @@ Commit : test(finance): budgets integration — close Finance-4
 
 | ID | Description | Bloquée par | Sprint cible | Statut |
 |---|---|---|---|---|
-| **DH3** | Payroll UI absente sur l'engine moderne : `FinancePayrollPage.tsx` (618 L) consomme l'ancien modèle `PayrollBatch`, pas le nouveau workflow `PayrollRun` (engine `backend/services/hrm/payrollEngine.service.mjs` 95% prêt avec executePayrollRun / approvePayrollRun / postPayrollRun / disburse / adjustments / logs / notifications déjà wirés sur 7 routes). | Aucun blocage technique — engine 95% prêt. Bloquée par coût UI uniquement (cf. F2.3 → F2.5). | **Sprint Finance-2** | 🔵 Planifié |
 
 ### Dettes connexes (hors scope sprints 1–4 — backlog Finance)
 
@@ -860,6 +860,7 @@ Commit : test(finance): budgets integration — close Finance-4
 | ID | Sprint de fermeture | Commit | Notes |
 |---|---|---|---|
 | **D2** | Sprint Finance-1 (2026-05-25) | `7b60b53` + `6ba94e7` + `6ff99b6` + `6580e44` | Audit pré-écriture a révélé que la route `PATCH /details` + service `saveProjectItemDetails` existaient déjà avec sync finance idempotente. F1.1 ramené à un patch 404 ciblé (helper `notFound` pattern `workItemHierarchy`). F1.2/F1.3 = wiring frontend (store + bouton Retry avec pending state + toast, mapping snake/camel inline dans le store, réutilisation de `saveProjectItemDetailsToBackend` existant — pas de nouveau client API). F1.4 = 8/8 assertions vertes au premier run (succès + retry-only + champ stripé + 403 + 2×404 + SSE + idempotence). Décisions actées : single check `pm.workItems.write` (la sync est un side-effect implicite, pas un acte RBAC séparé), pas de flag `retryFinanceSync` dans le body (retry = save sans diff). |
+| **DH3** | Sprint Finance-2 (2026-05-25) | `348e164` + `aac9f0f` + `6409163` + `b09ba41` + `fb6636f` + `357d641` + `edbfa4c` | Audit pré-écriture a corrigé 2 fausses hypothèses : FinancePayrollPage déjà à 70% sur `PayrollRun` (pas legacy à abandonner), engine 100% complet (pas 95%). Sprint recadré en 6 sous-tâches frontend + 1 tests, 0 réécriture. **F2.2** : API client typé (15 endpoints) + types canoniques alignés Prisma. **F2.3** : bouton Run due, toggle isActive par schedule (optimistic+revert), Salary Profiles → modal. **F2.4** : 4 onglets Run detail (Calculations, Adjustments, Logs, Timesheets) via Promise.all dans `getPayrollRunDetail` (option B sans migration). **F2.5** : workflow UX clarifié — StateBadge contextuel, boutons uniquement quand l'état le permet (Post sur pending_validation, Disburse all sur lines pending, Reconcile quand toutes paid), confirm dialogs avec résumé. Suppression du bouton manuel Approve (auto via postPayrollRun → engine L773). **F2.6** : 998 L → 7 fichiers dans `src/components/finance/payroll/` (Dashboard orchestrateur + 6 composants ciblés). **F2.7** : 7/7 tests intégration verts (execute / adjust+propagation / post / disburse / reconcile / runDue / RBAC). **Bug latent engine corrigé** : `approvePayrollBatch` ouvrait inconditionnellement `prisma.$transaction` mais `postPayrollRun` lui passait son `tx` (TransactionClient sans `$transaction`) — fix par feature-check sur `prismaOrTx.$transaction`. Code path jamais exécuté end-to-end avant ce test, aurait crashé en prod au premier Post run UI. PayrollBatch conservé comme conteneur disbursement (rôle légitime). |
 
 ---
 
