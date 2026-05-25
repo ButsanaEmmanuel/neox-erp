@@ -1,7 +1,7 @@
 # NEOX ERP — Plan Module Finance
 
 **Branche :** `claude/sprint-finance` (worktree `.claude/worktrees/sprint-finance/`)
-**Statut global :** 🔵 **Planifié** — 0/4 sprints démarrés. Backend ledger/AR/AP/payroll engine matures (~42 routes gatées DH9). Frontend mixte : Payables/Payroll/Reconciliation/Reports solides ; Bills/Payments/Receipts/Invoices/Receivables shallow ; Budgets placeholder. 2 dettes ouvertes héritées : **D2** (stubs PM→Finance) et **DH3** (Payroll UI sur mauvais modèle).
+**Statut global :** 🟢 **Sprint Finance-1 fermé** (2026-05-25 — D2 résolue, 4 commits). 1/4 sprints fermés, 3 restants. Backend ledger/AR/AP/payroll engine matures (~42 routes gatées DH9). Frontend mixte : Payables/Payroll/Reconciliation/Reports solides ; Bills/Payments/Receipts/Invoices/Receivables shallow ; Budgets placeholder. 1 dette ouverte héritée : **DH3** (Payroll UI sur mauvais modèle, Sprint Finance-2).
 **Date de création :** 2026-05-25
 **Dernière mise à jour :** 2026-05-25
 
@@ -247,17 +247,17 @@ Commit : test(pm): work-item details integration — close D2
 ```
 
 **Critères de sortie F1.4**
-- [ ] Suite isolée (pattern `hrm-onboarding.test.mjs`)
-- [ ] 8/8 assertions ✓ (3a + 3b séparées)
-- [ ] Runnable via `npm run test:pm-work-item-details`
+- [x] Suite isolée (pattern `hrm-onboarding.test.mjs`) — fichier `backend/tests/pm/pm-work-item-details-d2.test.mjs`
+- [x] 8/8 assertions ✓ (premier run, commit `6580e44`)
+- [x] Runnable via `npm run test:pm-work-item-details`
 
 ### Critères de sortie Sprint Finance-1
 
-- [ ] Route `PATCH /api/v1/pm/projects/:id/work-items/:itemId/details` opérationnelle
-- [ ] `updateTelecomManualFields` et `retryFinanceSync` branchés sur API réelle
-- [ ] Bouton "Retry finance sync" fonctionnel UI
-- [ ] Tests F1.4 verts (8/8)
-- [ ] **D2 fermée** — entrée déplacée vers §9 Dettes fermées
+- [x] Route `PATCH /api/v1/pm/projects/:id/work-items/:itemId/details` opérationnelle (existait déjà ; 404 patché en `7b60b53`)
+- [x] `updateTelecomManualFields` et `retryFinanceSync` branchés sur API réelle (`6ff99b6`)
+- [x] Bouton "Retry finance sync" fonctionnel UI avec pending state + toast (`6ff99b6`)
+- [x] Tests F1.4 verts (8/8) — `6580e44`
+- [x] **D2 fermée** — entrée déplacée vers §9 Dettes fermées
 
 ---
 
@@ -713,7 +713,6 @@ Commit : test(finance): budgets integration — close Finance-4
 
 | ID | Description | Bloquée par | Sprint cible | Statut |
 |---|---|---|---|---|
-| **D2** | Stubs PM→Finance no-op : `updateTelecomManualFields` et `retryFinanceSync` (`src/store/pm/useProjectStore.ts:347-356`) ne sont que des `console.warn`. Route backend `PATCH /api/v1/pm/projects/:id/work-items/:itemId/details` jamais créée (annoncée Phase 4 par Sprint PM-2). Bouton "Retry finance sync" (`WorkItemsPage.tsx:567`) appelle un no-op. | Création route backend `/details` + service `workItemDetails.service.mjs` (cf. F1.1) | **Sprint Finance-1** | 🔵 Planifié |
 | **DH3** | Payroll UI absente sur l'engine moderne : `FinancePayrollPage.tsx` (618 L) consomme l'ancien modèle `PayrollBatch`, pas le nouveau workflow `PayrollRun` (engine `backend/services/hrm/payrollEngine.service.mjs` 95% prêt avec executePayrollRun / approvePayrollRun / postPayrollRun / disburse / adjustments / logs / notifications déjà wirés sur 7 routes). | Aucun blocage technique — engine 95% prêt. Bloquée par coût UI uniquement (cf. F2.3 → F2.5). | **Sprint Finance-2** | 🔵 Planifié |
 
 ### Dettes connexes (hors scope sprints 1–4 — backlog Finance)
@@ -732,10 +731,9 @@ Commit : test(finance): budgets integration — close Finance-4
 
 ## 9. Dettes fermées
 
-*(vide — aucune dette Finance fermée à date)*
-
 | ID | Sprint de fermeture | Commit | Notes |
 |---|---|---|---|
+| **D2** | Sprint Finance-1 (2026-05-25) | `7b60b53` + `6ba94e7` + `6ff99b6` + `6580e44` | Audit pré-écriture a révélé que la route `PATCH /details` + service `saveProjectItemDetails` existaient déjà avec sync finance idempotente. F1.1 ramené à un patch 404 ciblé (helper `notFound` pattern `workItemHierarchy`). F1.2/F1.3 = wiring frontend (store + bouton Retry avec pending state + toast, mapping snake/camel inline dans le store, réutilisation de `saveProjectItemDetailsToBackend` existant — pas de nouveau client API). F1.4 = 8/8 assertions vertes au premier run (succès + retry-only + champ stripé + 403 + 2×404 + SSE + idempotence). Décisions actées : single check `pm.workItems.write` (la sync est un side-effect implicite, pas un acte RBAC séparé), pas de flag `retryFinanceSync` dans le body (retry = save sans diff). |
 
 ---
 
