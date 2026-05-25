@@ -540,108 +540,139 @@ Commit : test(finance): payroll workflow integration 7/7 — close DH3
 
 ## 6. Sprint Finance-3
 
-**Objectif :** Transformer les 5 pages shallow en CRUD complets, cohérents avec `PayablesPage.tsx` (549 L, référence de qualité).
+**Objectif :** Transformer les 5 pages shallow en pages opérationnelles complètes (List + Filtres + Create + Detail drawer read-only), cohérentes UX avec `PayablesPage.tsx` (549 L, référence).
 **Durée estimée :** 2 semaines
 **Statut :** 🔵 Planifié
-**Dettes ciblées :** Aucune dette formelle — closure de la maturité Finance
+**Dettes ciblées :** Aucune dette formelle — closure de la maturité Finance shallow → opérationnelle
+
+**Note de scope (révisé 2026-05-25)** — Audit pré-écriture du backend : les routes actuelles sont GET (list) + POST (create) pour Bills/Payments/Receipts/Invoices, et GET (list) + GET (detail) pour Receivables. Aucune route PATCH, DELETE, Approve/Reject ou Send pour ces 4 entités transactionnelles. Le scope ci-dessous reflète cette réalité : detail drawer en read-only, actions de workflow déléguées au parent (Payable/Receivable), pas d'Approve/Reject/Send/Adjust. L'ajout de ces routes est documenté comme dette suiveuse DF10 dans §8.
+
+**Décision validée 2026-05-25** — Tests interleaved (1 suite committée avec chaque page) plutôt qu'en bloc final, pour éviter la dette de tests. Refactor en composants partagés (`EvidenceUploadField`, `EntityDrawer`, etc.) opportuniste après F3.1 si 3+ patterns dupliqués.
 
 ---
 
-### F3.1 — `BillsPage.tsx` (59 L → CRUD complet)
+### F3.1 — `BillsPage.tsx` (59 L → page opérationnelle)
 
 ```
 Sections requises :
-  - Liste VendorBill : billNumber, vendor, dueDate, amount, status, evidence
-  - Filtres : status, vendor, période, project lien
-  - Drawer detail : lignes, evidence documents, approval workflow, lien Payable
-  - Modal create : sélecteur vendor, lignes (description, qty, unitPrice, amount), evidence upload
-  - Actions : Approve / Reject (assertPermission finance.bills.write/execute)
-  - Export CSV
+  - Liste VendorBill : billNumber, vendor, dueDate, totalAmount, status, evidence indicator
+  - Filtres : status, vendor, période, payableId
+  - Modal create : sélecteur Payable parent (required), billNumber (auto-généré si omis),
+    issueDate/dueDate, subtotalAmount/taxAmount/totalAmount, notes
+  - Drawer detail read-only : champs bill + lien clic vers PayablesPage drawer du parent
+    (evidence/approve/reject vivent côté Payable, pas Bill)
+  - Export CSV de la liste filtrée
+
 Endpoints existants : GET/POST /api/v1/finance/bills
 Permissions : finance.bills.read / finance.bills.write
-Commit : feat(finance): bills page CRUD complet — ref Finance-3
+Commits :
+  feat(finance): bills list + filters + create — ref Finance-3
+  feat(finance): bills detail drawer — ref Finance-3
+  test(finance): bills integration suite — ref Finance-3
 ```
 
-### F3.2 — `PaymentsPage.tsx` (61 L → CRUD complet)
+### F3.2 — `PaymentsPage.tsx` (61 L → page opérationnelle)
 
 ```
 Sections requises :
-  - Liste PaymentDisbursement : reference, vendor, amount, method, date, status
+  - Liste PaymentDisbursement : reference, vendor, totalAmount, method, paidAt, status
   - Filtres : method (cash/bank/mobile), status, vendor, période
-  - Drawer detail : lignes payées (Payable/Bill liés), evidence (proof of payment)
-  - Modal create : sélecteur Payable/Bill à régler, montant, méthode, evidence upload
-  - Liaison automatique avec FinanceLedgerMapping (méthode → account)
+  - Modal create : sélecteur Payable à régler, montant, méthode, evidence upload
+    (sur le Payable parent), notes
+  - Drawer detail read-only : champs payment + lien vers Payable parent
+  - Liaison automatique avec FinanceLedgerMapping (méthode → account) — déléguée au service backend
+
 Endpoints : GET/POST /api/v1/finance/payments
 Permissions : finance.payments.read / finance.payments.write
-Commit : feat(finance): payments page CRUD complet — ref Finance-3
+Commits :
+  feat(finance): payments list + filters + create — ref Finance-3
+  feat(finance): payments detail drawer — ref Finance-3
+  test(finance): payments integration suite — ref Finance-3
 ```
 
-### F3.3 — `ReceiptsPage.tsx` (61 L → CRUD complet)
+### F3.3 — `ReceiptsPage.tsx` (61 L → page opérationnelle)
 
 ```
 Symétrique PaymentsPage côté inbound :
-  - Liste ReceiptCollection : reference, customer, amount, method, date, status
-  - Drawer : Receivables/Invoices réglés, evidence (bordereau, virement)
-  - Modal create : sélecteur Receivable/Invoice à recouvrer
+  - Liste ReceiptCollection : reference, customer, totalAmount, method, receivedAt, status
+  - Filtres : method, status, customer, période
+  - Modal create : sélecteur Receivable à recouvrer, montant, méthode, evidence sur Receivable
+  - Drawer detail read-only : champs receipt + lien vers Receivable parent
+
 Endpoints : GET/POST /api/v1/finance/receipts
 Permissions : finance.receipts.read / finance.receipts.write
-Commit : feat(finance): receipts page CRUD complet — ref Finance-3
+Commits :
+  feat(finance): receipts list + filters + create — ref Finance-3
+  feat(finance): receipts detail drawer — ref Finance-3
+  test(finance): receipts integration suite — ref Finance-3
 ```
 
-### F3.4 — `InvoicesPage.tsx` (109 L → CRUD complet)
+### F3.4 — `InvoicesPage.tsx` (109 L → page opérationnelle)
 
 ```
 Sections requises :
-  - Liste CustomerInvoice : invoiceNumber, customer, dueDate, amount, status, lien Receivable
-  - Filtres : status, customer, période, project, deal source
-  - Drawer detail : lignes, evidence, status workflow, lien Receivable, lien CrmDeal source
-  - Modal create : sélecteur customer + project + deal, lignes, taxes (flat pour l'instant), evidence
-  - Actions : Send (email future), Mark sent, Cancel
+  - Liste CustomerInvoice : invoiceNumber, customer, dueDate, totalAmount, status, lien Receivable
+  - Filtres : status, customer, période, project, dealSource
+  - Modal create : sélecteur customer + project + deal, lignes, taxes (flat), notes
+  - Drawer detail read-only : champs invoice + lien vers Receivable enfant + lien vers Deal source
+  - Pas d'action Send/Mark sent/Cancel pour ce sprint (DF10)
+
 Endpoints : GET/POST /api/v1/finance/invoices
 Permissions : finance.invoices.read / finance.invoices.write
-Commit : feat(finance): invoices page CRUD complet — ref Finance-3
+Commits :
+  feat(finance): invoices list + filters + create — ref Finance-3
+  feat(finance): invoices detail drawer — ref Finance-3
+  test(finance): invoices integration suite — ref Finance-3
 ```
 
-### F3.5 — `ReceivablesPage.tsx` (102 L → CRUD complet)
+### F3.5 — `ReceivablesPage.tsx` (102 L → page opérationnelle + aging)
 
 ```
+Receivables a une vraie route GET detail (/:id) — drawer plus riche que les autres.
+
 Sections requises :
-  - Liste Receivable : reference, customer, dueDate, amount, status, agedBucket (0-30/31-60/61-90/90+)
+  - Liste Receivable : reference, customer, dueDate, totalAmount, outstandingAmount, status,
+    agedBucket (0-30/31-60/61-90/90+)
   - Filtres : status, customer, agedBucket, project
-  - Drawer detail : Invoice source, Receipts liés, evidence, activity
-  - Vue "Aging report" : table buckets par customer
-  - Actions : Adjust (write-off, escalade)
+  - Vue "Aging report" : table buckets par customer (toggle UI)
+  - Drawer detail (via GET /:id) : Invoice source, Receipts liés, evidence, activity
+  - Pas de modal create (receivables dérivés des invoices, pas créés manuellement)
+  - Pas d'action Adjust pour ce sprint (DF10)
+
 Endpoints : GET /api/v1/finance/receivables + détail /:id
-Permissions : finance.receivables.read / finance.receivables.write
-Commit : feat(finance): receivables page CRUD complet + aging — ref Finance-3
+Permissions : finance.receivables.read
+Commits :
+  feat(finance): receivables list + filters + aging — ref Finance-3
+  feat(finance): receivables detail drawer — ref Finance-3
+  test(finance): receivables integration suite — ref Finance-3
 ```
 
-### F3.6 — Tests d'intégration (5 suites)
+### F3.6 — Tests d'intégration (interleaved par page)
 
 ```
 backend/tests/finance/
-  finance-bills.test.mjs
-  finance-payments.test.mjs
-  finance-receipts.test.mjs
-  finance-invoices.test.mjs
-  finance-receivables.test.mjs
+  finance-bills.test.mjs       — committé avec F3.1
+  finance-payments.test.mjs    — committé avec F3.2
+  finance-receipts.test.mjs    — committé avec F3.3
+  finance-invoices.test.mjs    — committé avec F3.4
+  finance-receivables.test.mjs — committé avec F3.5
 
-Chaque suite :
-  - Create entité + lecture
-  - Update (status transitions)
-  - Liaison evidence
+Couverture par suite :
+  - Create entité + lecture liste (sauf Receivables : pas de POST)
+  - Filtres list (status, période minimum)
   - RBAC : 403 sans permission appropriée
-  - Soft delete si applicable
-Commit : test(finance): CRUD pages integration — ref Finance-3
+  - Liaison parent (Payable/Receivable/Deal) cohérente
+
+Pas de tests update/soft-delete : les routes n'existent pas (cf. note de scope, DF10).
 ```
 
 ### Critères de sortie Sprint Finance-3
 
-- [ ] 5 pages avec CRUD complet (>= 300 L chacune, cohérent qualité Payables)
-- [ ] Evidence upload fonctionnel sur Bills/Invoices/Payments/Receipts
-- [ ] Aging report sur Receivables
-- [ ] 5 suites de tests vertes
-- [ ] Sidebar Finance entièrement consommée par pages matures
+- [ ] 5 pages opérationnelles (List + Filtres + Detail drawer, +Create pour 4 sur 5)
+- [ ] Aging report fonctionnel sur ReceivablesPage
+- [ ] 5 suites de tests vertes (interleaved)
+- [ ] Sidebar Finance entièrement consommée par pages opérationnelles
+- [ ] DF10 ouverte dans §8 — backend completion (PATCH/DELETE/detail/approve manquants)
 
 ---
 
@@ -852,6 +883,7 @@ Commit : test(finance): budgets integration — close Finance-4
 | DF7 | Aucun `CashFlowForecast` | Sprint Finance-Forecast |
 | DF8 | Route `DELETE /api/v1/finance/hrm/payroll-schedules/:id` absente (toggle isActive uniquement via POST upsert) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
 | DF9 | Route `GET /api/v1/finance/hrm/payroll-periods` absente (sélecteur autonome côté UI fait via inférence depuis `run.payrollPeriodId`) — identifié pendant audit Sprint Finance-2 | Sprint Finance-Infra |
+| DF10 | Routes manquantes pour Bills/Payments/Receipts/Invoices : aucun PATCH (update notes/status/dueDate), aucun DELETE soft, aucun GET detail (sauf Payables/Receivables), aucun Approve/Reject sur Bills, aucun Send/Cancel sur Invoices, aucun Adjust sur Receivables. Permission `finance.bills.execute` mentionnée dans le plan original §6 mais absente du catalogue RBAC. Identifié pendant audit pré-écriture Sprint Finance-3. Détail drawer read-only en attendant. | Sprint Finance-Infra |
 
 ---
 
