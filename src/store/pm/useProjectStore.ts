@@ -15,6 +15,7 @@ import {
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
 import { bulkImportTelecomWorkItemsInBackend, createProjectInBackend, fetchProjectsForUser } from '../../services/pm/projectCollaborationBackend.service';
 import * as projectApi from '../../services/pm/projectApi.service';
+import { saveProjectItemDetailsToBackend } from '../../services/pm/projectItemBackend.service';
 import { computeTelecomSummary } from '../../services/pm/telecomSummary.service';
 
 type CreateProjectInput = Omit<Project, 'id' | 'kpis'> & {
@@ -46,8 +47,12 @@ interface ProjectStore {
   addWorkItem: (item: Omit<WorkItem, 'id'>) => Promise<void>;
   addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }) => Promise<WorkItem>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
-  updateTelecomManualFields: (id: string, updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>) => void;
-  retryFinanceSync: (id: string) => void;
+  updateTelecomManualFields: (
+    id: string,
+    updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>,
+    actor: { actorUserId?: string; actorDisplayName?: string },
+  ) => Promise<void>;
+  retryFinanceSync: (id: string, actor: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   deleteWorkItem: (id: string) => Promise<void>;
   importWorkItems: (items: Omit<WorkItem, 'id'>[]) => void;
   importTelecomRows: (projectId: string, fileName: string, rows: TelecomImportRow[], uploader: string, actorUserId?: string) => Promise<{ batchId: string; created: number; failed: number }>;
@@ -344,15 +349,47 @@ export const useProjectStore = create<ProjectStore>()(
         },
 
 
-        updateTelecomManualFields: (_id, _updates) => {
-          // TODO: Phase 4 — migrate to finance details endpoint
-          // (telecomFinanceSync stubs removed; this action is a no-op until Phase 4)
-          console.warn('updateTelecomManualFields: not implemented, pending Phase 4');
+        updateTelecomManualFields: async (id, updates, actor) => {
+          const item = get().workItems.find((wi) => wi.id === id);
+          if (!item) return;
+          const { state } = await saveProjectItemDetailsToBackend({
+            projectId: item.projectId,
+            workItemId: id,
+            actorUserId: actor.actorUserId,
+            actorDisplayName: actor.actorDisplayName,
+            ticketNumber: updates.ticket_number,
+            operationalManualFields: updates.operational_manual_fields,
+            acceptanceManualFields: updates.acceptance_manual_fields,
+          });
+          set((s) => ({
+            workItems: s.workItems.map((wi) => (wi.id === id ? {
+              ...wi,
+              ticket_number: state.ticketNumber ?? wi.ticket_number,
+              operational_manual_fields: (state.operationalManualFieldsJson as WorkItem['operational_manual_fields']) ?? wi.operational_manual_fields,
+              acceptance_manual_fields: (state.acceptanceManualFieldsJson as WorkItem['acceptance_manual_fields']) ?? wi.acceptance_manual_fields,
+              contractor_payable_amount: state.contractorPayableAmount ?? wi.contractor_payable_amount,
+              finance_sync_status: (state.financeSyncStatus as WorkItem['finance_sync_status']) ?? wi.finance_sync_status,
+              finance_sync_at: state.financeSyncAt ?? wi.finance_sync_at,
+            } : wi)),
+          }));
         },
 
-        retryFinanceSync: (_id) => {
-          // TODO: Phase 4 — migrate to finance details endpoint
-          console.warn('retryFinanceSync: not implemented, pending Phase 4');
+        retryFinanceSync: async (id, actor) => {
+          const item = get().workItems.find((wi) => wi.id === id);
+          if (!item) return;
+          const { state } = await saveProjectItemDetailsToBackend({
+            projectId: item.projectId,
+            workItemId: id,
+            actorUserId: actor.actorUserId,
+            actorDisplayName: actor.actorDisplayName,
+          });
+          set((s) => ({
+            workItems: s.workItems.map((wi) => (wi.id === id ? {
+              ...wi,
+              finance_sync_status: (state.financeSyncStatus as WorkItem['finance_sync_status']) ?? wi.finance_sync_status,
+              finance_sync_at: state.financeSyncAt ?? wi.finance_sync_at,
+            } : wi)),
+          }));
         },
 
         deleteWorkItem: async (id) => {

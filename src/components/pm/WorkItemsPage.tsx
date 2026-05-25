@@ -12,6 +12,7 @@ import ColumnConfigPanel from './telecom/ColumnConfigPanel';
 import { TELECOM_COLUMN_REGISTRY, TELECOM_DEFAULT_COLUMNS, columnByKey } from './telecom/telecomColumns';
 import { fetchColumnPreference } from '../../services/pm/columnPreferences.service';
 import { useAuth } from '../../contexts/AuthContext';
+import { useToast } from '../ui/Toast';
 
 const ITEMS_PER_PAGE = 10;
 
@@ -46,8 +47,28 @@ const WorkItemsPage: React.FC = () => {
   const [filterFinance, setFilterFinance] = useState<string>('');
   // DH7 — user column preferences for the telecom table.
   const { user } = useAuth();
+  const toast = useToast();
   const [telecomColumns, setTelecomColumns] = useState<string[]>(TELECOM_DEFAULT_COLUMNS);
   const [showColumnsPanel, setShowColumnsPanel] = useState(false);
+  // F1.3 — per-item pending state for the Retry finance sync button.
+  const [pendingRetryIds, setPendingRetryIds] = useState<Set<string>>(new Set());
+
+  const handleRetryFinanceSync = async (itemId: string) => {
+    if (pendingRetryIds.has(itemId)) return;
+    setPendingRetryIds((prev) => new Set(prev).add(itemId));
+    try {
+      await retryFinanceSync(itemId, { actorUserId: user?.id, actorDisplayName: user?.name });
+      toast?.addToast('Finance sync re-tentée', 'success');
+    } catch (e) {
+      toast?.addToast(e instanceof Error ? e.message : 'Retry failed', 'error');
+    } finally {
+      setPendingRetryIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     if (!user?.id) return;
@@ -564,11 +585,12 @@ const WorkItemsPage: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          retryFinanceSync(item.id);
+                          void handleRetryFinanceSync(item.id);
                         }}
-                        className="text-[10px] px-2 py-1 rounded border border-input text-secondary hover:text-primary hover:border-emerald-500/50"
+                        disabled={pendingRetryIds.has(item.id)}
+                        className="text-[10px] px-2 py-1 rounded border border-input text-secondary hover:text-primary hover:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Retry
+                        {pendingRetryIds.has(item.id) ? 'Retrying…' : 'Retry'}
                       </button>
                     )}
                   </div>

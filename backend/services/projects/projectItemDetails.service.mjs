@@ -7,6 +7,17 @@ import { broadcast as sseBroadcast } from '../realtime/sseBroadcaster.mjs';
 
 const FILE_ROOT = path.resolve(process.cwd(), 'backend', 'storage', 'project-item-files');
 
+// Error helper — pattern aligned with workItemHierarchy.service.mjs.
+// Top-level handler in auth-server.mjs reads err.statusCode for the HTTP status.
+function err(statusCode, code, message, extra = {}) {
+  const e = new Error(message);
+  e.statusCode = statusCode;
+  e.code = code;
+  Object.assign(e, extra);
+  return e;
+}
+const notFound = (msg, extra) => err(404, 'NOT_FOUND', msg, extra);
+
 export const MANUAL_FIELD_CATALOG = {
   operational: [
     { key: 'planning_audit_date', label: 'Planning Audit Date', type: 'date' },
@@ -234,7 +245,7 @@ export async function saveProjectItemDetails(prisma, input) {
       select: { id: true, name: true },
     });
     if (!project) {
-      throw new Error('Project not found. Cannot persist project item details without a valid project.');
+      throw notFound(`Project '${input.projectId}' not found.`, { id: input.projectId });
     }
 
     const workItem = await tx.workItem.findFirst({
@@ -246,7 +257,10 @@ export async function saveProjectItemDetails(prisma, input) {
       select: { id: true, title: true },
     });
     if (!workItem) {
-      throw new Error('Work item not found in this project. Save blocked to prevent orphan records.');
+      throw notFound(
+        `Work item '${input.workItemId}' not found in project '${input.projectId}'.`,
+        { id: input.workItemId, projectId: input.projectId },
+      );
     }
 
     const existing = await tx.projectItemState.findUnique({

@@ -23,7 +23,9 @@
         "test:hrm-sse-events": "node backend/tests/hrm/hrm-sse-events.test.mjs",
         "test:hrm-rbac": "node backend/tests/hrm/hrm-rbac.test.mjs",
         "test:hrm-contractors": "node backend/tests/hrm/hrm-contractors.test.mjs",
-        "test:hrm-regression": "node backend/tests/hrm/hrm-regression.test.mjs"
+        "test:hrm-regression": "node backend/tests/hrm/hrm-regression.test.mjs",
+        "test:pm-work-item-details": "node backend/tests/pm/pm-work-item-details-d2.test.mjs",
+        "test:finance-payroll-workflow": "node backend/tests/finance/finance-payroll-workflow.test.mjs"
     },
     "prisma": {
         "seed": "tsx prisma/seed.ts"

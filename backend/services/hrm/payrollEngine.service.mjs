@@ -319,21 +319,41 @@ export async function listPayrollRuns(prisma, filters = {}) {
 }
 
 export async function getPayrollRunDetail(prisma, payrollRunId) {
-  return prisma.payrollRun.findUnique({
-    where: { id: payrollRunId },
-    include: {
-      payrollSchedule: true,
-      payrollPeriod: true,
-      payrollBatch: {
-        include: {
-          lines: { orderBy: { createdAt: 'asc' } },
+  // F2.4 — fetch run + 3 collections without Prisma backRefs (no schema migration).
+  // PayrollAdjustment / PayrollCalculationDetail / PayrollRunTimesheetLink each
+  // hold payrollRunId but lack the inverse relation field on PayrollRun, so
+  // they're loaded separately and stitched onto the returned object.
+  const [run, adjustments, calculations, timesheetLinks] = await Promise.all([
+    prisma.payrollRun.findUnique({
+      where: { id: payrollRunId },
+      include: {
+        payrollSchedule: true,
+        payrollPeriod: true,
+        payrollBatch: {
+          include: {
+            lines: { orderBy: { createdAt: 'asc' } },
+          },
         },
+        employees: { orderBy: { createdAt: 'asc' } },
+        notifications: { orderBy: { createdAt: 'desc' } },
+        logs: { orderBy: { createdAt: 'desc' }, take: 200 },
       },
-      employees: { orderBy: { createdAt: 'asc' } },
-      notifications: { orderBy: { createdAt: 'desc' } },
-      logs: { orderBy: { createdAt: 'desc' }, take: 200 },
-    },
-  });
+    }),
+    prisma.payrollAdjustment.findMany({
+      where: { payrollRunId },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.payrollCalculationDetail.findMany({
+      where: { payrollRunId },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.payrollRunTimesheetLink.findMany({
+      where: { payrollRunId },
+      orderBy: { workedDate: 'asc' },
+    }),
+  ]);
+  if (!run) return null;
+  return { ...run, adjustments, calculations, timesheetLinks };
 }
 
 export async function executePayrollRun(prisma, payload, actor) {
