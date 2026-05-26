@@ -74,10 +74,12 @@ export async function updateProjectScope(
 export async function createWorkItem(
   projectId: string,
   data: Omit<WorkItem, 'id'>,
+  actor?: { actorUserId?: string; actorDisplayName?: string },
 ): Promise<WorkItem> {
-  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items`, {
+  const qs = actor?.actorUserId ? `?userId=${encodeURIComponent(actor.actorUserId)}` : '';
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items${qs}`, {
     method: 'POST',
-    body: data,
+    body: { ...data, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
   });
   return workItem;
 }

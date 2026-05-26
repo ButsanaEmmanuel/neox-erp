@@ -443,13 +443,22 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
       ticket_number: nextFormData.ticket_number,
     });
     if (isNew) {
-      addWorkItem({
-        ...(nextFormData as Omit<WorkItem, 'id'>),
-        projectId: activeProjectId,
-        status: nextFormData.status || 'backlog',
-        type: (nextFormData.type as WorkItemType) || 'task',
-        priority: nextFormData.priority || 'medium',
-      });
+      try {
+        await addWorkItem(
+          {
+            ...(nextFormData as Omit<WorkItem, 'id'>),
+            projectId: activeProjectId,
+            status: nextFormData.status || 'backlog',
+            type: (nextFormData.type as WorkItemType) || 'task',
+            priority: nextFormData.priority || 'medium',
+          },
+          { actorUserId: user?.id, actorDisplayName: user?.name },
+        );
+      } catch (error) {
+        console.error('[WorkItemDrawer] Create failed', { projectId: activeProjectId, error });
+        setManualFieldsError(error instanceof Error ? error.message : 'Unable to create item.');
+        return;
+      }
       if (activeProjectId) {
         void notifyProjectTeam(activeProjectId, {
           actionType: 'task_created',
