@@ -419,7 +419,11 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
   };
 
   const handleSave = async () => {
-    if (!formData.title || !activeProjectId) return;
+    if (!formData.title) return;
+    if (!activeProjectId) {
+      setManualFieldsError('No active project selected. Open the item from inside a project.');
+      return;
+    }
     let normalizedTicket = parseDecimalInput(ticketInput);
     if (normalizedTicket !== undefined) {
       if (normalizedTicket > 1 || normalizedTicket < 0) {
@@ -911,7 +915,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
               )}
             </div>
 
-            <div className="p-6 border-t border-border/60 bg-card flex justify-end gap-3"><button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-muted hover:text-primary hover:bg-surface transition-colors">Cancel</button>{activeTab === 'details' && <button onClick={() => void handleSave()} disabled={!formData.title} className="px-6 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isNew ? 'Create Item' : 'Save Changes'}</button>}</div>
+            <div className="p-6 border-t border-border/60 bg-card flex flex-col gap-2">
+              {manualFieldsError && activeTab === 'details' && (
+                <p className="text-xs text-rose-400 self-end">{manualFieldsError}</p>
+              )}
+              <div className="flex justify-end gap-3">
+                <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-muted hover:text-primary hover:bg-surface transition-colors">Cancel</button>
+                {activeTab === 'details' && <button onClick={() => void handleSave()} disabled={!formData.title} className="px-6 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">{isNew ? 'Create Item' : 'Save Changes'}</button>}
+              </div>
+            </div>
           </motion.div>
         </>
       )}
