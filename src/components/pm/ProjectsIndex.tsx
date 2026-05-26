@@ -12,6 +12,7 @@ import ProjectsListView from './ProjectsListView';
 import ViewToggle, { ViewMode } from './ViewToggle';
 import { detectTelecomByClient } from '../../services/pm/telecomImport.service';
 import ProfessionalEmptyState from '../ui/ProfessionalEmptyState';
+import { COUNTRIES } from '../../lib/countries';
 import { LayoutGrid } from 'lucide-react';
 
 interface ProjectDrawerProps {
@@ -568,7 +569,16 @@ const CreateProjectDrawer: React.FC<ProjectDrawerProps> = ({ isOpen, onClose, on
                                     </div>
                                     <div>
                                         <label className="block text-xs text-muted mb-1">Country</label>
-                                        <input value={clientDraft.country} onChange={(e) => setClientDraft((prev) => ({ ...prev, country: e.target.value }))} className="w-full bg-app border border-input rounded-lg px-3 py-2 text-sm text-primary" />
+                                        <select
+                                            value={clientDraft.country}
+                                            onChange={(e) => setClientDraft((prev) => ({ ...prev, country: e.target.value }))}
+                                            className="w-full bg-app border border-input rounded-lg px-3 py-2 text-sm text-primary"
+                                        >
+                                            <option value="">Select country…</option>
+                                            {COUNTRIES.map((c) => (
+                                                <option key={c.code} value={c.code}>{c.label}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs text-muted mb-1">Tax/Registration #</label>

@@ -91,10 +91,13 @@ export const useCrmStore = create<CrmStore>((set, get) => ({
         const trimmedName = (payload.name || '').trim();
         if (!trimmedName) throw new Error('Client name is required.');
 
-        const created = await apiRequest<{ client: CrmClient }>('/api/v1/crm/clients', {
+        const actorUserId = (payload as { ownerId?: string }).ownerId;
+        const qs = actorUserId ? `?userId=${encodeURIComponent(actorUserId)}` : '';
+        const created = await apiRequest<{ client: CrmClient }>(`/api/v1/crm/clients${qs}`, {
             method: 'POST',
             body: {
                 ...payload,
+                actorUserId,
                 name: trimmedName,
                 profileStatus: 'needs_completion',
             },
