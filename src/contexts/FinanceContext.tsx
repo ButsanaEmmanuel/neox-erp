@@ -16,6 +16,7 @@ import {
     ReceiptCollectionRecord,
 } from '../types/finance';
 import { apiRequest } from '../lib/apiClient';
+import { useAuth } from './AuthContext';
 
 interface FinanceContextType {
     accounts: Account[];
@@ -89,6 +90,7 @@ const DEFAULT_SUMMARY: FinanceSummary = {
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const { user } = useAuth();
     const [accounts, setAccounts] = useState<Account[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -109,15 +111,20 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
 
         const load = async () => {
             try {
+                // Every finance endpoint runs assertPermission against ?userId=.
+                // Without it the server returns 403, the Promise.all rejects, and
+                // the dashboard quietly falls into the catch-all zero state.
+                const uid = user?.id ? `&userId=${encodeURIComponent(user.id)}` : '';
+                const uidQ = user?.id ? `?userId=${encodeURIComponent(user.id)}` : '';
                 const [snapshot, entriesData, receivablesData, payablesData, customerInvoicesData, vendorBillsData, paymentsData, receiptsData] = await Promise.all([
-                    apiRequest<FinanceSnapshotResponse>('/api/v1/finance/snapshot'),
-                    apiRequest<FinanceEntriesResponse>('/api/v1/finance/entries?take=200'),
-                    apiRequest<ReceivablesResponse>('/api/v1/finance/receivables?take=200'),
-                    apiRequest<PayablesResponse>('/api/v1/finance/payables?take=200'),
-                    apiRequest<CustomerInvoicesResponse>('/api/v1/finance/invoices?take=200'),
-                    apiRequest<VendorBillsResponse>('/api/v1/finance/bills?take=200'),
-                    apiRequest<PaymentsResponse>('/api/v1/finance/payments?take=200'),
-                    apiRequest<ReceiptsResponse>('/api/v1/finance/receipts?take=200'),
+                    apiRequest<FinanceSnapshotResponse>(`/api/v1/finance/snapshot${uidQ}`),
+                    apiRequest<FinanceEntriesResponse>(`/api/v1/finance/entries?take=200${uid}`),
+                    apiRequest<ReceivablesResponse>(`/api/v1/finance/receivables?take=200${uid}`),
+                    apiRequest<PayablesResponse>(`/api/v1/finance/payables?take=200${uid}`),
+                    apiRequest<CustomerInvoicesResponse>(`/api/v1/finance/invoices?take=200${uid}`),
+                    apiRequest<VendorBillsResponse>(`/api/v1/finance/bills?take=200${uid}`),
+                    apiRequest<PaymentsResponse>(`/api/v1/finance/payments?take=200${uid}`),
+                    apiRequest<ReceiptsResponse>(`/api/v1/finance/receipts?take=200${uid}`),
                 ]);
                 if (!mounted) return;
                 setAccounts(snapshot.accounts || []);
@@ -162,7 +169,7 @@ export const FinanceProvider: React.FC<{ children: ReactNode }> = ({ children })
             mounted = false;
             window.clearInterval(intervalId);
         };
-    }, []);
+    }, [user?.id]);
 
     const readonlyAction = useMemo(() => {
         return () => {
