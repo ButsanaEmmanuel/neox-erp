@@ -253,6 +253,24 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     return Math.round(unit * ticket * 100) / 100;
   }, [formData.po_unit_price, formData.ticket_number]);
 
+  // Live delay: prefer actual_audit_date if set, else forecast_date, vs planned reference
+  const liveDelay = useMemo(() => {
+    const plannedRef =
+      normalizeDateInput(formData.planning_audit_date) ||
+      normalizeDateInput(formData.imported_fields?.planning_audit_date) ||
+      normalizeDateInput(formData.imported_fields?.planned_start_date);
+    const actualRef =
+      normalizeDateInput(formData.actual_audit_date) ||
+      normalizeDateInput(formData.forecast_date);
+    if (!plannedRef || !actualRef) return { days: undefined as number | undefined, weeks: undefined as number | undefined };
+    const pMs = new Date(`${plannedRef}T00:00:00Z`).getTime();
+    const aMs = new Date(`${actualRef}T00:00:00Z`).getTime();
+    if (!Number.isFinite(pMs) || !Number.isFinite(aMs)) return { days: undefined, weeks: undefined };
+    const days = Math.round((aMs - pMs) / 86400000);
+    const weeks = days === 0 ? 0 : days > 0 ? Math.ceil(days / 7) : -Math.ceil(Math.abs(days) / 7);
+    return { days, weeks };
+  }, [formData.planning_audit_date, formData.imported_fields, formData.actual_audit_date, formData.forecast_date]);
+
   const eligibility = useMemo(
     () =>
       evaluateFinancialEligibility({
@@ -716,17 +734,15 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <div>
                             <label className="text-xs text-muted">Delay</label>
                             <div className={`w-full mt-1 rounded-lg px-3 py-2 text-xs font-semibold border ${
-                              typeof formData.delay_days === 'number'
-                                ? formData.delay_days > 0
+                              typeof liveDelay.days === 'number'
+                                ? liveDelay.days > 0
                                   ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-                                  : formData.delay_days < 0
-                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
                                 : 'bg-surface border-border/70 text-muted'
                             }`}>
-                              {typeof formData.delay_days === 'number'
-                                ? `${formData.delay_days > 0 ? '+' : ''}${formData.delay_days} day${Math.abs(formData.delay_days) !== 1 ? 's' : ''} (${formData.delay_days > 0 ? '+' : ''}${formData.delay_weeks ?? 0} week${Math.abs(formData.delay_weeks ?? 0) !== 1 ? 's' : ''})`
-                                : 'No delay data'}
+                              {typeof liveDelay.days === 'number'
+                                ? `${liveDelay.days > 0 ? '+' : ''}${liveDelay.days} day${Math.abs(liveDelay.days) !== 1 ? 's' : ''} (${liveDelay.days > 0 ? '+' : ''}${liveDelay.weeks ?? 0} week${Math.abs(liveDelay.weeks ?? 0) !== 1 ? 's' : ''})`
+                                : 'No delay data (planned date missing)'}
                             </div>
                           </div>
                         </div>
