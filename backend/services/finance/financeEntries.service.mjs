@@ -488,7 +488,11 @@ export async function syncProjectItemStateToFinance(tx, payload) {
     await softDeleteFinanceEntry(tx, byReference.get(receivableReference), actor, 'Receivable source amount is no longer available.');
   }
 
-  if (payableAmount !== null && payableAmount > 0) {
+  // Only push a payable when the item is fully eligible (ticket > 0, QA approved,
+  // acceptance signed). The amount itself is always computed for UI display, but
+  // finance sync waits for the gates so we don't pre-create payables that the
+  // contractor hasn't earned yet.
+  if (payableAmount !== null && payableAmount > 0 && payload.state.isFinanciallyEligible) {
     await upsertFinanceEntry(tx, {
       referenceCode: payableReference,
       entryType: 'payable',

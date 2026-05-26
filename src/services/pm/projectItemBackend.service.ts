@@ -68,15 +68,17 @@ export async function saveProjectItemDetailsToBackend(params: {
   );
 }
 
-export async function fetchProjectItemActivities(projectId: string, workItemId: string) {
+export async function fetchProjectItemActivities(projectId: string, workItemId: string, userId?: string) {
+  const qs = userId ? `?userId=${encodeURIComponent(userId)}` : '';
   return apiRequest<{ activities: BackendActivity[] }>(
-    `/api/v1/pm/projects/${projectId}/work-items/${workItemId}/activities`
+    `/api/v1/pm/projects/${projectId}/work-items/${workItemId}/activities${qs}`
   );
 }
 
-export async function fetchProjectItemFiles(projectId: string, workItemId: string) {
+export async function fetchProjectItemFiles(projectId: string, workItemId: string, userId?: string) {
+  const qs = userId ? `?userId=${encodeURIComponent(userId)}` : '';
   return apiRequest<{ files: BackendFile[] }>(
-    `/api/v1/pm/projects/${projectId}/work-items/${workItemId}/files`
+    `/api/v1/pm/projects/${projectId}/work-items/${workItemId}/files${qs}`
   );
 }
 
@@ -96,8 +98,9 @@ export async function uploadProjectItemFileToBackend(params: {
   }
   const contentBase64 = btoa(binary);
 
+  const qs = params.actorUserId ? `?userId=${encodeURIComponent(params.actorUserId)}` : '';
   return apiRequest<{ file: BackendFile }>(
-    `/api/v1/pm/projects/${params.projectId}/work-items/${params.workItemId}/files`,
+    `/api/v1/pm/projects/${params.projectId}/work-items/${params.workItemId}/files${qs}`,
     {
       method: 'POST',
       body: {
@@ -118,7 +121,8 @@ export async function deleteProjectItemFileFromBackend(params: {
   actorUserId?: string;
   actorDisplayName?: string;
 }) {
-  return apiRequest<{ success: boolean }>(`/api/v1/pm/files/${params.fileId}`, {
+  const qs = params.actorUserId ? `?userId=${encodeURIComponent(params.actorUserId)}` : '';
+  return apiRequest<{ success: boolean }>(`/api/v1/pm/files/${params.fileId}${qs}`, {
     method: 'DELETE',
     body: {
       actorUserId: params.actorUserId,

@@ -154,6 +154,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
   const [activityRows, setActivityRows] = useState<BackendActivity[]>([]);
   const [filesRows, setFilesRows] = useState<BackendFile[]>([]);
   const [tabLoading, setTabLoading] = useState(false);
+  const [showAllManualFields, setShowAllManualFields] = useState(false);
 
   const [formData, setFormData] = useState<Partial<WorkItem>>({
     title: '',
@@ -186,9 +187,25 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
       setFilesRows([]);
       setTicketInput('');
     } else if (existingItem) {
+      // Hydrate audit dates from operational_manual_fields so the date inputs
+      // reflect previously saved values (backend stores them there, not on
+      // top-level WorkItem columns).
+      const opFields = (existingItem.operational_manual_fields || {}) as Record<string, unknown>;
+      const hydratedForecast =
+        normalizeDateInput(existingItem.forecast_date) ||
+        normalizeDateInput(opFields.forecast_date as string | undefined);
+      const hydratedActualAudit =
+        normalizeDateInput(existingItem.actual_audit_date) ||
+        normalizeDateInput(opFields.actual_audit_date as string | undefined);
+      const hydratedPlanning =
+        normalizeDateInput(existingItem.planning_audit_date) ||
+        normalizeDateInput(opFields.planning_audit_date as string | undefined);
       setFormData({
         ...existingItem,
-        operational_manual_fields: existingItem.operational_manual_fields || {},
+        forecast_date: hydratedForecast || existingItem.forecast_date,
+        actual_audit_date: hydratedActualAudit || existingItem.actual_audit_date,
+        planning_audit_date: hydratedPlanning || existingItem.planning_audit_date,
+        operational_manual_fields: (existingItem.operational_manual_fields || {}) as Record<string, string | number | boolean | null>,
         acceptance_manual_fields: existingItem.acceptance_manual_fields || {},
       });
       setTicketInput(formatDecimalInput(existingItem.ticket_number));
@@ -204,7 +221,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     if (!workItemId || isNew || !projectId || activeTab !== 'activity') return;
     let mounted = true;
     setTabLoading(true);
-    fetchProjectItemActivities(projectId, workItemId)
+    fetchProjectItemActivities(projectId, workItemId, user?.id)
       .then((response) => {
         if (mounted) setActivityRows(response.activities || []);
       })
@@ -223,7 +240,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     if (!workItemId || isNew || !projectId || activeTab !== 'files') return;
     let mounted = true;
     setTabLoading(true);
-    fetchProjectItemFiles(projectId, workItemId)
+    fetchProjectItemFiles(projectId, workItemId, user?.id)
       .then((response) => {
         if (mounted) setFilesRows(response.files || []);
       })
@@ -396,7 +413,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     });
 
     if (activeTab === 'activity') {
-      const refreshed = await fetchProjectItemActivities(projectId, workItemId);
+      const refreshed = await fetchProjectItemActivities(projectId, workItemId, user?.id);
       setActivityRows(refreshed.activities || []);
     }
   };
@@ -534,8 +551,8 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     try {
       await uploadProjectItemFileToBackend({ projectId, workItemId, file, actorUserId: user?.id, actorDisplayName: user?.name });
       const [filesResponse, activityResponse] = await Promise.all([
-        fetchProjectItemFiles(projectId, workItemId),
-        fetchProjectItemActivities(projectId, workItemId),
+        fetchProjectItemFiles(projectId, workItemId, user?.id),
+        fetchProjectItemActivities(projectId, workItemId, user?.id),
       ]);
       setFilesRows(filesResponse.files || []);
       setActivityRows(activityResponse.activities || []);
@@ -551,8 +568,8 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     try {
       await deleteProjectItemFileFromBackend({ fileId, actorUserId: user?.id, actorDisplayName: user?.name });
       const [filesResponse, activityResponse] = await Promise.all([
-        fetchProjectItemFiles(projectId, workItemId),
-        fetchProjectItemActivities(projectId, workItemId),
+        fetchProjectItemFiles(projectId, workItemId, user?.id),
+        fetchProjectItemActivities(projectId, workItemId, user?.id),
       ]);
       setFilesRows(filesResponse.files || []);
       setActivityRows(activityResponse.activities || []);
@@ -756,7 +773,39 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <div><label className="text-xs text-muted">Value</label>{renderDynamicValueInput()}</div>
                           <div><button onClick={addManualFieldValue} type="button" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded-lg px-3 py-2">Add / Update</button></div>
                         </div>
-                        <div className="space-y-2">{groupDefs.filter((field) => activeFields[field.key] !== undefined && activeFields[field.key] !== null && activeFields[field.key] !== '').map((field) => <div key={field.key} className="flex items-center justify-between rounded-lg border border-border/70 bg-surface px-3 py-2"><div><p className="text-xs text-secondary">{field.label}</p><p className="text-[11px] text-muted">{formatManualFieldValue(activeFields[field.key])}</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => { setSelectedFieldKey(field.key); setSelectedFieldValue(String(activeFields[field.key] ?? '')); }} className="text-[11px] px-2 py-1 rounded border border-input text-secondary hover:text-primary">Edit</button><button type="button" onClick={() => void removeManualFieldValue(manualGroup, field.key)} className="text-rose-400 hover:text-rose-300"><Trash2 size={14} /></button></div></div>)}{Object.keys(activeFields).length === 0 && <p className="text-xs text-muted">No manual fields completed yet.</p>}</div>
+                        {(() => {
+                          const filledFields = groupDefs.filter((field) => activeFields[field.key] !== undefined && activeFields[field.key] !== null && activeFields[field.key] !== '');
+                          const VISIBLE_LIMIT = 5;
+                          const isCollapsed = !showAllManualFields && filledFields.length > VISIBLE_LIMIT;
+                          const visibleFields = isCollapsed ? filledFields.slice(0, VISIBLE_LIMIT) : filledFields;
+                          return (
+                            <div className="space-y-2">
+                              {visibleFields.map((field) => (
+                                <div key={field.key} className="flex items-center justify-between rounded-lg border border-border/70 bg-surface px-3 py-2">
+                                  <div>
+                                    <p className="text-xs text-secondary">{field.label}</p>
+                                    <p className="text-[11px] text-muted">{formatManualFieldValue(activeFields[field.key])}</p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <button type="button" onClick={() => { setSelectedFieldKey(field.key); setSelectedFieldValue(String(activeFields[field.key] ?? '')); }} className="text-[11px] px-2 py-1 rounded border border-input text-secondary hover:text-primary">Edit</button>
+                                    <button type="button" onClick={() => void removeManualFieldValue(manualGroup, field.key)} className="text-rose-400 hover:text-rose-300"><Trash2 size={14} /></button>
+                                  </div>
+                                </div>
+                              ))}
+                              {filledFields.length > VISIBLE_LIMIT && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllManualFields((v) => !v)}
+                                  className="w-full mt-1 flex items-center justify-center gap-1 rounded-lg border border-dashed border-border/70 bg-surface hover:bg-card px-3 py-2 text-[11px] text-secondary"
+                                >
+                                  <ChevronDown size={12} className={`transition-transform ${showAllManualFields ? 'rotate-180' : ''}`} />
+                                  {showAllManualFields ? `Show less` : `Show ${filledFields.length - VISIBLE_LIMIT} more`}
+                                </button>
+                              )}
+                              {filledFields.length === 0 && <p className="text-xs text-muted">No manual fields completed yet.</p>}
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <p className="text-[11px] text-muted">Imported fields (B:M, AE) are read-only. Manual fields are structured and auditable.</p>
