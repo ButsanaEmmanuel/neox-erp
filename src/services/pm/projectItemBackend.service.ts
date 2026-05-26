@@ -58,8 +58,9 @@ export async function saveProjectItemDetailsToBackend(params: {
   operationalManualFields?: Record<string, unknown>;
   acceptanceManualFields?: Record<string, unknown>;
 }) {
+  const qs = params.actorUserId ? `?userId=${encodeURIComponent(params.actorUserId)}` : '';
   return apiRequest<{ state: ProjectItemBackendState }>(
-    `/api/v1/pm/projects/${params.projectId}/work-items/${params.workItemId}/details`,
+    `/api/v1/pm/projects/${params.projectId}/work-items/${params.workItemId}/details${qs}`,
     {
       method: 'PATCH',
       body: params,
