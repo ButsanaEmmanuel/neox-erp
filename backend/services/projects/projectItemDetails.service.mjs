@@ -317,14 +317,23 @@ export async function saveProjectItemDetails(prisma, input) {
     const actualAuditDate = toIsoDate(next.operationalManualFieldsJson?.actual_audit_date) || toIsoDate(importedFields?.actual_audit_date);
     const actualAuditWeek = actualAuditDate ? isoWeek(actualAuditDate) : null;
 
+    // Ticket Number is a completion ratio, must be within [0, 1]
+    const ticketRaw = numberOrNull(next.ticketNumber);
+    if (ticketRaw !== null && (ticketRaw < 0 || ticketRaw > 1)) {
+      throw err(400, 'INVALID_TICKET_NUMBER', 'Ticket Number must be between 0 and 1.');
+    }
+
     const eligibility = getEligibility(next);
     const hasAcceptance = (next.acceptanceStatus || '').toLowerCase() === 'signed';
     const poUnit = numberOrNull(next.poUnitPrice) || 0;
-    const ticket = numberOrNull(next.ticketNumber) || 0;
+    const ticket = ticketRaw || 0;
     const poUnitPriceCompleted = hasAcceptance && Number.isFinite(poUnit) && poUnit > 0 ? poUnit : null;
-    const manualAmount = numberOrNull(next.contractorPayableAmount);
-    const computedAmount = eligibility.eligible ? poUnit * ticket : null;
-    const finalContractorAmount = manualAmount !== null ? manualAmount : computedAmount;
+    // Contractor Payable Amount is always auto-computed = PO Unit × Ticket Number
+    // (independent of QA/acceptance gates — those still gate finance sync below)
+    const finalContractorAmount =
+      Number.isFinite(poUnit) && poUnit > 0 && ticket > 0
+        ? Math.round(poUnit * ticket * 100) / 100
+        : null;
 
     const financeReferenceId = `${input.projectId}:${input.workItemId}:contractor_payable_amount`;
     const rowStatus = deriveWorkItemStatus(next, eligibility);
