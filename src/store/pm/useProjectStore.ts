@@ -44,7 +44,7 @@ interface ProjectStore {
   createProjectWithWorkflow: (project: CreateProjectInput) => Promise<{ projectId: string; redirectToImport: boolean }>;
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
-  addWorkItem: (item: Omit<WorkItem, 'id'>) => Promise<void>;
+  addWorkItem: (item: Omit<WorkItem, 'id'>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }) => Promise<WorkItem>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
   updateTelecomManualFields: (
@@ -309,8 +309,8 @@ export const useProjectStore = create<ProjectStore>()(
           }));
         },
 
-        addWorkItem: async (item) => {
-          const created = await projectApi.createWorkItem(item.projectId, item);
+        addWorkItem: async (item, actor) => {
+          const created = await projectApi.createWorkItem(item.projectId, item, actor);
           const freshProject = await projectApi.fetchProjectById(item.projectId);
           set((state) => {
             const newWorkItems = [...state.workItems, created];
