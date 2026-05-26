@@ -98,7 +98,25 @@ const WorkItemsPage: React.FC = () => {
     setSearchParams({ view: newView });
   };
 
-  const projectItems = useMemo(() => workItems.filter((item) => item.projectId === activeProjectId), [workItems, activeProjectId]);
+  const projectItems = useMemo(() => {
+    const items = workItems.filter((item) => item.projectId === activeProjectId);
+    // Sort by most-recent modification first. Uses the client-side stamp set
+    // by the store on every mutation, with backend finance_sync_at as a
+    // refresh-survival fallback. Items never touched keep their import order.
+    const recency = (wi: typeof items[number]) => {
+      const local = wi._clientUpdatedAt ?? 0;
+      const sync = wi.finance_sync_at ? new Date(wi.finance_sync_at).getTime() : 0;
+      return Math.max(local, Number.isFinite(sync) ? sync : 0);
+    };
+    return [...items].sort((a, b) => {
+      const ra = recency(a);
+      const rb = recency(b);
+      if (ra === rb) return 0;
+      if (ra === 0) return 1;
+      if (rb === 0) return -1;
+      return rb - ra;
+    });
+  }, [workItems, activeProjectId]);
 
   const filteredItems = useMemo(() => {
     return projectItems.filter((item) => {

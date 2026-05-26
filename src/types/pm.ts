@@ -214,6 +214,10 @@ export interface WorkItem {
   imported_fields?: TelecomImportedFields;
   operational_manual_fields?: Record<string, string | number | boolean | null>;
   acceptance_manual_fields?: Record<string, string | number | boolean | null>;
+
+  // Client-side recency stamp set on every store mutation. Used by the list
+  // page to surface most-recently-edited items first; not persisted.
+  _clientUpdatedAt?: number;
 }
 
 export interface Document {
