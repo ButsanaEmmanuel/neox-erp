@@ -245,6 +245,14 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     return unit;
   }, [formData.po_unit_price, formData.acceptanceStatus]);
 
+  // Auto-computed: Contractor Payable Amount = PO Unit Price × Ticket Number
+  const contractorPayableComputed = useMemo(() => {
+    const unit = Number(formData.po_unit_price ?? 0);
+    const ticket = Number(formData.ticket_number ?? 0);
+    if (!Number.isFinite(unit) || !Number.isFinite(ticket) || unit <= 0 || ticket <= 0) return undefined;
+    return Math.round(unit * ticket * 100) / 100;
+  }, [formData.po_unit_price, formData.ticket_number]);
+
   const eligibility = useMemo(
     () =>
       evaluateFinancialEligibility({
@@ -377,8 +385,19 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
 
   const handleSave = async () => {
     if (!formData.title || !activeProjectId) return;
-    const normalizedTicket = parseDecimalInput(ticketInput);
-    const nextFormData = { ...formData, ticket_number: normalizedTicket };
+    let normalizedTicket = parseDecimalInput(ticketInput);
+    if (normalizedTicket !== undefined) {
+      if (normalizedTicket > 1 || normalizedTicket < 0) {
+        setManualFieldsError('Ticket Number must be between 0 and 1.');
+        return;
+      }
+    }
+    const unitPrice = Number(formData.po_unit_price ?? 0);
+    const computedPayable =
+      Number.isFinite(unitPrice) && unitPrice > 0 && normalizedTicket !== undefined && normalizedTicket > 0
+        ? Math.round(unitPrice * normalizedTicket * 100) / 100
+        : undefined;
+    const nextFormData = { ...formData, ticket_number: normalizedTicket, contractor_payable_amount: computedPayable };
     console.info('[WorkItemDrawer] Save requested', {
       workItemId,
       projectId: activeProjectId,
@@ -414,7 +433,9 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
       if (isTelecom) {
         await persistTelecomDetails({
           ticket_number: normalizedTicket,
-          contractor_payable_amount: parseNumberLike(nextFormData.contractor_payable_amount),
+          contractor_payable_amount: computedPayable,
+          actual_audit_date: nextFormData.actual_audit_date,
+          forecast_date: nextFormData.forecast_date,
         });
       }
       else if (workItemId) updateWorkItem(workItemId, nextFormData);
@@ -595,28 +616,51 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                       <div className="flex items-center gap-2 text-cyan-300"><Calculator size={16} /> Telecom Completion Fields</div>
                       <div className="grid grid-cols-2 gap-4">
                         <div><label className="text-xs text-muted">PO Unit Price (Imported, read-only)</label><input value={String(formData.po_unit_price ?? '')} readOnly className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-secondary" /></div>
-                        <div><label className="text-xs text-muted">Ticket Number (Manual)</label><input type="text" inputMode="decimal" value={ticketInput} onChange={(e) => { const raw = e.target.value; if (!/^\d*([.,]\d*)?$/.test(raw)) return; setTicketInput(raw); const parsed = parseDecimalInput(raw); if (raw === '' || /[.,]$/.test(raw)) return; setFormData((prev) => ({ ...prev, ticket_number: parsed })); }} onBlur={() => { const parsed = parseDecimalInput(ticketInput); setFormData((prev) => ({ ...prev, ticket_number: parsed })); setTicketInput(parsed === undefined ? '' : String(parsed)); }} placeholder="Ex: 0.7" className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary" /></div>
+                        <div>
+                          <label className="text-xs text-muted">Ticket Number (Manual, 0–1)</label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={ticketInput}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (!/^\d*([.,]\d*)?$/.test(raw)) return;
+                              const parsed = parseDecimalInput(raw);
+                              if (parsed !== undefined && parsed > 1) {
+                                setManualFieldsError('Ticket Number must be between 0 and 1.');
+                                return;
+                              }
+                              if (parsed !== undefined && parsed < 0) {
+                                setManualFieldsError('Ticket Number must be between 0 and 1.');
+                                return;
+                              }
+                              setManualFieldsError(null);
+                              setTicketInput(raw);
+                              if (raw === '' || /[.,]$/.test(raw)) return;
+                              setFormData((prev) => ({ ...prev, ticket_number: parsed }));
+                            }}
+                            onBlur={() => {
+                              let parsed = parseDecimalInput(ticketInput);
+                              if (parsed !== undefined) {
+                                if (parsed > 1) parsed = 1;
+                                if (parsed < 0) parsed = 0;
+                              }
+                              setFormData((prev) => ({ ...prev, ticket_number: parsed }));
+                              setTicketInput(parsed === undefined ? '' : String(parsed));
+                            }}
+                            placeholder="Ex: 0.7"
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
                         <div><label className="text-xs text-muted">QA Status (Gate)</label><select value={formData.qaStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, qaStatus: e.target.value as WorkItem['qaStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
                         <div><label className="text-xs text-muted">Acceptance Status (Gate)</label><select value={formData.acceptanceStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, acceptanceStatus: e.target.value as WorkItem['acceptanceStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="signed">Signed</option><option value="rejected">Rejected</option></select></div>
                         <div><label className="text-xs text-muted">PO Unit Price Completed (Auto: Acceptance Signed)</label><input value={poCompletedPreview !== undefined ? String(poCompletedPreview) : '-'} readOnly className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-emerald-300" /></div>
                         <div>
-                          <label className="text-xs text-muted">Contractor Payable Amount (Manual - Negotiated)</label>
+                          <label className="text-xs text-muted">Contractor Payable Amount (Auto: PO Unit × Ticket)</label>
                           <input
-                            type="text"
-                            inputMode="decimal"
-                            value={formData.contractor_payable_amount !== undefined && formData.contractor_payable_amount !== null ? String(formData.contractor_payable_amount) : ''}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              if (!/^\d*([.,]\d*)?$/.test(raw)) return;
-                              if (raw === '') {
-                                setFormData((prev) => ({ ...prev, contractor_payable_amount: undefined }));
-                                return;
-                              }
-                              const parsed = parseDecimalInput(raw);
-                              setFormData((prev) => ({ ...prev, contractor_payable_amount: parsed }));
-                            }}
-                            placeholder="Ex: 382.5"
-                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                            value={contractorPayableComputed !== undefined ? String(contractorPayableComputed) : '-'}
+                            readOnly
+                            className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-emerald-300"
                           />
                         </div>
                         <div><label className="text-xs text-muted">Schedule Status</label><input value={formData.schedule_status ? String(formData.schedule_status).replace('_', ' ') : '-'} readOnly className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-secondary" /></div>
@@ -664,10 +708,9 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                             <label className="text-xs text-muted">Actual Audit Date</label>
                             <input
                               type="date"
-                              value={formData.actual_audit_date || ''}
-                              readOnly={Boolean(formData.imported_fields?.actual_audit_date)}
+                              value={normalizeDateInput(formData.actual_audit_date) || ''}
                               onChange={(e) => setFormData((prev) => ({ ...prev, actual_audit_date: e.target.value }))}
-                              className={`w-full mt-1 bg-surface border rounded-lg px-3 py-2 text-xs ${formData.imported_fields?.actual_audit_date ? 'border-border/70 text-secondary cursor-not-allowed' : 'border-input text-primary'}`}
+                              className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
                             />
                           </div>
                           <div>
