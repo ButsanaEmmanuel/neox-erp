@@ -343,8 +343,9 @@ export const useProjectStore = create<ProjectStore>()(
           const item = get().workItems.find((wi) => wi.id === id);
           if (!item) return;
           const updated = await projectApi.updateWorkItem(item.projectId, id, updates);
+          const stamped = { ...updated, _clientUpdatedAt: Date.now() };
           set((state) => ({
-            workItems: state.workItems.map((wi) => (wi.id === id ? updated : wi)),
+            workItems: state.workItems.map((wi) => (wi.id === id ? stamped : wi)),
           }));
         },
 
@@ -370,6 +371,7 @@ export const useProjectStore = create<ProjectStore>()(
               contractor_payable_amount: state.contractorPayableAmount ?? wi.contractor_payable_amount,
               finance_sync_status: (state.financeSyncStatus as WorkItem['finance_sync_status']) ?? wi.finance_sync_status,
               finance_sync_at: state.financeSyncAt ?? wi.finance_sync_at,
+              _clientUpdatedAt: Date.now(),
             } : wi)),
           }));
         },
@@ -388,6 +390,7 @@ export const useProjectStore = create<ProjectStore>()(
               ...wi,
               finance_sync_status: (state.financeSyncStatus as WorkItem['finance_sync_status']) ?? wi.finance_sync_status,
               finance_sync_at: state.financeSyncAt ?? wi.finance_sync_at,
+              _clientUpdatedAt: Date.now(),
             } : wi)),
           }));
         },
