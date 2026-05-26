@@ -297,7 +297,7 @@ const DashboardContent: React.FC = () => {
           workforce: { pxCount: number; efficiency: number; approvedTimesheets: number; pendingTimesheets: number };
           hse: { environment: number; protocol: number; equipment: number };
           projects: { criticalCount: number; rows: Array<{ name: string; progress: number; status: 'active' | 'at-risk' | 'complete' }> };
-        } }>('/api/v1/dashboard/overview');
+        } }>(`/api/v1/dashboard/overview${user?.id ? `?userId=${encodeURIComponent(user.id)}` : ''}`);
         if (!cancelled) setDashboardOverview(data.overview || null);
       } catch {
         if (!cancelled) setDashboardOverview(null);
@@ -309,7 +309,7 @@ const DashboardContent: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeView]);
+  }, [activeView, user?.id]);
 
   return (
     <div
