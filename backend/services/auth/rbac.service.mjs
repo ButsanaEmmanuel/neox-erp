@@ -48,6 +48,7 @@ export async function getUserPermissions(userId) {
 export async function hasPermission(userId, key) {
   if (!userId || !key) return false;
   const perms = await getUserPermissions(userId);
+  if (perms.has('*')) return true;
   return perms.has(key);
 }
 
@@ -97,6 +98,7 @@ export async function assertPermission(ctx, key) {
   if (!userId) return deny();
 
   const perms = await getUserPermissions(userId);
+  if (perms.has('*')) return true;
   if (!perms.has(key)) return deny();
   return true;
 }
@@ -122,6 +124,15 @@ async function resolveUserPermissions(userId) {
   });
 
   const granted = new Set();
+  // super_admin bypass: holders of this role get every permission key. Without
+  // this, narrow gates like `finance.snapshot.read` or `system.dashboard.read`
+  // return 403 even for the platform owner because their UserPermissionSet
+  // grants only cover named resources (entries, ledger, …), not every new key.
+  const SUPER_ADMIN_CODES = new Set(['super_admin', 'SUPER_ADMIN', 'ADMIN']);
+  const isSuperAdmin = userRoles.some((ur) => ur.role && SUPER_ADMIN_CODES.has(ur.role.code));
+  if (isSuperAdmin) {
+    granted.add('*');
+  }
   for (const ur of userRoles) {
     for (const rp of ur.role.permissions) {
       if (rp.permission && rp.permission.isActive) {
