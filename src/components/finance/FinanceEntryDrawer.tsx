@@ -29,7 +29,9 @@ const FinanceEntryDrawer: React.FC<Props> = ({ entry, onClose }) => {
       <aside className="fixed right-0 top-0 bottom-0 z-50 w-[640px] max-w-[95vw] bg-app border-l border-border/60 shadow-2xl flex flex-col">
         <header className="p-6 border-b border-border/60 bg-card flex items-start justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wider text-muted">{entry.referenceCode}</p>
+            <p className="text-[11px] uppercase tracking-wider text-muted font-mono" title={entry.referenceCode}>
+              {entry.displayCode || entry.referenceCode}
+            </p>
             <h2 className="text-2xl font-bold text-primary mt-1 truncate">{entry.title}</h2>
             <p className="text-xs text-secondary mt-1 truncate">
               {entry.companyName || entry.memo || entry.sourceModule}

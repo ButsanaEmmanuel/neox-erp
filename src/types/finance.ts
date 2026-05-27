@@ -148,6 +148,10 @@ export interface FinanceSourceLink {
 export interface FinanceEntryRecord {
     id: string;
     referenceCode: string;
+    // Human-friendly code (fm<TAG>NNNNNN) used in lists and drawers.
+    // Optional for backwards compat with rows that haven't been backfilled
+    // yet — UI falls back to a truncated referenceCode when absent.
+    displayCode?: string;
     entryType: string;
     direction: string;
     title: string;
