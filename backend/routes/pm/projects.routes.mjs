@@ -18,6 +18,7 @@ import {
   updateProjectScope,
   getProjectById,
 } from '../../services/pm/projectCrud.service.mjs';
+import { mapWorkItem } from '../../services/projects/projectCollaboration.service.mjs';
 import {
   listProjectMilestones,
   createMilestone,
@@ -138,7 +139,10 @@ export async function handlePmProjectRoutes(ctx) {
       if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
       const workItem = await createWorkItem(ctx.prisma, projectId, body, actor);
       safeBroadcast('work_item_created', { projectId, workItemId: workItem.id, type: workItem.type });
-      json(res, 201, { workItem });
+      // Map through the same DTO the list endpoints use so the drawer
+      // re-opens with dates in yyyy-MM-dd (raw row returns Date objects
+      // that <input type="date"> can't hydrate).
+      json(res, 201, { workItem: mapWorkItem(workItem) });
       return true;
     }
 
@@ -166,7 +170,7 @@ export async function handlePmProjectRoutes(ctx) {
       if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.write'))) return true;
       const workItem = await updateWorkItem(ctx.prisma, projectId, itemId, body, actor);
       safeBroadcast('work_item_updated', { projectId, workItemId: itemId, patchedFields: patchedFieldsOf(body) });
-      json(res, 200, { workItem });
+      json(res, 200, { workItem: mapWorkItem(workItem) });
       return true;
     }
 

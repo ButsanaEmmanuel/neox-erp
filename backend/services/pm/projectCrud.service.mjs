@@ -250,15 +250,23 @@ export async function updateWorkItem(prisma, projectId, itemId, data, actor) {
     if (Object.prototype.hasOwnProperty.call(patch, 'weightPercent')) delete patch.weightPercent;
   }
 
-  // Signing closes the task: when the client signs off, status auto-promotes
-  // to 'done' unless the caller passes an explicit status in the same PATCH
-  // (e.g. re-opening or status only changed by the rollup). Leaf items only —
-  // parents already have status locked above.
-  if (hasChildren === 0
-      && Object.prototype.hasOwnProperty.call(patch, 'signedDate')
-      && patch.signedDate instanceof Date
-      && !Object.prototype.hasOwnProperty.call(patch, 'status')) {
-    patch.status = 'done';
+  // Delivery-milestone status auto-progression (leaf items only — parents
+  // already have status locked above). Skipped if the caller passes an
+  // explicit status in the same PATCH (re-open, manual override).
+  // Order is signed > accepted > completed: the most-advanced milestone
+  // wins so saving all three at once still lands on 'done'. We look at
+  // the effective post-patch state, not just the keys present in patch,
+  // so unsetting accepted while signed stays set still keeps 'done'.
+  if (hasChildren === 0 && !Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    const effCompleted = Object.prototype.hasOwnProperty.call(patch, 'completedDate')
+      ? patch.completedDate : existing.completedDate;
+    const effAccepted = Object.prototype.hasOwnProperty.call(patch, 'acceptanceDate')
+      ? patch.acceptanceDate : existing.acceptanceDate;
+    const effSigned = Object.prototype.hasOwnProperty.call(patch, 'signedDate')
+      ? patch.signedDate : existing.signedDate;
+    if (effSigned) patch.status = 'done';
+    else if (effAccepted) patch.status = 'awaiting_signed_acceptance';
+    else if (effCompleted) patch.status = 'awaiting_qa_approval';
   }
 
   // Re-derive schedule status from the post-update planned+actual start dates.

@@ -85,7 +85,7 @@ export function computeKpis(workItems = []) {
   };
 }
 
-function mapWorkItem(row, state) {
+export function mapWorkItem(row, state) {
   // Strict yyyy-MM-dd for HTML <input type="date"> hydration. The previous
   // helper delegated to toIsoDate which returned full ISO datetimes, so
   // every date input on the drawer rendered blank despite having a value
