@@ -9,6 +9,35 @@ import { hasPermission } from '../auth/rbac.service.mjs';
 // /finance/entries (and siblings) would silently drop entries the
 // dashboard snapshot still counts — the two views diverge and the
 // payable/receivable lists look truncated next to the cards.
+// fm<TAG>NNNNNN code generator. Looks at the highest existing code with
+// the same tag, increments, retries on the rare unique-violation race
+// (two concurrent inserts of the same entryType inside overlapping
+// transactions). Cap retries so we never spin forever.
+const DISPLAY_TAG_BY_TYPE = {
+  receivable: 'REC',
+  payable: 'PAY',
+  salary: 'SAL',
+  reimbursement: 'RMB',
+  invoice: 'INV',
+  bill: 'BIL',
+};
+async function nextDisplayCode(tx, entryType) {
+  const tag = DISPLAY_TAG_BY_TYPE[entryType] || 'GEN';
+  const prefix = `fm${tag}`;
+  const last = await tx.financeEntry.findFirst({
+    where: { displayCode: { startsWith: prefix } },
+    orderBy: { displayCode: 'desc' },
+    select: { displayCode: true },
+  });
+  let next = 1;
+  if (last?.displayCode) {
+    const tail = last.displayCode.slice(prefix.length);
+    const parsed = Number(tail);
+    if (Number.isFinite(parsed) && parsed >= 1) next = parsed + 1;
+  }
+  return `${prefix}${String(next).padStart(6, '0')}`;
+}
+
 async function isUnscoped(userId) {
   if (!userId) return false;
   try { return await hasPermission(userId, '*'); }
@@ -266,6 +295,12 @@ async function upsertFinanceEntry(tx, payload) {
     deletedAt: null,
   };
 
+  // Generate the human-friendly displayCode for new rows only — existing
+  // rows keep the code they were backfilled with so it stays stable as
+  // a search handle and never changes mid-lifecycle.
+  if (!existing) {
+    data.displayCode = await nextDisplayCode(tx, payload.entryType);
+  }
   const saved = existing
     ? await tx.financeEntry.update({
         where: { id: existing.id },

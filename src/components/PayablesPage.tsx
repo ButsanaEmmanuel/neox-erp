@@ -273,8 +273,12 @@ const PayablesPage: React.FC = () => {
                                     // short tail of the raw referenceCode so the row stays scannable
                                     // even when title is missing. Full ref is in the tooltip.
                                     const title = item.financeEntry?.title || 'Payable';
+                                    // Prefer the human-friendly displayCode (fmPAY000001).
+                                    // Fall back to a truncated raw ref only for legacy rows
+                                    // that haven't been backfilled.
                                     const ref = item.referenceCode || '';
-                                    const shortRef = ref.length > 24 ? `…${ref.slice(-22)}` : ref;
+                                    const shortRef = item.financeEntry?.displayCode
+                                      || (ref.length > 24 ? `…${ref.slice(-22)}` : ref);
                                     return (
                                         <tr
                                             key={item.id}

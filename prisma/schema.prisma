@@ -755,6 +755,11 @@ model ProjectItemFile {
 model FinanceEntry {
   id                String                    @id @default(cuid())
   referenceCode     String                    @unique
+  // Human-friendly code displayed in lists and drawers. Generated on
+  // insert in the form fm<TAG>NNNNNN where TAG is the 3-letter module
+  // marker (REC, PAY, SAL, RMB, INV, BIL). Unique, never mutates, so
+  // it doubles as a stable search handle for users.
+  displayCode       String?                   @unique
   entryType         String
   direction         String
   title             String

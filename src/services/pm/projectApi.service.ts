@@ -1,6 +1,20 @@
 import { apiRequest } from '../../lib/apiClient';
 import { Milestone, Project, ProjectMember, ProjectScope, WorkItem } from '../../types/pm';
 
+// Service-layer fallback: read the active user from the same localStorage
+// key the AuthContext writes. Without this, every store action would have
+// to thread actor through 3-4 callsites or silently 403 against
+// assertPermission. Returns {} if no session — backend will reject and
+// the apiClient will surface the error.
+function currentActor(): { actorUserId?: string; actorDisplayName?: string } {
+  try {
+    const raw = localStorage.getItem('neox-auth-session');
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return { actorUserId: parsed?.id, actorDisplayName: parsed?.name };
+  } catch { return {}; }
+}
+
 export async function fetchProjectsWithWorkItems(
   userId: string,
 ): Promise<{ projects: Project[]; workItems: WorkItem[] }> {
@@ -77,10 +91,11 @@ export async function createWorkItem(
   data: Omit<WorkItem, 'id'>,
   actor?: { actorUserId?: string; actorDisplayName?: string },
 ): Promise<WorkItem> {
-  const qs = actor?.actorUserId ? `?userId=${encodeURIComponent(actor.actorUserId)}` : '';
+  const a = actor?.actorUserId ? actor : currentActor();
+  const qs = a.actorUserId ? `?userId=${encodeURIComponent(a.actorUserId)}` : '';
   const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items${qs}`, {
     method: 'POST',
-    body: { ...data, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
+    body: { ...data, actorUserId: a.actorUserId, actorDisplayName: a.actorDisplayName },
   });
   return workItem;
 }
@@ -91,16 +106,19 @@ export async function updateWorkItem(
   data: Partial<WorkItem>,
   actor?: { actorUserId?: string; actorDisplayName?: string },
 ): Promise<WorkItem> {
-  const qs = actor?.actorUserId ? `?userId=${encodeURIComponent(actor.actorUserId)}` : '';
+  const a = actor?.actorUserId ? actor : currentActor();
+  const qs = a.actorUserId ? `?userId=${encodeURIComponent(a.actorUserId)}` : '';
   const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items/${itemId}${qs}`, {
     method: 'PATCH',
-    body: { ...data, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
+    body: { ...data, actorUserId: a.actorUserId, actorDisplayName: a.actorDisplayName },
   });
   return workItem;
 }
 
 export async function deleteWorkItem(projectId: string, itemId: string): Promise<void> {
-  await apiRequest<void>(`/api/v1/projects/${projectId}/work-items/${itemId}`, {
+  const a = currentActor();
+  const qs = a.actorUserId ? `?userId=${encodeURIComponent(a.actorUserId)}` : '';
+  await apiRequest<void>(`/api/v1/projects/${projectId}/work-items/${itemId}${qs}`, {
     method: 'DELETE',
   });
 }
