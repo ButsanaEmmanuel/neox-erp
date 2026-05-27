@@ -92,6 +92,8 @@ model User {
   authoredCaseEvents         HrmCaseEvent[]              @relation("CaseEventAuthor")
   approvedTimesheets         TimesheetEntry[]            @relation("TimesheetApprover")
   columnPreferences          UserColumnPreference[]
+  contractedWorkItems        WorkItem[]                  @relation("WorkItemContractor")
+  contractorPOs              ContractorPurchaseOrder[]   @relation("ContractorPO")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -502,12 +504,13 @@ model Project {
   manager         User                 @relation("ProjectManager", fields: [managerId], references: [id])
   ownerDepartment Department?          @relation(fields: [ownerDepartmentId], references: [id])
   clientAccount   ClientAccount?       @relation(fields: [clientAccountId], references: [id])
-  workItems       WorkItem[]
-  members         ProjectMember[]
-  importBatches   ProjectImportBatch[]
-  scope           ProjectScope?
-  milestones      Milestone[]
-  budgets         Budget[]
+  workItems          WorkItem[]
+  members            ProjectMember[]
+  importBatches      ProjectImportBatch[]
+  scope              ProjectScope?
+  milestones         Milestone[]
+  budgets            Budget[]
+  contractorPOs      ContractorPurchaseOrder[]
 
   @@index([managerId])
   @@index([clientAccountId])
@@ -636,21 +639,58 @@ model WorkItem {
   // approved (existing acceptanceDate field), signed = final closure.
   completedDate               DateTime?
   signedDate                  DateTime?
+  // Telecom contractor PO grouping. contractorId is the User executing the
+  // work item; contractorPurchaseOrderId is set lazily on first payable
+  // sync — the service finds or creates the open PO for (projectId,
+  // contractorId) and links the row.
+  contractorId                String?
+  contractorPurchaseOrderId   String?
   isDeleted                   Boolean   @default(false)
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
   deletedAt                   DateTime?
 
-  project     Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  importBatch ProjectImportBatch? @relation(fields: [importBatchId], references: [id])
-  parent      WorkItem?           @relation("WorkItemChildren", fields: [parentId], references: [id], onDelete: Restrict)
-  children    WorkItem[]          @relation("WorkItemChildren")
+  project                 Project                   @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  importBatch             ProjectImportBatch?       @relation(fields: [importBatchId], references: [id])
+  parent                  WorkItem?                 @relation("WorkItemChildren", fields: [parentId], references: [id], onDelete: Restrict)
+  children                WorkItem[]                @relation("WorkItemChildren")
+  contractor              User?                     @relation("WorkItemContractor", fields: [contractorId], references: [id])
+  contractorPurchaseOrder ContractorPurchaseOrder?  @relation("ContractorPOWorkItems", fields: [contractorPurchaseOrderId], references: [id])
 
   @@index([projectId])
   @@index([importBatchId])
   @@index([financeSyncStatus])
   @@index([isDeleted])
   @@index([parentId])
+  @@index([contractorId])
+  @@index([contractorPurchaseOrderId])
+}
+
+// One open PO per (project, contractor). Closed automatically once every
+// linked WorkItem has qaStatus='approved' AND a non-null contractor
+// payable amount. A new open PO can spin up after closure if fresh
+// work items get attributed to the same contractor on the same project.
+model ContractorPurchaseOrder {
+  id            String    @id @default(cuid())
+  displayCode   String    @unique  // poCONTNNNNNN
+  projectId     String
+  contractorId  String
+  status        String    @default("open")  // open | closed
+  totalAmount   Decimal   @default(0) @db.Decimal(14, 2)
+  itemCount     Int       @default(0)
+  approvedCount Int       @default(0)
+  openedAt      DateTime  @default(now())
+  closedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  contractor User       @relation("ContractorPO", fields: [contractorId], references: [id], onDelete: Restrict)
+  workItems  WorkItem[] @relation("ContractorPOWorkItems")
+
+  @@index([projectId])
+  @@index([contractorId])
+  @@index([status])
 }
 
 model ProjectImportBatch {
