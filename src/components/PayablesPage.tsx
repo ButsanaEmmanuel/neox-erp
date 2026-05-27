@@ -57,8 +57,19 @@ const PayablesPage: React.FC = () => {
         setPayables(contextPayables);
     }, [contextPayables]);
 
+    // Every finance route runs assertPermission against ?userId=. The
+    // page used to omit it on a handful of calls, so the right-side
+    // detail drawer surfaced "Permission denied" even for super-admins.
+    // Centralise the actor query-string here so every call below carries it.
+    const actorQs = user?.id ? `userId=${encodeURIComponent(user.id)}` : '';
+    const withActor = (path: string) => {
+      if (!actorQs) return path;
+      const sep = path.includes('?') ? '&' : '?';
+      return `${path}${sep}${actorQs}`;
+    };
+
     const refreshPayables = async () => {
-        const data = await apiRequest<PayablesResponse>('/api/v1/finance/payables?take=200');
+        const data = await apiRequest<PayablesResponse>(withActor('/api/v1/finance/payables?take=200'));
         setPayables(data.payables || []);
     };
 
@@ -66,7 +77,7 @@ const PayablesPage: React.FC = () => {
         setLoadingDetail(true);
         setDrawerError(null);
         try {
-            const data = await apiRequest<PayableDetailResponse>(`/api/v1/finance/payables/${payableId}`);
+            const data = await apiRequest<PayableDetailResponse>(withActor(`/api/v1/finance/payables/${payableId}`));
             setSelectedPayable(data.payable || null);
             const outstanding = Number(data.payable?.outstandingAmount || 0);
             setPaymentAmount(outstanding > 0 ? String(outstanding) : '');
@@ -112,7 +123,7 @@ const PayablesPage: React.FC = () => {
     const approveSelected = async () => {
         if (!selectedPayable) return;
         await executeAction(async () => {
-            await apiRequest(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/approve`, {
+            await apiRequest(withActor(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/approve`), {
                 method: 'PATCH',
                 body: {
                     notes: actionNotes || null,
@@ -126,7 +137,7 @@ const PayablesPage: React.FC = () => {
     const rejectSelected = async () => {
         if (!selectedPayable) return;
         await executeAction(async () => {
-            await apiRequest(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/reject`, {
+            await apiRequest(withActor(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/reject`), {
                 method: 'PATCH',
                 body: {
                     notes: actionNotes || 'Rejected from payable control panel',
@@ -146,7 +157,7 @@ const PayablesPage: React.FC = () => {
         }
 
         await executeAction(async () => {
-            await apiRequest('/api/v1/finance/payments', {
+            await apiRequest(withActor('/api/v1/finance/payments'), {
                 method: 'POST',
                 body: {
                     payableId: selectedPayable.id,
@@ -175,7 +186,7 @@ const PayablesPage: React.FC = () => {
 
         await executeAction(async () => {
             const contentBase64 = await fileToBase64(selectedEvidenceFile);
-            await apiRequest(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/evidence`, {
+            await apiRequest(withActor(`/api/v1/finance/entries/${selectedPayable.financeEntryId}/evidence`), {
                 method: 'POST',
                 body: {
                     originalFileName: selectedEvidenceFile.name,
@@ -257,37 +268,46 @@ const PayablesPage: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
-                                {rows.map((item) => (
-                                    <tr key={item.id} className="hover:bg-surface transition-colors">
-                                        <td className="px-6 py-4 text-sm font-semibold text-primary">{item.referenceCode}</td>
-                                        <td className="px-6 py-4 text-sm text-secondary">{item.vendorName || '-'}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-semibold text-rose-300 tabular-nums">{formatCurrency(Number(item.totalAmount || 0))}</td>
-                                        <td className="px-6 py-4 text-right text-sm font-semibold text-primary tabular-nums">{formatCurrency(Number(item.outstandingAmount || 0))}</td>
-                                        <td className="px-6 py-4">
-                                            <StatusPill tone={item.financeEntry?.approvalStatus === 'approved' ? 'success' : 'warning'}>
-                                                {item.financeEntry?.approvalStatus || item.status}
-                                            </StatusPill>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <StatusPill tone={item.financeEntry?.evidenceStatus === 'required_missing' ? 'danger' : 'info'}>
-                                                {item.financeEntry?.evidenceStatus || 'unknown'}
-                                            </StatusPill>
-                                        </td>
-                                        <td className="px-6 py-4 text-xs text-secondary">{item.dueDate ? formatDate(item.dueDate, 'short') : '-'}</td>
-                                        <td className="px-6 py-4 text-xs text-secondary">
-                                            {item.financeEntry?.sourceLinks?.filter((l) => l.sourceModule === 'scm').slice(0, 2).map((l) => `${l.sourceEntity}:${l.sourceEntityId}`).join(' | ') || '-'}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <button
-                                                type="button"
-                                                onClick={() => void openPayable(item)}
-                                                className="px-3 py-1.5 text-xs border border-blue-500/40 rounded-lg text-blue-300 hover:bg-blue-500/10"
-                                            >
-                                                Open
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {rows.map((item) => {
+                                    // Show the human title from the FinanceEntry; fall back to a
+                                    // short tail of the raw referenceCode so the row stays scannable
+                                    // even when title is missing. Full ref is in the tooltip.
+                                    const title = item.financeEntry?.title || 'Payable';
+                                    const ref = item.referenceCode || '';
+                                    const shortRef = ref.length > 24 ? `…${ref.slice(-22)}` : ref;
+                                    return (
+                                        <tr
+                                            key={item.id}
+                                            onClick={() => void openPayable(item)}
+                                            className="hover:bg-surface transition-colors cursor-pointer"
+                                        >
+                                            <td className="px-6 py-4">
+                                                <div className="text-sm font-semibold text-primary truncate max-w-[280px]">{title}</div>
+                                                <div className="text-[11px] text-muted font-mono mt-0.5" title={ref}>{shortRef}</div>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-secondary">{item.vendorName || '-'}</td>
+                                            <td className="px-6 py-4 text-right text-sm font-semibold text-rose-300 tabular-nums">{formatCurrency(Number(item.totalAmount || 0))}</td>
+                                            <td className="px-6 py-4 text-right text-sm font-semibold text-primary tabular-nums">{formatCurrency(Number(item.outstandingAmount || 0))}</td>
+                                            <td className="px-6 py-4">
+                                                <StatusPill tone={item.financeEntry?.approvalStatus === 'approved' ? 'success' : 'warning'}>
+                                                    {item.financeEntry?.approvalStatus || item.status}
+                                                </StatusPill>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <StatusPill tone={item.financeEntry?.evidenceStatus === 'required_missing' ? 'danger' : 'info'}>
+                                                    {item.financeEntry?.evidenceStatus || 'unknown'}
+                                                </StatusPill>
+                                            </td>
+                                            <td className="px-6 py-4 text-xs text-secondary">{item.dueDate ? formatDate(item.dueDate, 'short') : '-'}</td>
+                                            <td className="px-6 py-4 text-xs text-secondary">
+                                                {item.financeEntry?.sourceLinks?.filter((l) => l.sourceModule === 'scm').slice(0, 2).map((l) => `${l.sourceEntity}:${l.sourceEntityId}`).join(' | ') || '-'}
+                                            </td>
+                                            <td className="px-6 py-4 text-right">
+                                                <span className="text-[11px] text-blue-300 group-hover:text-blue-200">Open →</span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -321,7 +341,12 @@ const PayablesPage: React.FC = () => {
 
                         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
                             {loadingDetail && <p className="text-sm text-secondary">Loading details...</p>}
-                            {drawerError && <p className="text-sm text-rose-400">{drawerError}</p>}
+                            {drawerError && (
+                                <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3">
+                                    <p className="text-sm font-semibold text-rose-300">Unable to load payable</p>
+                                    <p className="text-xs text-rose-200/80 mt-1">{drawerError}</p>
+                                </div>
+                            )}
 
                             {!loadingDetail && selectedPayable && (
                                 <>
