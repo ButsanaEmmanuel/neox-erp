@@ -366,10 +366,22 @@ export async function saveProjectItemDetails(prisma, input) {
       financialEligibilityReason: eligibility.reason,
       poUnitPriceCompleted,
       contractorPayableAmount: finalContractorAmount,
-      financeSyncStatus: eligibility.eligible ? 'synced' : 'blocked',
+      // Either flow synced = the whole row counts as 'synced'. Receivable
+      // gates on acceptance signed (poUnitPriceCompleted > 0), payable
+      // gates on QA approved + manual amount (finalContractorAmount > 0).
+      // 'blocked' only when neither side has produced a Finance entry.
+      financeSyncStatus:
+        (poUnitPriceCompleted && poUnitPriceCompleted > 0)
+        || (finalContractorAmount && finalContractorAmount > 0)
+          ? 'synced'
+          : 'blocked',
       financeSyncAt: new Date(),
       financeReferenceId,
-      financeErrorMessage: eligibility.eligible ? null : eligibility.reason,
+      financeErrorMessage:
+        (poUnitPriceCompleted && poUnitPriceCompleted > 0)
+        || (finalContractorAmount && finalContractorAmount > 0)
+          ? null
+          : eligibility.reason,
       updatedByUserId: input.actorUserId,
       updatedByName: input.actorDisplayName,
     };
@@ -400,10 +412,10 @@ export async function saveProjectItemDetails(prisma, input) {
         poUnitPrice: next.poUnitPrice,
         poUnitPriceCompleted,
         contractorPayableAmount: finalContractorAmount,
-        financeSyncStatus: eligibility.eligible ? 'synced' : 'blocked',
+        financeSyncStatus: shared.financeSyncStatus,
         financeSyncAt: new Date(),
         financeReferenceId,
-        financeErrorMessage: eligibility.eligible ? null : eligibility.reason,
+        financeErrorMessage: shared.financeErrorMessage,
         isFinanciallyEligible: eligibility.eligible,
         financialEligibilityReason: eligibility.reason,
         operationalManualFieldsJson: next.operationalManualFieldsJson,
