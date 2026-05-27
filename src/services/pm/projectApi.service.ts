@@ -12,8 +12,9 @@ export async function fetchProjects(userId: string): Promise<Project[]> {
   return res.projects;
 }
 
-export async function fetchProjectById(id: string): Promise<Project> {
-  const { project } = await apiRequest<{ project: Project }>(`/api/v1/projects/${id}`);
+export async function fetchProjectById(id: string, userId?: string): Promise<Project> {
+  const qs = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+  const { project } = await apiRequest<{ project: Project }>(`/api/v1/projects/${id}${qs}`);
   return project;
 }
 
