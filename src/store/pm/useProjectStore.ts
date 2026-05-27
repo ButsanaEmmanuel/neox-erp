@@ -311,7 +311,7 @@ export const useProjectStore = create<ProjectStore>()(
 
         addWorkItem: async (item, actor) => {
           const created = await projectApi.createWorkItem(item.projectId, item, actor);
-          const freshProject = await projectApi.fetchProjectById(item.projectId);
+          const freshProject = await projectApi.fetchProjectById(item.projectId, actor?.actorUserId);
           set((state) => {
             const newWorkItems = [...state.workItems, created];
             return {
