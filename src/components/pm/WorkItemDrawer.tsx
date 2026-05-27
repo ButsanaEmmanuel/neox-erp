@@ -130,6 +130,14 @@ function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<st
   return next;
 }
 
+// Today's date in yyyy-MM-dd, used as the `max` attribute on inputs that
+// represent events that have actually happened — you can't sign off
+// tomorrow because tomorrow hasn't arrived yet.
+const TODAY_ISO = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+})();
+
 const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, onSwitchItem }) => {
   const { user } = useAuth();
   const { workItems, addWorkItem, updateWorkItem, addSubTask, reparentWorkItem, activeProjectId, projects } = useProjectStore();
@@ -697,6 +705,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <label className="text-xs text-muted">Actual Start Date</label>
                           <input
                             type="date"
+                            max={TODAY_ISO}
                             value={formData.actualStartDate || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, actualStartDate: e.target.value || undefined }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
@@ -706,6 +715,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <label className="text-xs text-muted">End Date (Actual)</label>
                           <input
                             type="date"
+                            max={TODAY_ISO}
                             value={formData.actualDate || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, actualDate: e.target.value || undefined }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
@@ -768,6 +778,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <label className="text-xs text-muted">Completed (submitted to client)</label>
                           <input
                             type="date"
+                            max={TODAY_ISO}
                             value={formData.completedDate || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, completedDate: e.target.value || undefined }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
@@ -777,6 +788,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <label className="text-xs text-muted">Accepted by client</label>
                           <input
                             type="date"
+                            max={TODAY_ISO}
                             value={formData.acceptanceDate || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, acceptanceDate: e.target.value || undefined }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
@@ -786,6 +798,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           <label className="text-xs text-muted">Signed</label>
                           <input
                             type="date"
+                            max={TODAY_ISO}
                             value={formData.signedDate || ''}
                             onChange={(e) => setFormData((prev) => ({ ...prev, signedDate: e.target.value || undefined }))}
                             className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
