@@ -535,11 +535,15 @@ export async function syncProjectItemStateToFinance(tx, payload) {
     await softDeleteFinanceEntry(tx, byReference.get(receivableReference), actor, 'Receivable source amount is no longer available.');
   }
 
-  // Only push a payable when the item is fully eligible (ticket > 0, QA approved,
-  // acceptance signed). The amount itself is always computed for UI display, but
-  // finance sync waits for the gates so we don't pre-create payables that the
-  // contractor hasn't earned yet.
-  if (payableAmount !== null && payableAmount > 0 && payload.state.isFinanciallyEligible) {
+  // Payable syncs as soon as QA is approved AND a contractor amount is set.
+  // The two flows are independent:
+  //   • receivable waits for acceptance signed (we bill the client at signing)
+  //   • payable waits only for QA approval (we pay the contractor once their
+  //     deliverable is validated, no need to wait for the client signature)
+  // The amount itself is already gated server-side: contractorPayableAmount
+  // is null until qaStatus === 'approved', so a non-null amount here is
+  // sufficient — no extra eligibility check needed.
+  if (payableAmount !== null && payableAmount > 0) {
     await upsertFinanceEntry(tx, {
       referenceCode: payableReference,
       entryType: 'payable',
@@ -561,10 +565,14 @@ export async function syncProjectItemStateToFinance(tx, payload) {
       approvalStatus: 'pending',
       settlementStatus: 'open',
       expectedAt: new Date(),
-      validationMessage: payload.state.financialEligibilityReason || null,
+      // Don't leak the global eligibility reason into the payable's
+      // validation message — it might still say "waiting for acceptance"
+      // even though the payable itself is independent of acceptance.
+      validationMessage: null,
       metadataJson: {
-        financeSyncStatus: payload.state.financeSyncStatus,
+        financeSyncStatus: 'synced',
         workItemTitle: workItem?.title || null,
+        gatedOn: 'qa_approved',
       },
       sourceSnapshot: {
         contractorPayableAmount: payableAmount,
