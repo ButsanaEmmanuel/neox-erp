@@ -19,10 +19,42 @@ const ALLOWED_PROJECT_FIELDS = new Set([
 const ALLOWED_WORK_ITEM_FIELDS = new Set([
   'title', 'description', 'status', 'priority', 'assignee',
   'plannedDate', 'actualDate', 'type',
+  // WBS scheduling fields editable from the drawer (no finance impact).
+  'forecastDate', 'actualStartDate', 'weightPercent',
 ]);
 
 const FINANCE_FIELDS_HINT_ROUTE =
   'PATCH /api/v1/pm/projects/:projectId/work-items/:itemId/details';
+
+const WORK_ITEM_DATE_FIELDS = ['plannedDate', 'actualDate', 'forecastDate', 'actualStartDate'];
+
+// Coerce yyyy-MM-dd / ISO / Date strings into Date instances in-place.
+// Drops the field entirely if it can't be parsed (Prisma 500s on garbage).
+function coerceWorkItemDateFields(allowed) {
+  for (const f of WORK_ITEM_DATE_FIELDS) {
+    if (allowed[f] === undefined) continue;
+    if (allowed[f] === null || allowed[f] === '') {
+      // Explicit clear: keep null so Prisma writes NULL on update.
+      allowed[f] = null;
+      continue;
+    }
+    const parsed = new Date(allowed[f]);
+    if (Number.isNaN(parsed.getTime())) {
+      delete allowed[f];
+    } else {
+      allowed[f] = parsed;
+    }
+  }
+}
+
+function deriveStartSchedule(plannedDate, actualStartDate) {
+  if (!plannedDate || !actualStartDate) return { scheduleStatus: null, startVarianceDays: null };
+  const diff = Math.round((actualStartDate.getTime() - plannedDate.getTime()) / 86400000);
+  if (!Number.isFinite(diff)) return { scheduleStatus: null, startVarianceDays: null };
+  if (diff > 0) return { scheduleStatus: 'delayed', startVarianceDays: diff };
+  if (diff < 0) return { scheduleStatus: 'early', startVarianceDays: diff };
+  return { scheduleStatus: 'on_time', startVarianceDays: 0 };
+}
 
 function badRequest(message) {
   const err = new Error(message);
@@ -127,21 +159,7 @@ export async function createWorkItem(prisma, projectId, data, actor) {
       throw notFound(`Project '${projectId}' not found.`);
     }
     const allowed = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
-    // Coerce ISO-date strings (yyyy-MM-dd) into Date instances. Prisma will
-    // 500 on the raw string for DateTime? columns. Drop the field entirely
-    // if it can't be parsed instead of erroring on a partial draft.
-    for (const dateField of ['plannedDate', 'actualDate']) {
-      if (allowed[dateField] !== undefined && allowed[dateField] !== null && allowed[dateField] !== '') {
-        const parsed = new Date(allowed[dateField]);
-        if (Number.isNaN(parsed.getTime())) {
-          delete allowed[dateField];
-        } else {
-          allowed[dateField] = parsed;
-        }
-      } else if (allowed[dateField] === '' || allowed[dateField] === null) {
-        delete allowed[dateField];
-      }
-    }
+    coerceWorkItemDateFields(allowed);
     const workItem = await tx.workItem.create({
       data: { ...allowed, title, projectId },
     });
@@ -182,14 +200,29 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
   if (!existing) {
     throw notFound(`Work item '${itemId}' not found in project '${projectId}'.`);
   }
-  for (const key of Object.keys(data || {})) {
-    if (!ALLOWED_WORK_ITEM_FIELDS.has(key)) {
-      throw badRequest(
-        `Field '${key}' must be updated via ${FINANCE_FIELDS_HINT_ROUTE}`
-      );
-    }
-  }
+  // We silently drop unknown keys (incl. finance fields + actor metadata) so
+  // the drawer can echo back its full formData without forcing the frontend
+  // to white-list. Finance fields still have to flow through /details.
   const patch = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
+  coerceWorkItemDateFields(patch);
+
+  // Re-derive schedule status from the post-update planned+actual start dates.
+  // We need the resulting effective values, so merge current row + patch.
+  if (patch.plannedDate !== undefined || patch.actualStartDate !== undefined) {
+    const current = await prisma.workItem.findUnique({
+      where: { id: itemId },
+      select: { plannedDate: true, actualStartDate: true },
+    });
+    const effPlanned = Object.prototype.hasOwnProperty.call(patch, 'plannedDate')
+      ? patch.plannedDate
+      : current?.plannedDate;
+    const effStart = Object.prototype.hasOwnProperty.call(patch, 'actualStartDate')
+      ? patch.actualStartDate
+      : current?.actualStartDate;
+    const sched = deriveStartSchedule(effPlanned, effStart);
+    patch.scheduleStatus = sched.scheduleStatus;
+    patch.startVarianceDays = sched.startVarianceDays;
+  }
 
   // D13 — when a child's status changes, roll up the chain in the same tx.
   return prisma.$transaction(async (tx) => {

@@ -486,7 +486,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
           forecast_date: nextFormData.forecast_date,
         });
       }
-      else if (workItemId) updateWorkItem(workItemId, nextFormData);
+      else if (workItemId) await updateWorkItem(workItemId, nextFormData, { actorUserId: user?.id, actorDisplayName: user?.name });
       onClose();
     } catch (error) {
       console.error('[WorkItemDrawer] Save failed', {
@@ -658,6 +658,75 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                     </div>
                     <div><label className="text-xs text-muted">Priority</label><select value={formData.priority} onChange={(e) => setFormData((prev) => ({ ...prev, priority: e.target.value as any }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div>
                   </div>
+
+                  {!isTelecom && (
+                    <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-indigo-300 flex items-center gap-2"><Calendar size={14} /> Schedule tracking</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-muted">Forecast Date</label>
+                          <input
+                            type="date"
+                            value={formData.forecastDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, forecastDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Actual Start Date</label>
+                          <input
+                            type="date"
+                            value={formData.actualStartDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, actualStartDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">End Date (Actual)</label>
+                          <input
+                            type="date"
+                            value={formData.actualDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, actualDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Weight (%)</label>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={formData.weightPercent ?? ''}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === '') {
+                                setFormData((prev) => ({ ...prev, weightPercent: undefined }));
+                                return;
+                              }
+                              const n = Number(v);
+                              if (Number.isFinite(n)) setFormData((prev) => ({ ...prev, weightPercent: n }));
+                            }}
+                            placeholder="0.00"
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                      </div>
+                      {(() => {
+                        const planned = formData.plannedDate;
+                        const start = formData.actualStartDate;
+                        if (!planned || !start) {
+                          return <p className="text-[11px] text-muted">Set planned + actual start to compute variance.</p>;
+                        }
+                        const diff = Math.round((new Date(start + 'T00:00:00Z').getTime() - new Date(planned + 'T00:00:00Z').getTime()) / 86400000);
+                        if (!Number.isFinite(diff)) return null;
+                        const tone = diff > 0 ? 'text-rose-400' : diff < 0 ? 'text-emerald-400' : 'text-emerald-300';
+                        const label = diff > 0 ? `Delayed by ${diff} day${diff !== 1 ? 's' : ''}` : diff < 0 ? `Started ${Math.abs(diff)} day${Math.abs(diff) !== 1 ? 's' : ''} early` : 'On time';
+                        return <p className={`text-[11px] ${tone}`}>{label}</p>;
+                      })()}
+                    </div>
+                  )}
 
                   {isTelecom && (
                     <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-5 space-y-4">
