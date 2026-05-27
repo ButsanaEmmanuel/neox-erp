@@ -21,12 +21,17 @@ const ALLOWED_WORK_ITEM_FIELDS = new Set([
   'plannedDate', 'actualDate', 'type',
   // WBS scheduling fields editable from the drawer (no finance impact).
   'forecastDate', 'actualStartDate', 'weightPercent',
+  // Delivery milestones — completed / accepted (existing) / signed.
+  'completedDate', 'acceptanceDate', 'signedDate',
 ]);
 
 const FINANCE_FIELDS_HINT_ROUTE =
   'PATCH /api/v1/pm/projects/:projectId/work-items/:itemId/details';
 
-const WORK_ITEM_DATE_FIELDS = ['plannedDate', 'actualDate', 'forecastDate', 'actualStartDate'];
+const WORK_ITEM_DATE_FIELDS = [
+  'plannedDate', 'actualDate', 'forecastDate', 'actualStartDate',
+  'completedDate', 'acceptanceDate', 'signedDate',
+];
 
 // Coerce yyyy-MM-dd / ISO / Date strings into Date instances in-place.
 // Drops the field entirely if it can't be parsed (Prisma 500s on garbage).
@@ -210,14 +215,23 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
   // overwrite it. Same logic for weightPercent: a parent's share of the
   // project is implicit (sum of children) so we lock it to keep the math
   // consistent. Children still control both directly.
-  if (Object.prototype.hasOwnProperty.call(patch, 'status') || Object.prototype.hasOwnProperty.call(patch, 'weightPercent')) {
-    const childCount = await prisma.workItem.count({
-      where: { parentId: itemId, isDeleted: false },
-    });
-    if (childCount > 0) {
-      delete patch.status;
-      delete patch.weightPercent;
-    }
+  const hasChildren = await prisma.workItem.count({
+    where: { parentId: itemId, isDeleted: false },
+  });
+  if (hasChildren > 0) {
+    if (Object.prototype.hasOwnProperty.call(patch, 'status')) delete patch.status;
+    if (Object.prototype.hasOwnProperty.call(patch, 'weightPercent')) delete patch.weightPercent;
+  }
+
+  // Signing closes the task: when the client signs off, status auto-promotes
+  // to 'done' unless the caller passes an explicit status in the same PATCH
+  // (e.g. re-opening or status only changed by the rollup). Leaf items only —
+  // parents already have status locked above.
+  if (hasChildren === 0
+      && Object.prototype.hasOwnProperty.call(patch, 'signedDate')
+      && patch.signedDate instanceof Date
+      && !Object.prototype.hasOwnProperty.call(patch, 'status')) {
+    patch.status = 'done';
   }
 
   // Re-derive schedule status from the post-update planned+actual start dates.
