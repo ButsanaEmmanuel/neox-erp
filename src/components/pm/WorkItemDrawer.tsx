@@ -10,6 +10,7 @@ import { deleteProjectItemFileFromBackend, fetchProjectItemActivities, fetchProj
 import { notifyTeam as notifyProjectTeam } from '../../services/pm/projectCollaborationBackend.service';
 import { useAuth } from '../../contexts/AuthContext';
 import WorkItemAssigneeSelect from './WorkItemAssigneeSelect';
+import { fetchAssignableEmployees, type AssignableEmployee } from '../../services/assignablesApi';
 
 interface WorkItemDrawerProps {
   workItemId: string | null;
@@ -296,6 +297,20 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
   // gate and stores null otherwise.
   const isPayableEditable = (formData.qaStatus || '').toLowerCase() === 'approved';
 
+  // Contractor roster for the telecom picker. We hit the same assignable
+  // endpoint as the assignee picker but render with the User id as value
+  // so the backend can FK and group payables into a PO. Cached at module
+  // level so opening multiple drawers doesn't refetch.
+  const [contractorRoster, setContractorRoster] = useState<AssignableEmployee[]>([]);
+  useEffect(() => {
+    if (!isTelecom) return;
+    let cancelled = false;
+    void fetchAssignableEmployees({ projectId }).then((list) => {
+      if (!cancelled) setContractorRoster(list);
+    });
+    return () => { cancelled = true; };
+  }, [isTelecom, projectId]);
+
   // Live delay: prefer actual_audit_date if set, else forecast_date, vs planned reference
   const liveDelay = useMemo(() => {
     const plannedRef =
@@ -372,6 +387,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
       poUnitPrice: merged.po_unit_price,
       ticketNumber: merged.ticket_number,
       contractorPayableAmount: merged.contractor_payable_amount,
+      contractorId: merged.contractorId ?? null,
       qaStatus: merged.qaStatus,
       acceptanceStatus: merged.acceptanceStatus,
       importedFields: merged.imported_fields as Record<string, unknown>,
@@ -865,6 +881,24 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                         </div>
                         <div><label className="text-xs text-muted">QA Status (Gate)</label><select value={formData.qaStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, qaStatus: e.target.value as WorkItem['qaStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
                         <div><label className="text-xs text-muted">Acceptance Status (Gate)</label><select value={formData.acceptanceStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, acceptanceStatus: e.target.value as WorkItem['acceptanceStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="signed">Signed</option><option value="rejected">Rejected</option></select></div>
+                        <div className="col-span-2">
+                          <label className="text-xs text-muted">Contractor (groups payable into a PO)</label>
+                          <select
+                            value={formData.contractorId || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, contractorId: e.target.value || null }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          >
+                            <option value="">— No contractor —</option>
+                            {contractorRoster.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}{c.jobTitle ? ` · ${c.jobTitle}` : ''}</option>
+                            ))}
+                          </select>
+                          {formData.contractorPurchaseOrderId && (
+                            <p className="text-[11px] text-emerald-300 mt-1">
+                              Linked to PO {formData.contractorPurchaseOrderId.slice(0, 8)}… (auto-closes when every linked task is QA-approved).
+                            </p>
+                          )}
+                        </div>
                         <div>
                           <label className="text-xs text-muted">Client Receivable (Auto: PO Unit × Ticket, on Acceptance Signed)</label>
                           <input

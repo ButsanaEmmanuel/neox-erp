@@ -212,6 +212,11 @@ export interface WorkItem {
   ticket_number?: number;
   po_unit_price_completed?: number;
   contractor_payable_amount?: number;
+  // Telecom: contractor responsible for the work + the PO that groups
+  // all payables for this contractor in this project. The PO auto-closes
+  // once every linked work item is QA-approved with a final payable.
+  contractorId?: string | null;
+  contractorPurchaseOrderId?: string | null;
   finance_sync_status?: FinanceSyncStatus;
   finance_sync_at?: string;
   finance_reference_id?: string;

@@ -79,7 +79,8 @@
       { "id": "projects-scope", "label": "Scope", "icon": "Target" },
       { "id": "projects-work-items", "label": "Work Items", "icon": "ClipboardList" },
       { "id": "projects-documents", "label": "Documents", "icon": "FileText" },
-      { "id": "projects-imports", "label": "Imports", "icon": "Box" }
+      { "id": "projects-imports", "label": "Imports", "icon": "Box" },
+      { "id": "projects-contractor-pos", "label": "Contractor POs", "icon": "Briefcase" }
     ]
   }
 }
