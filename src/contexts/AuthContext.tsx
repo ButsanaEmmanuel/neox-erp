@@ -3,6 +3,14 @@ import { changePasswordWithApi, getProfileWithApi, loginWithApi, updateProfileWi
 import { apiRequest } from '../lib/apiClient';
 
 const PERMISSIONS_STORAGE_KEY = 'neox-auth-permissions';
+const ACTIVITY_STORAGE_KEY = 'neox-auth-last-activity';
+// 15 min of inactivity ends the session. 2 min before that we surface a
+// banner so the user can extend without losing in-flight work.
+const SESSION_IDLE_LIMIT_MS = 15 * 60 * 1000;
+const SESSION_IDLE_WARNING_MS = 13 * 60 * 1000;
+// Stamp at most once per 30s — every mousemove would otherwise hammer
+// localStorage. 30s granularity is plenty for a 15-min window.
+const ACTIVITY_THROTTLE_MS = 30 * 1000;
 
 export type Role = string;
 
@@ -35,12 +43,16 @@ interface AuthContextType {
   // localStorage and React state. rbac.ts wraps lookups in a Set for O(1).
   permissions: string[];
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: (reason?: 'manual' | 'idle') => void;
   hasRole: (roles: Role[]) => boolean;
   updateProfile: (data: Partial<User>) => Promise<void>;
   refreshUserProfile: () => Promise<void>;
   refreshPermissions: () => Promise<void>;
   completePasswordChange: (currentPassword: string, newPassword: string) => Promise<void>;
+  // Inactivity session info — consumed by the idle-warning banner.
+  idleWarning: boolean;
+  extendSession: () => void;
+  lastLogoutReason: 'manual' | 'idle' | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -74,10 +86,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(() => {
     try {
       const stored = localStorage.getItem('neox-auth-session');
-      return stored ? JSON.parse(stored) : null;
+      if (!stored) return null;
+      // Boot-time idle check: a session older than the limit must not be
+      // restored. Without this, closing the tab for 8h then re-opening
+      // would silently re-authenticate the user — exactly the hole the
+      // user reported.
+      const lastActivityRaw = localStorage.getItem(ACTIVITY_STORAGE_KEY);
+      const lastActivity = lastActivityRaw ? Number(lastActivityRaw) : 0;
+      if (lastActivity && Date.now() - lastActivity > SESSION_IDLE_LIMIT_MS) {
+        localStorage.removeItem('neox-auth-session');
+        localStorage.removeItem('neox-auth-token');
+        localStorage.removeItem(ACTIVITY_STORAGE_KEY);
+        localStorage.removeItem(PERMISSIONS_STORAGE_KEY);
+        try { sessionStorage.setItem('neox-auth-logout-reason', 'idle'); } catch { /* ignore */ }
+        return null;
+      }
+      return JSON.parse(stored);
     } catch {
       return null;
     }
+  });
+  const [idleWarning, setIdleWarning] = useState(false);
+  const [lastLogoutReason, setLastLogoutReason] = useState<'manual' | 'idle' | null>(() => {
+    try {
+      const stored = sessionStorage.getItem('neox-auth-logout-reason');
+      return stored === 'idle' || stored === 'manual' ? stored : null;
+    } catch { return null; }
   });
 
   const [permissions, setPermissionsState] = useState<string[]>(() => {
@@ -162,6 +196,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     setUser(authenticatedUser);
     localStorage.setItem('neox-auth-session', JSON.stringify(authenticatedUser));
+    localStorage.setItem(ACTIVITY_STORAGE_KEY, String(Date.now()));
+    setIdleWarning(false);
+    setLastLogoutReason(null);
+    try { sessionStorage.removeItem('neox-auth-logout-reason'); } catch { /* ignore */ }
     if (response.token) {
       localStorage.setItem('neox-auth-token', response.token);
     }
@@ -169,12 +207,77 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return true;
   };
 
-  const logout = () => {
+  const logout = useCallback((reason: 'manual' | 'idle' = 'manual') => {
     setUser(null);
+    setIdleWarning(false);
+    setLastLogoutReason(reason);
     persistPermissions([]);
     localStorage.removeItem('neox-auth-session');
     localStorage.removeItem('neox-auth-token');
-  };
+    localStorage.removeItem(ACTIVITY_STORAGE_KEY);
+    try { sessionStorage.setItem('neox-auth-logout-reason', reason); } catch { /* ignore */ }
+  }, [persistPermissions]);
+
+  const stampActivity = useCallback(() => {
+    try { localStorage.setItem(ACTIVITY_STORAGE_KEY, String(Date.now())); } catch { /* ignore */ }
+    setIdleWarning(false);
+  }, []);
+
+  const extendSession = useCallback(() => {
+    stampActivity();
+  }, [stampActivity]);
+
+  // Inactivity tracker. Only armed while a user is logged in. Three pieces:
+  //  1. listeners on real user gestures stamp lastActivity (throttled to 30s).
+  //  2. a 30s timer checks the delta and either warns (T-2min) or logs out.
+  //  3. a storage listener picks up logouts/extensions from sibling tabs so
+  //     all open tabs converge to the same session state.
+  useEffect(() => {
+    if (!user) return;
+
+    let lastStamp = 0;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastStamp < ACTIVITY_THROTTLE_MS) return;
+      lastStamp = now;
+      try { localStorage.setItem(ACTIVITY_STORAGE_KEY, String(now)); } catch { /* ignore */ }
+      setIdleWarning(false);
+    };
+    const events: Array<keyof WindowEventMap> = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'focus'];
+    events.forEach((e) => window.addEventListener(e, onActivity, { passive: true }));
+
+    const tick = () => {
+      const lastRaw = localStorage.getItem(ACTIVITY_STORAGE_KEY);
+      const last = lastRaw ? Number(lastRaw) : Date.now();
+      const idle = Date.now() - last;
+      if (idle >= SESSION_IDLE_LIMIT_MS) {
+        logout('idle');
+      } else if (idle >= SESSION_IDLE_WARNING_MS) {
+        setIdleWarning(true);
+      } else {
+        setIdleWarning(false);
+      }
+    };
+    tick();
+    const interval = window.setInterval(tick, 30 * 1000);
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'neox-auth-session' && e.newValue === null) {
+        // Another tab logged out — mirror it here.
+        setUser(null);
+      }
+      if (e.key === ACTIVITY_STORAGE_KEY) {
+        tick();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+
+    return () => {
+      events.forEach((evt) => window.removeEventListener(evt, onActivity));
+      window.clearInterval(interval);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [user, logout]);
 
   const updateProfile = async (data: Partial<User>) => {
     if (!user) return;
@@ -231,7 +334,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [user?.preferredLanguage]);
 
   return (
-    <AuthContext.Provider value={{ user, permissions, login, logout, hasRole, updateProfile, refreshUserProfile, refreshPermissions, completePasswordChange }}>
+    <AuthContext.Provider value={{ user, permissions, login, logout, hasRole, updateProfile, refreshUserProfile, refreshPermissions, completePasswordChange, idleWarning, extendSession, lastLogoutReason }}>
       {children}
     </AuthContext.Provider>
   );

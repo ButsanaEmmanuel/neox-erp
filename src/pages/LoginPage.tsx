@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../lib/apiClient';
@@ -16,7 +16,19 @@ const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { login } = useAuth();
+  const { login, lastLogoutReason } = useAuth();
+  // Surface "you were signed out due to inactivity" once when the user
+  // bounces back to /login after the 15-min idle cutoff. Read from
+  // sessionStorage so it survives the auth-redirect remount but doesn't
+  // persist across explicit page reloads.
+  const [idleNotice, setIdleNotice] = useState<boolean>(() => {
+    if (lastLogoutReason === 'idle') return true;
+    try { return sessionStorage.getItem('neox-auth-logout-reason') === 'idle'; } catch { return false; }
+  });
+  useEffect(() => {
+    if (!idleNotice) return;
+    try { sessionStorage.removeItem('neox-auth-logout-reason'); } catch { /* ignore */ }
+  }, [idleNotice]);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -75,6 +87,11 @@ const LoginPage: React.FC = () => {
             <p className="text-slate-400 text-sm mt-1">Plateforme ERP d'Entreprise</p>
           </div>
 
+          {idleNotice && (
+            <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+              Session expirée après 15 minutes d'inactivité. Reconnectez-vous pour continuer.
+            </div>
+          )}
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-widest ml-1">Email Professionnel</label>
