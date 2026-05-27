@@ -87,10 +87,16 @@ export async function apiRequest<T>(
         }
 
         if (!response.ok) {
-          const message =
-            (payload && typeof payload === 'object' && 'message' in payload && typeof (payload as { message: unknown }).message === 'string'
-              ? String((payload as { message: unknown }).message)
-              : `API request failed with status ${response.status} on ${targetUrl}`);
+          const messageFromPayload =
+            payload && typeof payload === 'object'
+              ? (typeof (payload as { message?: unknown }).message === 'string'
+                  ? String((payload as { message: unknown }).message)
+                  : typeof (payload as { error?: unknown }).error === 'string'
+                    ? String((payload as { error: unknown }).error)
+                    : null)
+              : null;
+          const message = messageFromPayload
+            ?? `API request failed with status ${response.status} on ${targetUrl}`;
           throw new ApiError(message, response.status, payload);
         }
 

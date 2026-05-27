@@ -127,6 +127,21 @@ export async function createWorkItem(prisma, projectId, data, actor) {
       throw notFound(`Project '${projectId}' not found.`);
     }
     const allowed = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
+    // Coerce ISO-date strings (yyyy-MM-dd) into Date instances. Prisma will
+    // 500 on the raw string for DateTime? columns. Drop the field entirely
+    // if it can't be parsed instead of erroring on a partial draft.
+    for (const dateField of ['plannedDate', 'actualDate']) {
+      if (allowed[dateField] !== undefined && allowed[dateField] !== null && allowed[dateField] !== '') {
+        const parsed = new Date(allowed[dateField]);
+        if (Number.isNaN(parsed.getTime())) {
+          delete allowed[dateField];
+        } else {
+          allowed[dateField] = parsed;
+        }
+      } else if (allowed[dateField] === '' || allowed[dateField] === null) {
+        delete allowed[dateField];
+      }
+    }
     const workItem = await tx.workItem.create({
       data: { ...allowed, title, projectId },
     });
