@@ -279,20 +279,22 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
     };
   }, [activeTab, workItemId, isNew, projectId]);
 
+  // Receivable to client = PO Unit × Ticket, but only billable once acceptance
+  // is signed. Previously billed the full PO unit price which over-invoiced on
+  // partial deliveries.
   const poCompletedPreview = useMemo(() => {
     const unit = Number(formData.po_unit_price ?? 0);
-    const hasSignedAcceptance = (formData.acceptanceStatus || '').toLowerCase() === 'signed';
-    if (!Number.isFinite(unit) || unit <= 0 || !hasSignedAcceptance) return undefined;
-    return unit;
-  }, [formData.po_unit_price, formData.acceptanceStatus]);
-
-  // Auto-computed: Contractor Payable Amount = PO Unit Price × Ticket Number
-  const contractorPayableComputed = useMemo(() => {
-    const unit = Number(formData.po_unit_price ?? 0);
     const ticket = Number(formData.ticket_number ?? 0);
+    const hasSignedAcceptance = (formData.acceptanceStatus || '').toLowerCase() === 'signed';
     if (!Number.isFinite(unit) || !Number.isFinite(ticket) || unit <= 0 || ticket <= 0) return undefined;
+    if (!hasSignedAcceptance) return undefined;
     return Math.round(unit * ticket * 100) / 100;
-  }, [formData.po_unit_price, formData.ticket_number]);
+  }, [formData.po_unit_price, formData.ticket_number, formData.acceptanceStatus]);
+
+  // Contractor payable is NEGOTIATED — operator types it manually. We only
+  // allow typing once QA has approved the work; the backend mirrors this
+  // gate and stores null otherwise.
+  const isPayableEditable = (formData.qaStatus || '').toLowerCase() === 'approved';
 
   // Live delay: prefer actual_audit_date if set, else forecast_date, vs planned reference
   const liveDelay = useMemo(() => {
@@ -455,12 +457,9 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
         return;
       }
     }
-    const unitPrice = Number(formData.po_unit_price ?? 0);
-    const computedPayable =
-      Number.isFinite(unitPrice) && unitPrice > 0 && normalizedTicket !== undefined && normalizedTicket > 0
-        ? Math.round(unitPrice * normalizedTicket * 100) / 100
-        : undefined;
-    const nextFormData = { ...formData, ticket_number: normalizedTicket, contractor_payable_amount: computedPayable };
+    // Contractor payable is manual — pass through whatever the operator
+    // typed. Backend gates the final value on qaStatus === 'approved'.
+    const nextFormData = { ...formData, ticket_number: normalizedTicket };
     console.info('[WorkItemDrawer] Save requested', {
       workItemId,
       projectId: activeProjectId,
@@ -505,7 +504,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
       if (isTelecom) {
         await persistTelecomDetails({
           ticket_number: normalizedTicket,
-          contractor_payable_amount: computedPayable,
+          contractor_payable_amount: nextFormData.contractor_payable_amount,
           actual_audit_date: nextFormData.actual_audit_date,
           forecast_date: nextFormData.forecast_date,
         });
@@ -866,13 +865,36 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                         </div>
                         <div><label className="text-xs text-muted">QA Status (Gate)</label><select value={formData.qaStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, qaStatus: e.target.value as WorkItem['qaStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></div>
                         <div><label className="text-xs text-muted">Acceptance Status (Gate)</label><select value={formData.acceptanceStatus || 'pending'} onChange={(e) => setFormData((prev) => ({ ...prev, acceptanceStatus: e.target.value as WorkItem['acceptanceStatus'] }))} className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"><option value="pending">Pending</option><option value="signed">Signed</option><option value="rejected">Rejected</option></select></div>
-                        <div><label className="text-xs text-muted">PO Unit Price Completed (Auto: Acceptance Signed)</label><input value={poCompletedPreview !== undefined ? String(poCompletedPreview) : '-'} readOnly className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-emerald-300" /></div>
                         <div>
-                          <label className="text-xs text-muted">Contractor Payable Amount (Auto: PO Unit × Ticket)</label>
+                          <label className="text-xs text-muted">Client Receivable (Auto: PO Unit × Ticket, on Acceptance Signed)</label>
                           <input
-                            value={contractorPayableComputed !== undefined ? String(contractorPayableComputed) : '-'}
+                            value={poCompletedPreview !== undefined ? String(poCompletedPreview) : '-'}
                             readOnly
                             className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-emerald-300"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">
+                            Contractor Payable (Manual — Negotiated)
+                            {!isPayableEditable && <span className="ml-1 text-amber-400">· QA must be Approved</span>}
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            disabled={!isPayableEditable}
+                            value={formData.contractor_payable_amount !== undefined && formData.contractor_payable_amount !== null ? String(formData.contractor_payable_amount) : ''}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              if (!/^\d*([.,]\d*)?$/.test(raw)) return;
+                              if (raw === '') {
+                                setFormData((prev) => ({ ...prev, contractor_payable_amount: undefined }));
+                                return;
+                              }
+                              const parsed = parseDecimalInput(raw);
+                              setFormData((prev) => ({ ...prev, contractor_payable_amount: parsed }));
+                            }}
+                            placeholder={isPayableEditable ? 'Ex: 382.50' : 'Pending QA approval'}
+                            className={`w-full mt-1 rounded-lg px-3 py-2 text-xs ${isPayableEditable ? 'bg-surface border border-input text-primary' : 'bg-surface border border-border/70 text-muted cursor-not-allowed'}`}
                           />
                         </div>
                         <div><label className="text-xs text-muted">Schedule Status</label><input value={formData.schedule_status ? String(formData.schedule_status).replace('_', ' ') : '-'} readOnly className="w-full mt-1 bg-surface border border-border/70 rounded-lg px-3 py-2 text-xs text-secondary" /></div>
