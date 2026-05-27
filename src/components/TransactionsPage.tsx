@@ -4,6 +4,8 @@ import { useFinance } from '../contexts/FinanceContext';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { FinanceEntryRecord } from '../types/finance';
+import FinanceEntryDrawer from './finance/FinanceEntryDrawer';
 
 function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
@@ -20,6 +22,11 @@ const TransactionsPage: React.FC = () => {
     const { financeEntries, transactions } = useFinance();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedType, setSelectedType] = useState<'all' | 'receivable' | 'payable'>('all');
+    const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+    const selectedEntry: FinanceEntryRecord | null = useMemo(
+      () => financeEntries.find((e) => e.id === selectedEntryId) || null,
+      [financeEntries, selectedEntryId],
+    );
 
     const rows = useMemo(() => {
         if (financeEntries.length > 0) {
@@ -105,7 +112,11 @@ const TransactionsPage: React.FC = () => {
                 {rows.map((entry) => (
                     <div
                         key={entry.id}
-                        className="grid grid-cols-[1.3fr_110px_120px_120px_130px_100px_110px] gap-4 px-6 py-4 border-b border-border/60 hover:bg-surface transition-colors"
+                        onClick={() => setSelectedEntryId(entry.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter') setSelectedEntryId(entry.id); }}
+                        className="grid grid-cols-[1.3fr_110px_120px_120px_130px_100px_110px] gap-4 px-6 py-4 border-b border-border/60 hover:bg-surface transition-colors cursor-pointer focus:outline-none focus:bg-surface"
                     >
                         <div className="min-w-0">
                             <div className="text-sm font-semibold text-primary truncate">{entry.title}</div>
@@ -144,6 +155,8 @@ const TransactionsPage: React.FC = () => {
                     </div>
                 )}
             </div>
+
+            <FinanceEntryDrawer entry={selectedEntry} onClose={() => setSelectedEntryId(null)} />
         </div>
     );
 };

@@ -2,6 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto, { randomUUID } from 'node:crypto';
 import { notifyTeam } from '../projects/projectCollaboration.service.mjs';
+import { hasPermission } from '../auth/rbac.service.mjs';
+
+// Super-admin (role grants the '*' wildcard) bypasses the per-user
+// project-membership scope on every list endpoint. Without this,
+// /finance/entries (and siblings) would silently drop entries the
+// dashboard snapshot still counts — the two views diverge and the
+// payable/receivable lists look truncated next to the cards.
+async function isUnscoped(userId) {
+  if (!userId) return false;
+  try { return await hasPermission(userId, '*'); }
+  catch { return false; }
+}
 
 const FILE_ROOT = path.resolve(process.cwd(), 'backend', 'storage', 'finance-evidence');
 
@@ -545,7 +557,7 @@ export async function listFinanceEntries(prisma, filters = {}) {
   if (filters.workItemId) where.workItemId = filters.workItemId;
 
   const scopedUserId = filters.userId ? String(filters.userId).trim() : '';
-  if (scopedUserId) {
+  if (scopedUserId && !(await isUnscoped(scopedUserId))) {
     const [membershipRows, stakeholderRows] = await Promise.all([
       prisma.projectMember.findMany({
         where: { userId: scopedUserId, isDeleted: false },
@@ -897,7 +909,7 @@ export async function listReceivables(prisma, filters = {}) {
   if (filters.workItemId) where.workItemId = filters.workItemId;
 
   const scopedUserId = filters.userId ? String(filters.userId).trim() : '';
-  if (scopedUserId) {
+  if (scopedUserId && !(await isUnscoped(scopedUserId))) {
     const membershipRows = await prisma.projectMember.findMany({
       where: { userId: scopedUserId, isDeleted: false },
       select: { projectId: true },
@@ -936,7 +948,7 @@ export async function listPayables(prisma, filters = {}) {
   if (filters.workItemId) where.workItemId = filters.workItemId;
 
   const scopedUserId = filters.userId ? String(filters.userId).trim() : '';
-  if (scopedUserId) {
+  if (scopedUserId && !(await isUnscoped(scopedUserId))) {
     const membershipRows = await prisma.projectMember.findMany({
       where: { userId: scopedUserId, isDeleted: false },
       select: { projectId: true },
