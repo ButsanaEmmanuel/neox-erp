@@ -132,7 +132,12 @@ function mapWorkItem(row, state) {
       ? state.isFinanciallyEligible
       : row.isFinanciallyEligible;
 
-  const telecomCandidate = Boolean(row.importBatchId || row.type === 'site' || state);
+  // Telecom-derived status applies only to actual telecom rows (type 'site'
+  // or rows that have a ProjectItemState companion). WBS bulk imports also
+  // carry importBatchId but are plain tasks/milestones — running them
+  // through deriveTelecomStatusFromState forced every manual status update
+  // back to 'needs_manual_completion' on the next fetch.
+  const telecomCandidate = Boolean(row.type === 'site' || state);
   const effectiveStatus = telecomCandidate
     ? deriveTelecomStatusFromState(row.status, {
       ticketNumber: effectiveTicketNumber,
