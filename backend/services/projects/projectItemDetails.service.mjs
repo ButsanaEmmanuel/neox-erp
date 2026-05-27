@@ -325,15 +325,22 @@ export async function saveProjectItemDetails(prisma, input) {
 
     const eligibility = getEligibility(next);
     const hasAcceptance = (next.acceptanceStatus || '').toLowerCase() === 'signed';
+    const qaApproved = (next.qaStatus || '').toLowerCase() === 'approved';
     const poUnit = numberOrNull(next.poUnitPrice) || 0;
     const ticket = ticketRaw || 0;
-    const poUnitPriceCompleted = hasAcceptance && Number.isFinite(poUnit) && poUnit > 0 ? poUnit : null;
-    // Contractor Payable Amount is always auto-computed = PO Unit × Ticket Number
-    // (independent of QA/acceptance gates — those still gate finance sync below)
-    const finalContractorAmount =
-      Number.isFinite(poUnit) && poUnit > 0 && ticket > 0
+    // Receivable to client = PO Unit × Ticket (the actually completed fraction),
+    // only billable once acceptance is signed. Previously billed the full PO unit
+    // price which over-invoiced the client on partial deliveries.
+    const poUnitPriceCompleted =
+      hasAcceptance && Number.isFinite(poUnit) && poUnit > 0 && ticket > 0
         ? Math.round(poUnit * ticket * 100) / 100
         : null;
+    // Contractor payable is now MANUAL (negotiated). The amount the contractor
+    // gets paid is independent of what we bill the client. We only accept the
+    // value once QA has approved the work — otherwise we'd be syncing a payable
+    // before the deliverable is validated.
+    const manualPayable = numberOrNull(next.contractorPayableAmount);
+    const finalContractorAmount = qaApproved ? manualPayable : null;
 
     const financeReferenceId = `${input.projectId}:${input.workItemId}:contractor_payable_amount`;
     const rowStatus = deriveWorkItemStatus(next, eligibility);
