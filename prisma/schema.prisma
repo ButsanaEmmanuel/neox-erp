@@ -622,6 +622,16 @@ model WorkItem {
   acceptanceManualFieldsJson  Json?
   description                 String?
   parentId                    String?
+  // WBS bulk import (parent + children with weight %). weightPercent sums
+  // to 100 across a parent's direct children (validated at import).
+  // forecastDate is an editable revised planned start; actualStartDate is
+  // when work physically began. Variance is computed from plannedDate vs
+  // actualStartDate at save time.
+  weightPercent               Decimal?  @db.Decimal(5, 2)
+  forecastDate                DateTime?
+  actualStartDate             DateTime?
+  scheduleStatus              String?
+  startVarianceDays           Int?
   isDeleted                   Boolean   @default(false)
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
