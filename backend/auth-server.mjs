@@ -15,6 +15,10 @@ import {
   uploadProjectItemFile,
 } from './services/projects/projectItemDetails.service.mjs';
 import {
+  listContractorPOs,
+  getContractorPO,
+} from './services/projects/contractorPo.service.mjs';
+import {
   bulkImportTelecomWorkItems,
   createProjectForUser,
   getEngineeringDashboard,
@@ -2250,6 +2254,29 @@ const server = http.createServer(async (req, res) => {
         ...actor,
       });
       return json(res, 200, { state: saved });
+    }
+
+    // Contractor PO endpoints — list + detail. Reads only; the POs are
+    // mutated server-side via reconcileContractorPO inside saveProjectItemDetails.
+    if (method === 'GET' && pathname === '/api/v1/pm/contractor-pos') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.read'))) return;
+      const pos = await listContractorPOs(prisma, {
+        projectId: url.searchParams.get('projectId') || undefined,
+        contractorId: url.searchParams.get('contractorId') || undefined,
+        status: url.searchParams.get('status') || undefined,
+        take: url.searchParams.get('take') || undefined,
+      });
+      return json(res, 200, { purchaseOrders: pos });
+    }
+    const contractorPoMatch = pathname.match(/^\/api\/v1\/pm\/contractor-pos\/([^/]+)$/);
+    if (method === 'GET' && contractorPoMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.workItems.read'))) return;
+      const [, poId] = contractorPoMatch;
+      const po = await getContractorPO(prisma, poId);
+      if (!po) return json(res, 404, { error: 'Purchase order not found.' });
+      return json(res, 200, { purchaseOrder: po });
     }
 
     const activitiesMatch = pathname.match(/^\/api\/v1\/pm\/projects\/([^/]+)\/work-items\/([^/]+)\/activities$/);

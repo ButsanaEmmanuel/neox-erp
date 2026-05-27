@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { syncProjectItemStateToFinance } from '../finance/financeEntries.service.mjs';
 import { notifyTeam } from './projectCollaboration.service.mjs';
 import { broadcast as sseBroadcast } from '../realtime/sseBroadcaster.mjs';
+import { reconcileContractorPO } from './contractorPo.service.mjs';
 
 const FILE_ROOT = path.resolve(process.cwd(), 'backend', 'storage', 'project-item-files');
 
@@ -254,7 +255,12 @@ export async function saveProjectItemDetails(prisma, input) {
         projectId: input.projectId,
         isDeleted: false,
       },
-      select: { id: true, title: true },
+      select: {
+        id: true,
+        title: true,
+        contractorId: true,
+        contractorPurchaseOrderId: true,
+      },
     });
     if (!workItem) {
       throw notFound(
@@ -435,6 +441,18 @@ export async function saveProjectItemDetails(prisma, input) {
         startVarianceDays: saved.startVarianceDays,
         isDelayed: saved.isDelayed,
       },
+    });
+
+    // Contractor PO reconciliation. Runs BEFORE the finance sync so the
+    // workItem row already has its new contractorPurchaseOrderId when
+    // FinanceEntry rows reference it later. Inside the same tx so the
+    // PO totals can never disagree with the underlying work items.
+    await reconcileContractorPO(tx, {
+      workItemId: input.workItemId,
+      projectId: input.projectId,
+      contractorId: workItem.contractorId,
+      contractorPayableAmount: finalContractorAmount,
+      previousPurchaseOrderId: workItem.contractorPurchaseOrderId,
     });
 
     await syncProjectItemStateToFinance(tx, {

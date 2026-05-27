@@ -206,6 +206,11 @@ export function mapWorkItem(row, state) {
     // Delivery milestones surfaced for the drawer + closure logic.
     completedDate: toIsoDateOnly(row.completedDate),
     signedDate: toIsoDateOnly(row.signedDate),
+    // Contractor PO link (telecom). UI uses contractorId to render the
+    // contractor picker and contractorPurchaseOrderId to deep-link to
+    // the PO detail page.
+    contractorId: row.contractorId ?? null,
+    contractorPurchaseOrderId: row.contractorPurchaseOrderId ?? null,
     // For client-side "most recently worked on" sorting.
     updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : undefined,
     createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : undefined,
