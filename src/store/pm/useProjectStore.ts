@@ -45,7 +45,7 @@ interface ProjectStore {
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
   addWorkItem: (item: Omit<WorkItem, 'id'>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
-  addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }) => Promise<WorkItem>;
+  addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<WorkItem>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
   updateTelecomManualFields: (
     id: string,
@@ -326,9 +326,9 @@ export const useProjectStore = create<ProjectStore>()(
         // triggers rollupStatus on the parent in the same tx. We then
         // re-fetch the project to pick up any rolled-up parent status
         // changes without a second round-trip.
-        addSubTask: async (parentId, data) => {
-          const created = await projectApi.createSubTask(parentId, data);
-          const freshProject = await projectApi.fetchProjectById(created.projectId);
+        addSubTask: async (parentId, data, actor) => {
+          const created = await projectApi.createSubTask(parentId, data, actor);
+          const freshProject = await projectApi.fetchProjectById(created.projectId, actor?.actorUserId);
           set((state) => {
             const newWorkItems = [...state.workItems, created];
             return {

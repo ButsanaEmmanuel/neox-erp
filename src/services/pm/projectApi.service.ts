@@ -108,10 +108,14 @@ export async function deleteWorkItem(projectId: string, itemId: string): Promise
 export async function createSubTask(
   parentWorkItemId: string,
   data: Partial<WorkItem> & { title: string },
+  actor?: { actorUserId?: string; actorDisplayName?: string },
 ): Promise<WorkItem> {
   const { workItem } = await apiRequest<{ workItem: WorkItem }>(
     `/api/v1/pm/work-items/${parentWorkItemId}/subtasks`,
-    { method: 'POST', body: data },
+    {
+      method: 'POST',
+      body: { ...data, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
+    },
   );
   return workItem;
 }

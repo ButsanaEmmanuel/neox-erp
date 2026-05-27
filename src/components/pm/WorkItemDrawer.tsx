@@ -882,7 +882,11 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           onClick={async () => {
                             if (!existingItem) return;
                             try {
-                              await addSubTask(existingItem.id, { title: subTaskTitleDraft.trim(), projectId: existingItem.projectId } as any);
+                              await addSubTask(
+                                existingItem.id,
+                                { title: subTaskTitleDraft.trim(), projectId: existingItem.projectId } as any,
+                                { actorUserId: user?.id, actorDisplayName: user?.name },
+                              );
                               setSubTaskTitleDraft('');
                               setSubTaskError(null);
                             } catch (err) {
