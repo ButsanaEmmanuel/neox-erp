@@ -184,6 +184,14 @@ function mapWorkItem(row, state) {
     operational_manual_fields: effectiveOperationalFields || undefined,
     acceptance_manual_fields: effectiveAcceptanceFields || undefined,
     description: row.description || undefined,
+    // Hierarchy + WBS fields. Without these the UI can't render the
+    // parent → sub-task tree and the bulk WBS import looks flat.
+    parentId: row.parentId ?? null,
+    forecastDate: toIsoDateOnly(row.forecastDate),
+    actualStartDate: toIsoDateOnly(row.actualStartDate),
+    weightPercent: decimalToNumber(row.weightPercent) ?? undefined,
+    scheduleStatus: row.scheduleStatus || state?.scheduleStatus || undefined,
+    startVarianceDays: row.startVarianceDays ?? state?.startVarianceDays ?? undefined,
   };
 }
 
