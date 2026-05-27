@@ -52,6 +52,24 @@ function coerceWorkItemDateFields(allowed) {
   }
 }
 
+// Fields that can't be set to a future date — they represent events that
+// have actually happened. plannedDate / forecastDate stay free since they
+// are planning artefacts and can be in the future.
+const NO_FUTURE_DATE_FIELDS = ['actualStartDate', 'actualDate', 'completedDate', 'acceptanceDate', 'signedDate'];
+
+function assertNoFutureDates(patch) {
+  const now = Date.now();
+  // 23h59 tolerance so a same-day pick in any timezone passes.
+  const todayEnd = new Date(); todayEnd.setUTCHours(23, 59, 59, 999);
+  const cap = todayEnd.getTime();
+  for (const f of NO_FUTURE_DATE_FIELDS) {
+    if (!(patch[f] instanceof Date)) continue;
+    if (patch[f].getTime() > cap) {
+      throw badRequest(`Field '${f}' cannot be in the future (today is ${new Date(now).toISOString().slice(0, 10)}).`, { field: f });
+    }
+  }
+}
+
 function deriveStartSchedule(plannedDate, actualStartDate) {
   if (!plannedDate || !actualStartDate) return { scheduleStatus: null, startVarianceDays: null };
   const diff = Math.round((actualStartDate.getTime() - plannedDate.getTime()) / 86400000);
@@ -197,10 +215,17 @@ export async function createWorkItem(prisma, projectId, data, actor) {
  * @throws 404 if work item not found or doesn't belong to projectId
  * @throws 400 if a finance-sensitive field is present
  */
-export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
+export async function updateWorkItem(prisma, projectId, itemId, data, actor) {
+  // Pull every field we might diff against for the activity log, plus the
+  // ones we read for rollup decisions.
   const existing = await prisma.workItem.findFirst({
     where: { id: itemId, projectId, isDeleted: false },
-    select: { id: true, status: true, parentId: true },
+    select: {
+      id: true, title: true, status: true, parentId: true, priority: true,
+      assignee: true, weightPercent: true,
+      plannedDate: true, actualDate: true, forecastDate: true, actualStartDate: true,
+      completedDate: true, acceptanceDate: true, signedDate: true,
+    },
   });
   if (!existing) {
     throw notFound(`Work item '${itemId}' not found in project '${projectId}'.`);
@@ -210,6 +235,7 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
   // to white-list. Finance fields still have to flow through /details.
   const patch = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
   coerceWorkItemDateFields(patch);
+  assertNoFutureDates(patch);
 
   // A parent's status is a roll-up of its children — don't let the drawer
   // overwrite it. Same logic for weightPercent: a parent's share of the
@@ -258,11 +284,117 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
       where: { id: itemId },
       data: patch,
     });
-    if (existing.parentId && Object.prototype.hasOwnProperty.call(patch, 'status') && patch.status !== existing.status) {
-      await rollupStatus(tx, existing.parentId);
+
+    // Activity log: one entry per field whose value actually changed.
+    const activities = buildWorkItemActivityEntries(existing, updated, actor, projectId);
+    if (activities.length > 0) {
+      await tx.projectItemActivity.createMany({ data: activities });
+    }
+
+    // Roll up to the parent chain when the leaf's status, dates, or weight
+    // change. Each ancestor recomputes its own status (existing rollup) and
+    // pulls min(start) / max(end) / aggregated weight from its direct kids.
+    if (existing.parentId) {
+      const triggers = ['status', 'actualStartDate', 'actualDate', 'completedDate', 'acceptanceDate', 'signedDate', 'weightPercent'];
+      const shouldRollup = triggers.some((k) => Object.prototype.hasOwnProperty.call(patch, k));
+      if (shouldRollup) {
+        if (Object.prototype.hasOwnProperty.call(patch, 'status') && patch.status !== existing.status) {
+          await rollupStatus(tx, existing.parentId);
+        }
+        await rollupParentDatesAndWeight(tx, existing.parentId);
+      }
     }
     return updated;
   });
+}
+
+// Walk up the ancestor chain and recompute each parent's actualStartDate
+// (min of kids' starts), actualDate (max of kids' ends if every kid has one),
+// completedDate / acceptanceDate / signedDate (max only when all kids reached
+// the milestone — otherwise null), and weightPercent (sum of kids' weights).
+async function rollupParentDatesAndWeight(tx, parentId) {
+  let cursor = parentId;
+  const guard = new Set();
+  while (cursor && !guard.has(cursor)) {
+    guard.add(cursor);
+    const kids = await tx.workItem.findMany({
+      where: { parentId: cursor, isDeleted: false },
+      select: {
+        actualStartDate: true, actualDate: true, completedDate: true,
+        acceptanceDate: true, signedDate: true, weightPercent: true,
+      },
+    });
+    if (kids.length === 0) break;
+
+    const minDate = (vals) => {
+      const ts = vals.filter(Boolean).map((d) => new Date(d).getTime());
+      return ts.length > 0 ? new Date(Math.min(...ts)) : null;
+    };
+    const maxIfAll = (vals) => {
+      if (vals.length === 0) return null;
+      if (vals.some((v) => !v)) return null;
+      const ts = vals.map((d) => new Date(d).getTime());
+      return new Date(Math.max(...ts));
+    };
+    const weightSum = kids.reduce((acc, k) => acc + (k.weightPercent ? Number(k.weightPercent) : 0), 0);
+
+    await tx.workItem.update({
+      where: { id: cursor },
+      data: {
+        actualStartDate: minDate(kids.map((k) => k.actualStartDate)),
+        actualDate:      maxIfAll(kids.map((k) => k.actualDate)),
+        completedDate:   maxIfAll(kids.map((k) => k.completedDate)),
+        acceptanceDate:  maxIfAll(kids.map((k) => k.acceptanceDate)),
+        signedDate:      maxIfAll(kids.map((k) => k.signedDate)),
+        weightPercent:   weightSum > 0 ? weightSum.toFixed(2) : null,
+      },
+    });
+
+    const next = await tx.workItem.findUnique({
+      where: { id: cursor },
+      select: { parentId: true },
+    });
+    cursor = next?.parentId || null;
+  }
+}
+
+// Diff `existing` vs `updated` and emit one ProjectItemActivity per change.
+// Skips fields we don't care about logging (timestamps Prisma updates itself).
+function buildWorkItemActivityEntries(existing, updated, actor, projectId) {
+  const TRACKED = [
+    'title', 'status', 'priority', 'assignee', 'weightPercent',
+    'plannedDate', 'actualDate', 'forecastDate', 'actualStartDate',
+    'completedDate', 'acceptanceDate', 'signedDate',
+  ];
+  const isoOrSame = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ?? null);
+  const sameValue = (a, b) => {
+    if (a instanceof Date || b instanceof Date) return isoOrSame(a) === isoOrSame(b);
+    if (a == null && b == null) return true;
+    // Decimal columns come back as strings; coerce for the compare.
+    if (typeof a !== typeof b) return String(a) === String(b);
+    return a === b;
+  };
+  const rows = [];
+  for (const key of TRACKED) {
+    if (sameValue(existing[key], updated[key])) continue;
+    const before = isoOrSame(existing[key]);
+    const after = isoOrSame(updated[key]);
+    rows.push({
+      entityType: 'project_item',
+      entityId: updated.id,
+      projectId,
+      workItemId: updated.id,
+      actorUserId: actor?.actorUserId || null,
+      actorDisplayName: actor?.actorDisplayName || 'User',
+      actionType: 'work_item_updated',
+      fieldName: key,
+      oldValueJson: before,
+      newValueJson: after,
+      message: `${actor?.actorDisplayName || 'User'} changed ${key}: ${before ?? '∅'} → ${after ?? '∅'}`,
+      eventSource: 'user',
+    });
+  }
+  return rows;
 }
 
 /**
