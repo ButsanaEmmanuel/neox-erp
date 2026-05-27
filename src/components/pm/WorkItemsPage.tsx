@@ -211,10 +211,35 @@ const WorkItemsPage: React.FC = () => {
 
   // Root rows = no parent, OR parent isn't in the filtered set (orphan-by-filter
   // shown as a root rather than hidden — preserves "show what matches the filter").
+  // Sort by recency: each root's "freshness" is max(updatedAt) across itself
+  // and every visible descendant, so a parent surfaces whenever a child got
+  // touched. _clientUpdatedAt wins if present (optimistic-update timestamp).
   const rootItems = useMemo(() => {
     const idsInFilter = new Set(filteredItems.map((i) => i.id));
-    return filteredItems.filter((i) => !i.parentId || !idsInFilter.has(i.parentId));
-  }, [filteredItems]);
+    const roots = filteredItems.filter((i) => !i.parentId || !idsInFilter.has(i.parentId));
+
+    const timestamp = (wi: typeof filteredItems[number]): number => {
+      const candidates = [
+        (wi as { _clientUpdatedAt?: number })._clientUpdatedAt,
+        wi.updatedAt ? Date.parse(wi.updatedAt) : 0,
+        wi.createdAt ? Date.parse(wi.createdAt) : 0,
+      ].filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+      return candidates.length > 0 ? Math.max(...candidates) : 0;
+    };
+    const recursiveFreshness = (rootId: string): number => {
+      const direct = childrenByParent.get(rootId) || [];
+      let best = 0;
+      for (const child of direct) {
+        best = Math.max(best, timestamp(child), recursiveFreshness(child.id));
+      }
+      return best;
+    };
+    return [...roots].sort((a, b) => {
+      const fa = Math.max(timestamp(a), recursiveFreshness(a.id));
+      const fb = Math.max(timestamp(b), recursiveFreshness(b.id));
+      return fb - fa;
+    });
+  }, [filteredItems, childrenByParent]);
 
   const pagedRoots = useMemo(() => {
     const start = (page - 1) * ITEMS_PER_PAGE;

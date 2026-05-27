@@ -206,6 +206,20 @@ export async function updateWorkItem(prisma, projectId, itemId, data, _actor) {
   const patch = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
   coerceWorkItemDateFields(patch);
 
+  // A parent's status is a roll-up of its children — don't let the drawer
+  // overwrite it. Same logic for weightPercent: a parent's share of the
+  // project is implicit (sum of children) so we lock it to keep the math
+  // consistent. Children still control both directly.
+  if (Object.prototype.hasOwnProperty.call(patch, 'status') || Object.prototype.hasOwnProperty.call(patch, 'weightPercent')) {
+    const childCount = await prisma.workItem.count({
+      where: { parentId: itemId, isDeleted: false },
+    });
+    if (childCount > 0) {
+      delete patch.status;
+      delete patch.weightPercent;
+    }
+  }
+
   // Re-derive schedule status from the post-update planned+actual start dates.
   // We need the resulting effective values, so merge current row + patch.
   if (patch.plannedDate !== undefined || patch.actualStartDate !== undefined) {
@@ -265,8 +279,13 @@ export async function deleteWorkItem(prisma, projectId, itemId, actor) {
         `[deleteWorkItem] WorkItem ${itemId} had active finance sync — Finance record left untouched. Business rule pending (Sprint 2 #5).`
       );
     }
-    await tx.workItem.update({
-      where: { id: itemId },
+    // Cascade soft-delete: walk the descendants tree (max 3 levels per
+     // schema) and soft-delete each one in the same transaction. Without
+    // this, deleting a parent left orphan sub-tasks visible at root.
+    const descendantIds = await collectDescendantIds(tx, itemId);
+    const allIds = [itemId, ...descendantIds];
+    await tx.workItem.updateMany({
+      where: { id: { in: allIds }, isDeleted: false },
       data: { isDeleted: true, deletedAt: new Date() },
     });
     await tx.projectItemActivity.create({
@@ -278,11 +297,30 @@ export async function deleteWorkItem(prisma, projectId, itemId, actor) {
         actorUserId: actor?.actorUserId || null,
         actorDisplayName: actor?.actorDisplayName || 'User',
         actionType: 'work_item_deleted',
-        message: `${actor?.actorDisplayName || 'User'} deleted work item: ${existing.title}`,
+        message: descendantIds.length > 0
+          ? `${actor?.actorDisplayName || 'User'} deleted '${existing.title}' and ${descendantIds.length} sub-task(s)`
+          : `${actor?.actorDisplayName || 'User'} deleted work item: ${existing.title}`,
         eventSource: 'user',
       },
     });
   });
+}
+
+// Walk WorkItem.children breadth-first and return every descendant id.
+async function collectDescendantIds(tx, rootId) {
+  const found = [];
+  let frontier = [rootId];
+  while (frontier.length > 0) {
+    const kids = await tx.workItem.findMany({
+      where: { parentId: { in: frontier }, isDeleted: false },
+      select: { id: true },
+    });
+    if (kids.length === 0) break;
+    const kidIds = kids.map((k) => k.id);
+    found.push(...kidIds);
+    frontier = kidIds;
+  }
+  return found;
 }
 
 /**

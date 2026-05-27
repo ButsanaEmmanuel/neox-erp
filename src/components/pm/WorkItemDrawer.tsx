@@ -620,8 +620,13 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-xs font-mono text-muted">{isNew ? 'NEW' : existingItem?.id}</span>
-                  <div className="relative group">
-                    <select value={formData.status} onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as WorkItemStatus }))} className="appearance-none bg-transparent border-none p-0 pr-4 text-xs focus:ring-0 cursor-pointer text-blue-400 font-bold uppercase">
+                  <div className="relative group" title={directChildren.length > 0 ? 'Status is rolled up from sub-tasks.' : ''}>
+                    <select
+                      value={formData.status}
+                      disabled={directChildren.length > 0}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as WorkItemStatus }))}
+                      className="appearance-none bg-transparent border-none p-0 pr-4 text-xs focus:ring-0 cursor-pointer text-blue-400 font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+                    >
                       {(isTelecom ? ['imported','needs_manual_completion','awaiting_qa_approval','awaiting_signed_acceptance','awaiting_financial_eligibility','ready_for_calculation','finance_pending','finance_synced','finance_sync_error','complete'] : ['backlog','pending','in-progress','awaiting_qa_approval','awaiting_signed_acceptance','done']).map((s) => (
                         <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
                       ))}
@@ -707,14 +712,22 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                           />
                         </div>
                         <div>
-                          <label className="text-xs text-muted">Weight (%)</label>
+                          <label className="text-xs text-muted">Weight (%) {directChildren.length > 0 && <span className="text-[10px] text-amber-400">(rolled up from sub-tasks)</span>}</label>
                           <input
                             type="number"
                             inputMode="decimal"
                             min={0}
                             max={100}
                             step="0.01"
-                            value={formData.weightPercent ?? ''}
+                            disabled={directChildren.length > 0}
+                            value={(() => {
+                              if (directChildren.length === 0) return formData.weightPercent ?? '';
+                              // Live preview of the rolled-up share for a parent: sum of children's weights
+                              // is implicit 100 of that parent's scope; we display the parent's own
+                              // assigned weight (against the project total) if any, else the children sum.
+                              const sum = directChildren.reduce((acc, c) => acc + (c.weightPercent || 0), 0);
+                              return sum > 0 ? sum.toFixed(2) : (formData.weightPercent ?? '');
+                            })()}
                             onChange={(e) => {
                               const v = e.target.value;
                               if (v === '') {
@@ -725,7 +738,7 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                               if (Number.isFinite(n)) setFormData((prev) => ({ ...prev, weightPercent: n }));
                             }}
                             placeholder="0.00"
-                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary disabled:cursor-not-allowed disabled:opacity-60"
                           />
                         </div>
                       </div>
