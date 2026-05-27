@@ -107,6 +107,22 @@ export async function deleteWorkItem(projectId: string, itemId: string): Promise
 
 // ── Sub-tasks (D13) ───────────────────────────────────────────────────────
 
+export async function reparentWorkItem(
+  workItemId: string,
+  parentId: string | null,
+  actor?: { actorUserId?: string; actorDisplayName?: string },
+): Promise<WorkItem> {
+  const qs = actor?.actorUserId ? `?userId=${encodeURIComponent(actor.actorUserId)}` : '';
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(
+    `/api/v1/pm/work-items/${workItemId}/parent${qs}`,
+    {
+      method: 'PATCH',
+      body: { parentId, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
+    },
+  );
+  return workItem;
+}
+
 export async function createSubTask(
   parentWorkItemId: string,
   data: Partial<WorkItem> & { title: string },

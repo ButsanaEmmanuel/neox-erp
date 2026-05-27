@@ -82,6 +82,22 @@ function formatDisplayDate(value?: string): string {
   return `${day}/${month}/${year}`;
 }
 
+// True if candidateId is a descendant of rootId in the flat workItems list.
+// Used to filter the Parent picker so we never offer one of our own children
+// (or grand-children) as a new parent — that would create a cycle.
+function isDescendantOf(workItems: WorkItem[], candidateId: string, rootId: string): boolean {
+  const seen = new Set<string>();
+  let cursor: string | null | undefined = candidateId;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    const node = workItems.find((wi) => wi.id === cursor);
+    if (!node?.parentId) return false;
+    if (node.parentId === rootId) return true;
+    cursor = node.parentId;
+  }
+  return false;
+}
+
 function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<string, string | number | boolean | null> {
   const next: Record<string, string | number | boolean | null> = {
     ...((item.operational_manual_fields || {}) as Record<string, string | number | boolean | null>),
@@ -116,7 +132,7 @@ function buildOperationalManualFieldsPayload(item: Partial<WorkItem>): Record<st
 
 const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, onSwitchItem }) => {
   const { user } = useAuth();
-  const { workItems, addWorkItem, updateWorkItem, addSubTask, activeProjectId, projects } = useProjectStore();
+  const { workItems, addWorkItem, updateWorkItem, addSubTask, reparentWorkItem, activeProjectId, projects } = useProjectStore();
   const existingItem = workItems.find((i) => i.id === workItemId);
 
   // D13 — sub-task helpers (depth walk + direct children lookup, all from
@@ -897,6 +913,40 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                   )}
 
                   <div><label className="text-xs text-muted">Description</label><textarea value={formData.description || ''} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} className="w-full mt-1 bg-card border border-border/60 rounded-lg p-3 min-h-[100px] text-sm text-secondary" /></div>
+
+                  {/* Re-parent: convert task ↔ sub-task by picking a new parent (or none). */}
+                  {!isNew && existingItem && (
+                    <div className="rounded-xl border border-border/70 bg-surface p-4 space-y-2">
+                      <p className="text-xs font-semibold text-primary">Parent task</p>
+                      <select
+                        value={existingItem.parentId || ''}
+                        onChange={async (e) => {
+                          const nextParent = e.target.value || null;
+                          if (nextParent === (existingItem.parentId || null)) return;
+                          try {
+                            await reparentWorkItem(existingItem.id, nextParent, { actorUserId: user?.id, actorDisplayName: user?.name });
+                            setManualFieldsError(null);
+                          } catch (err) {
+                            setManualFieldsError(err instanceof Error ? err.message : 'Failed to re-parent.');
+                          }
+                        }}
+                        className="w-full bg-card border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                      >
+                        <option value="">(no parent — root task)</option>
+                        {workItems
+                          .filter((wi) => wi.projectId === existingItem.projectId
+                            && wi.id !== existingItem.id
+                            // Prevent picking one of our own descendants as parent (would cycle).
+                            && !isDescendantOf(workItems, wi.id, existingItem.id))
+                          .map((wi) => (
+                            <option key={wi.id} value={wi.id}>{wi.title}</option>
+                          ))}
+                      </select>
+                      <p className="text-[11px] text-muted">
+                        Set a parent to make this a sub-task. Pick “(no parent)” to promote it back to a root task.
+                      </p>
+                    </div>
+                  )}
 
                   {/* D13 — Sub-tasks panel. Only visible on existing items. */}
                   {!isNew && existingItem && (

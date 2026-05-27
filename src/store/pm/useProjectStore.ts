@@ -46,6 +46,7 @@ interface ProjectStore {
   deleteProject: (id: string) => Promise<void>;
   addWorkItem: (item: Omit<WorkItem, 'id'>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<WorkItem>;
+  reparentWorkItem: (workItemId: string, parentId: string | null, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   updateWorkItem: (id: string, updates: Partial<WorkItem>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   updateTelecomManualFields: (
     id: string,
@@ -337,6 +338,13 @@ export const useProjectStore = create<ProjectStore>()(
             };
           });
           return created;
+        },
+
+        reparentWorkItem: async (workItemId, parentId, actor) => {
+          const updated = await projectApi.reparentWorkItem(workItemId, parentId, actor);
+          set((state) => ({
+            workItems: state.workItems.map((wi) => (wi.id === workItemId ? { ...wi, ...updated, _clientUpdatedAt: Date.now() } : wi)),
+          }));
         },
 
         updateWorkItem: async (id, updates, actor) => {
