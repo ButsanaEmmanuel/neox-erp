@@ -246,6 +246,33 @@ const WorkItemsPage: React.FC = () => {
     return rootItems.slice(start, start + ITEMS_PER_PAGE);
   }, [rootItems, page]);
 
+  // When the user has narrowed the list with a search/filter/view that isn't
+  // the wide-open "all" state, force-expand every parent that still has
+  // matching descendants. Otherwise sub-tasks that match a filter would
+  // remain hidden behind a collapsed parent — the user expects filters to
+  // reach into the tree, not just the roots.
+  const filterIsNarrowing =
+    Boolean(searchTerm.trim())
+    || Boolean(filterStatus || filterQA || filterAcceptance || filterSchedule || filterFinance)
+    || (view !== 'all');
+  const autoExpandedIds = useMemo<Set<string>>(() => {
+    if (!filterIsNarrowing) return new Set();
+    const ids = new Set<string>();
+    // Any item that is itself a child in filteredItems means its parent chain
+    // should be expanded so the match is visible.
+    for (const item of filteredItems) {
+      let cursor: string | null | undefined = item.parentId;
+      const seen = new Set<string>();
+      while (cursor && !seen.has(cursor)) {
+        ids.add(cursor);
+        seen.add(cursor);
+        const parent = filteredItems.find((p) => p.id === cursor) || projectItems.find((p) => p.id === cursor);
+        cursor = parent?.parentId ?? null;
+      }
+    }
+    return ids;
+  }, [filterIsNarrowing, filteredItems, projectItems]);
+
   // Flatten paged roots into the display list, walking children when expanded.
   // Caps recursion at depth 3 (UI guard; backend already enforces).
   type Displayed = { item: typeof filteredItems[number]; depth: number };
@@ -254,13 +281,13 @@ const WorkItemsPage: React.FC = () => {
     const visit = (node: typeof filteredItems[number], depth: number) => {
       out.push({ item: node, depth });
       if (depth >= 3) return;
-      if (!expandedIds.has(node.id)) return;
+      if (!expandedIds.has(node.id) && !autoExpandedIds.has(node.id)) return;
       const kids = childrenByParent.get(node.id) || [];
       for (const k of kids) visit(k, depth + 1);
     };
     for (const root of pagedRoots) visit(root, 1);
     return out;
-  }, [pagedRoots, expandedIds, childrenByParent]);
+  }, [pagedRoots, expandedIds, autoExpandedIds, childrenByParent]);
   const currentPageIds = useMemo(() => pagedItems.map((d) => d.item.id), [pagedItems]);
   const selectedInPageCount = useMemo(
     () => currentPageIds.filter((id) => selectedIds.includes(id)).length,
