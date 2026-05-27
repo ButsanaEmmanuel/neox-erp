@@ -9,6 +9,7 @@ import ProjectOverview from './ProjectOverview';
 import ProjectScope from './ProjectScope';
 import ProjectDocuments from './ProjectDocuments';
 import WorkItemsPage from './WorkItemsPage';
+import ContractorPurchaseOrdersPage from './ContractorPurchaseOrdersPage';
 import MilestonesPage from './MilestonesPage';
 import ImportWizard from './ImportWizard';
 import ProjectsIndex from './ProjectsIndex';
@@ -88,6 +89,7 @@ const ProjectWorkspace: React.FC = () => {
                     <Route path="milestones" element={<span className="text-sm font-medium text-muted">Milestones</span>} />
                     <Route path="documents" element={<span className="text-sm font-medium text-muted">Documents</span>} />
                     <Route path="imports" element={<span className="text-sm font-medium text-muted">Data Imports</span>} />
+                    <Route path="contractor-pos" element={<span className="text-sm font-medium text-muted">Contractor POs</span>} />
                 </Routes>
             </div>
 
@@ -104,6 +106,7 @@ const ProjectWorkspace: React.FC = () => {
                     <Route path="milestones" element={<MilestonesPage />} />
                     <Route path="documents" element={<ProjectDocuments />} />
                     <Route path="imports" element={<ImportWizard />} />
+                    <Route path="contractor-pos" element={<ContractorPurchaseOrdersPage />} />
                     <Route path="/" element={<Navigate to="overview" replace />} />
                 </Routes>
             </motion.div>

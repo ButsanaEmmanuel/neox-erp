@@ -408,27 +408,39 @@ export async function saveProjectItemDetails(prisma, input) {
     });
 
     // Keep WorkItem table in sync with authoritative ProjectItemState so list pages are always DB-consistent.
+    const workItemPatch = {
+      status: rowStatus,
+      qaStatus: next.qaStatus,
+      acceptanceStatus: next.acceptanceStatus,
+      ticketNumber: next.ticketNumber,
+      poUnitPrice: next.poUnitPrice,
+      poUnitPriceCompleted,
+      contractorPayableAmount: finalContractorAmount,
+      financeSyncStatus: shared.financeSyncStatus,
+      financeSyncAt: new Date(),
+      financeReferenceId,
+      financeErrorMessage: shared.financeErrorMessage,
+      isFinanciallyEligible: eligibility.eligible,
+      financialEligibilityReason: eligibility.reason,
+      operationalManualFieldsJson: next.operationalManualFieldsJson,
+      acceptanceManualFieldsJson: next.acceptanceManualFieldsJson,
+      importedFieldsJson: importedFields,
+    };
+    // contractorId is set from the drawer's telecom save in the same
+    // round-trip so the PO reconciliation below sees the new contractor
+    // value, not yesterday's. null is a meaningful choice (un-link).
+    if (input.contractorId !== undefined) {
+      workItemPatch.contractorId = input.contractorId || null;
+    }
     await tx.workItem.update({
       where: { id: input.workItemId },
-      data: {
-        status: rowStatus,
-        qaStatus: next.qaStatus,
-        acceptanceStatus: next.acceptanceStatus,
-        ticketNumber: next.ticketNumber,
-        poUnitPrice: next.poUnitPrice,
-        poUnitPriceCompleted,
-        contractorPayableAmount: finalContractorAmount,
-        financeSyncStatus: shared.financeSyncStatus,
-        financeSyncAt: new Date(),
-        financeReferenceId,
-        financeErrorMessage: shared.financeErrorMessage,
-        isFinanciallyEligible: eligibility.eligible,
-        financialEligibilityReason: eligibility.reason,
-        operationalManualFieldsJson: next.operationalManualFieldsJson,
-        acceptanceManualFieldsJson: next.acceptanceManualFieldsJson,
-        importedFieldsJson: importedFields,
-      },
+      data: workItemPatch,
     });
+    // Refresh the local snapshot of contractorId for the reconcile call
+    // below — the workItem variable still holds the pre-patch value.
+    const effectiveContractorId = input.contractorId !== undefined
+      ? (input.contractorId || null)
+      : workItem.contractorId;
 
     console.info('[projectItemDetails] Database state persisted', {
       projectId: input.projectId,
@@ -450,7 +462,7 @@ export async function saveProjectItemDetails(prisma, input) {
     await reconcileContractorPO(tx, {
       workItemId: input.workItemId,
       projectId: input.projectId,
-      contractorId: workItem.contractorId,
+      contractorId: effectiveContractorId,
       contractorPayableAmount: finalContractorAmount,
       previousPurchaseOrderId: workItem.contractorPurchaseOrderId,
     });

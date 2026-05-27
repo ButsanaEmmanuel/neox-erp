@@ -52,6 +52,8 @@ export async function saveProjectItemDetailsToBackend(params: {
   poUnitPrice?: number;
   ticketNumber?: number;
   contractorPayableAmount?: number;
+  // null explicitly un-links the contractor; undefined leaves it alone.
+  contractorId?: string | null;
   qaStatus?: string;
   acceptanceStatus?: string;
   importedFields?: Record<string, unknown>;
