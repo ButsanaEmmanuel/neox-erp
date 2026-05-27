@@ -168,7 +168,9 @@ export interface WorkItem {
   // Dates
   plannedDate?: string;
   forecastDate?: string;
+  actualStartDate?: string;
   actualDate?: string;
+  weightPercent?: number;
   schedule_status?: 'pending' | 'on_time' | 'delayed' | 'early';
   start_variance_days?: number;
   is_delayed?: boolean;

@@ -46,7 +46,7 @@ interface ProjectStore {
   deleteProject: (id: string) => Promise<void>;
   addWorkItem: (item: Omit<WorkItem, 'id'>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   addSubTask: (parentId: string, data: Partial<WorkItem> & { title: string }, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<WorkItem>;
-  updateWorkItem: (id: string, updates: Partial<WorkItem>) => Promise<void>;
+  updateWorkItem: (id: string, updates: Partial<WorkItem>, actor?: { actorUserId?: string; actorDisplayName?: string }) => Promise<void>;
   updateTelecomManualFields: (
     id: string,
     updates: Pick<WorkItem, 'ticket_number' | 'operational_manual_fields' | 'acceptance_manual_fields'>,
@@ -339,10 +339,10 @@ export const useProjectStore = create<ProjectStore>()(
           return created;
         },
 
-        updateWorkItem: async (id, updates) => {
+        updateWorkItem: async (id, updates, actor) => {
           const item = get().workItems.find((wi) => wi.id === id);
           if (!item) return;
-          const updated = await projectApi.updateWorkItem(item.projectId, id, updates);
+          const updated = await projectApi.updateWorkItem(item.projectId, id, updates, actor);
           const stamped = { ...updated, _clientUpdatedAt: Date.now() };
           set((state) => ({
             workItems: state.workItems.map((wi) => (wi.id === id ? stamped : wi)),

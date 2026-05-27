@@ -89,10 +89,12 @@ export async function updateWorkItem(
   projectId: string,
   itemId: string,
   data: Partial<WorkItem>,
+  actor?: { actorUserId?: string; actorDisplayName?: string },
 ): Promise<WorkItem> {
-  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items/${itemId}`, {
+  const qs = actor?.actorUserId ? `?userId=${encodeURIComponent(actor.actorUserId)}` : '';
+  const { workItem } = await apiRequest<{ workItem: WorkItem }>(`/api/v1/projects/${projectId}/work-items/${itemId}${qs}`, {
     method: 'PATCH',
-    body: data,
+    body: { ...data, actorUserId: actor?.actorUserId, actorDisplayName: actor?.actorDisplayName },
   });
   return workItem;
 }
