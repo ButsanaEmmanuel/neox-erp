@@ -86,9 +86,15 @@ export function computeKpis(workItems = []) {
 }
 
 function mapWorkItem(row, state) {
+  // Strict yyyy-MM-dd for HTML <input type="date"> hydration. The previous
+  // helper delegated to toIsoDate which returned full ISO datetimes, so
+  // every date input on the drawer rendered blank despite having a value
+  // in DB. Always slice to the first 10 chars after a successful parse.
   const toIsoDateOnly = (value) => {
-    const normalized = toIsoDate(value);
-    return normalized || undefined;
+    if (!value) return undefined;
+    const d = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d.toISOString().slice(0, 10);
   };
   const effectiveImportedFields = state?.importedFieldsJson ?? row.importedFieldsJson;
   const effectiveQaStatus = state?.qaStatus ?? row.qaStatus;
