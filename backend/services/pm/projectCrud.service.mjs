@@ -21,6 +21,11 @@ const ALLOWED_WORK_ITEM_FIELDS = new Set([
   'plannedDate', 'actualDate', 'type',
   // WBS scheduling fields editable from the drawer (no finance impact).
   'forecastDate', 'actualStartDate', 'weightPercent',
+  // Delivery milestones (set from drawer; rolled up on parent items).
+  'completedDate', 'acceptanceDate', 'signedDate',
+  // Contractor link (telecom flow). The PO grouping reacts to changes
+  // here on the next /details save via reconcileContractorPO.
+  'contractorId',
   // Delivery milestones — completed / accepted (existing) / signed.
   'completedDate', 'acceptanceDate', 'signedDate',
 ]);
