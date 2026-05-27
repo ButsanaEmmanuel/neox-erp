@@ -197,6 +197,9 @@ function mapWorkItem(row, state) {
     weightPercent: decimalToNumber(row.weightPercent) ?? undefined,
     scheduleStatus: row.scheduleStatus || state?.scheduleStatus || undefined,
     startVarianceDays: row.startVarianceDays ?? state?.startVarianceDays ?? undefined,
+    // For client-side "most recently worked on" sorting.
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : undefined,
+    createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : undefined,
   };
 }
 

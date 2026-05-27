@@ -171,6 +171,8 @@ export interface WorkItem {
   actualStartDate?: string;
   actualDate?: string;
   weightPercent?: number;
+  updatedAt?: string;
+  createdAt?: string;
   schedule_status?: 'pending' | 'on_time' | 'delayed' | 'early';
   start_variance_days?: number;
   is_delayed?: boolean;
