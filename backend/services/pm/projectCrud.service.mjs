@@ -183,6 +183,7 @@ export async function createWorkItem(prisma, projectId, data, actor) {
     }
     const allowed = pickAllowed(data, ALLOWED_WORK_ITEM_FIELDS);
     coerceWorkItemDateFields(allowed);
+    assertNoFutureDates(allowed);
     const workItem = await tx.workItem.create({
       data: { ...allowed, title, projectId },
     });
@@ -368,9 +369,13 @@ function buildWorkItemActivityEntries(existing, updated, actor, projectId) {
   ];
   const isoOrSame = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v ?? null);
   const sameValue = (a, b) => {
-    if (a instanceof Date || b instanceof Date) return isoOrSame(a) === isoOrSame(b);
     if (a == null && b == null) return true;
-    // Decimal columns come back as strings; coerce for the compare.
+    if (a == null || b == null) return false;
+    if (a instanceof Date || b instanceof Date) return isoOrSame(a) === isoOrSame(b);
+    // Prisma Decimal columns come back as Decimal objects with same .toString()
+    // but different identity (a === b is always false). Compare by string in
+    // every non-primitive case so weightPercent: 50 → 50 stops getting logged.
+    if (typeof a === 'object' || typeof b === 'object') return String(a) === String(b);
     if (typeof a !== typeof b) return String(a) === String(b);
     return a === b;
   };
