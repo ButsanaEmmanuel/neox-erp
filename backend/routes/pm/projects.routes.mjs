@@ -36,6 +36,7 @@ import {
   listSubMilestones,
   moveSubMilestone,
 } from '../../services/pm/milestoneHierarchy.service.mjs';
+import { bulkImportWbsWorkItems } from '../../services/pm/wbsBulkImport.service.mjs';
 
 // SSE payload hygiene : exclude auth metadata fields from patchedFields,
 // they are not part of the business state mutated by the request.
@@ -65,6 +66,7 @@ export async function handlePmProjectRoutes(ctx) {
 
   const projectMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)$/);
   const workItemsMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items$/);
+  const wbsBulkMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items\/bulk-wbs$/);
   const workItemMatch = pathname.match(/^\/api\/v1\/projects\/([^/]+)\/work-items\/([^/]+)$/);
   // D13 — sub-task routes are project-agnostic (lookup by workItemId).
   const subTasksMatch = pathname.match(/^\/api\/v1\/pm\/work-items\/([^/]+)\/subtasks$/);
@@ -84,6 +86,7 @@ export async function handlePmProjectRoutes(ctx) {
   const hasMatch =
     (projectMatch && (method === 'GET' || method === 'PATCH' || method === 'DELETE')) ||
     (workItemsMatch && method === 'POST') ||
+    (wbsBulkMatch && method === 'POST') ||
     (workItemMatch && (method === 'PATCH' || method === 'DELETE')) ||
     (membersMatch && (method === 'GET' || method === 'POST')) ||
     (memberMatch && method === 'DELETE') ||
@@ -136,6 +139,23 @@ export async function handlePmProjectRoutes(ctx) {
       const workItem = await createWorkItem(ctx.prisma, projectId, body, actor);
       safeBroadcast('work_item_created', { projectId, workItemId: workItem.id, type: workItem.type });
       json(res, 201, { workItem });
+      return true;
+    }
+
+    if (wbsBulkMatch && method === 'POST') {
+      const [, projectId] = wbsBulkMatch;
+      const body = await ctx.parseBody(ctx.req);
+      const actor = ctx.parseActor(body);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.import.execute'))) return true;
+      const result = await bulkImportWbsWorkItems(ctx.prisma, {
+        projectId,
+        fileName: body?.fileName,
+        rows: body?.rows,
+        actorUserId: actor.actorUserId,
+        actorDisplayName: actor.actorDisplayName,
+      });
+      safeBroadcast('work_items_bulk_imported', { projectId, batchId: result.batchId, mode: 'wbs' });
+      json(res, 201, result);
       return true;
     }
 
