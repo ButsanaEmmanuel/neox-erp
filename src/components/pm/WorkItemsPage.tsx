@@ -8,6 +8,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { WorkItemStatus } from '../../types/pm';
 
 import WorkItemDrawer from './WorkItemDrawer';
+import WbsImportModal from './WbsImportModal';
 import ColumnConfigPanel from './telecom/ColumnConfigPanel';
 import { TELECOM_COLUMN_REGISTRY, TELECOM_DEFAULT_COLUMNS, columnByKey } from './telecom/telecomColumns';
 import { fetchColumnPreference } from '../../services/pm/columnPreferences.service';
@@ -29,7 +30,7 @@ function normalizeView(raw: string | null): string {
 }
 
 const WorkItemsPage: React.FC = () => {
-  const { workItems, activeProjectId, projects, retryFinanceSync, deleteWorkItem, updateWorkItem } = useProjectStore();
+  const { workItems, activeProjectId, projects, retryFinanceSync, deleteWorkItem, updateWorkItem, loadProjectsForUser } = useProjectStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -45,6 +46,7 @@ const WorkItemsPage: React.FC = () => {
   const [filterAcceptance, setFilterAcceptance] = useState<string>('');
   const [filterSchedule, setFilterSchedule] = useState<string>('');
   const [filterFinance, setFilterFinance] = useState<string>('');
+  const [showWbsImport, setShowWbsImport] = useState(false);
   // DH7 — user column preferences for the telecom table.
   const { user } = useAuth();
   const toast = useToast();
@@ -354,6 +356,13 @@ const WorkItemsPage: React.FC = () => {
             <button onClick={() => navigate(`/projects/${activeProjectId}/imports`)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ml-2">
               <Download size={16} /> Import Excel
             </button>
+            <button
+              onClick={() => setShowWbsImport(true)}
+              className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              title="Bulk import parents + sub-tasks with weight %"
+            >
+              <Download size={16} /> Import WBS
+            </button>
             <button onClick={() => setSelectedItemId('new')} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
               <Plus size={16} /> New Item
             </button>
@@ -656,6 +665,16 @@ const WorkItemsPage: React.FC = () => {
           onClose={() => setShowColumnsPanel(false)}
           onApplied={(cols) => setTelecomColumns(cols)}
           initialColumns={telecomColumns}
+        />
+      )}
+
+      {showWbsImport && activeProjectId && (
+        <WbsImportModal
+          projectId={activeProjectId}
+          actorUserId={user?.id}
+          actorDisplayName={user?.name}
+          onClose={() => setShowWbsImport(false)}
+          onCompleted={() => { if (user?.id) void loadProjectsForUser(user.id); }}
         />
       )}
 
