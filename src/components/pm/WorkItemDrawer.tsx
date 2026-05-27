@@ -757,6 +757,59 @@ const WorkItemDrawer: React.FC<WorkItemDrawerProps> = ({ workItemId, onClose, on
                     </div>
                   )}
 
+                  {/* Delivery milestones — submitted → accepted → signed.
+                      Signed auto-closes the item (status → 'done') on save.
+                      Hidden for parents (rollup) and for telecom (telecom block owns acceptance). */}
+                  {!isTelecom && directChildren.length === 0 && (
+                    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-3">
+                      <p className="text-xs font-semibold text-emerald-300 flex items-center gap-2"><Calendar size={14} /> Delivery milestones</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs text-muted">Completed (submitted to client)</label>
+                          <input
+                            type="date"
+                            value={formData.completedDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, completedDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Accepted by client</label>
+                          <input
+                            type="date"
+                            value={formData.acceptanceDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, acceptanceDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-muted">Signed</label>
+                          <input
+                            type="date"
+                            value={formData.signedDate || ''}
+                            onChange={(e) => setFormData((prev) => ({ ...prev, signedDate: e.target.value || undefined }))}
+                            className="w-full mt-1 bg-surface border border-input rounded-lg px-3 py-2 text-xs text-primary"
+                          />
+                        </div>
+                      </div>
+                      {(() => {
+                        const stages: Array<{ label: string; date?: string }> = [
+                          { label: 'Submitted', date: formData.completedDate },
+                          { label: 'Accepted',  date: formData.acceptanceDate },
+                          { label: 'Signed',    date: formData.signedDate },
+                        ];
+                        const reached = stages.filter((s) => s.date).length;
+                        const tone = formData.signedDate ? 'text-emerald-300' : reached > 0 ? 'text-amber-300' : 'text-muted';
+                        const note = formData.signedDate
+                          ? 'Signed — task will auto-close on save.'
+                          : reached === 0
+                            ? 'No milestone reached yet.'
+                            : `${reached}/3 milestones reached.`;
+                        return <p className={`text-[11px] ${tone}`}>{note}</p>;
+                      })()}
+                    </div>
+                  )}
+
                   {isTelecom && (
                     <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-5 space-y-4">
                       <div className="flex items-center gap-2 text-cyan-300"><Calculator size={16} /> Telecom Completion Fields</div>

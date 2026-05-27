@@ -184,6 +184,9 @@ export interface WorkItem {
   qaDate?: string;
   acceptanceStatus?: 'pending' | 'signed' | 'rejected';
   acceptanceDate?: string;
+  // Delivery milestones: submitted → accepted → signed (closed).
+  completedDate?: string;
+  signedDate?: string;
 
   // Meta
   siteId?: string;

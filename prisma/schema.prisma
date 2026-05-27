@@ -632,6 +632,10 @@ model WorkItem {
   actualStartDate             DateTime?
   scheduleStatus              String?
   startVarianceDays           Int?
+  // Delivery milestones: completed = submitted to client, accepted = client
+  // approved (existing acceptanceDate field), signed = final closure.
+  completedDate               DateTime?
+  signedDate                  DateTime?
   isDeleted                   Boolean   @default(false)
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
