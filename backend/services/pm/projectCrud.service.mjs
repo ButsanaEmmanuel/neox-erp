@@ -251,22 +251,28 @@ export async function updateWorkItem(prisma, projectId, itemId, data, actor) {
   }
 
   // Delivery-milestone status auto-progression (leaf items only — parents
-  // already have status locked above). Skipped if the caller passes an
-  // explicit status in the same PATCH (re-open, manual override).
-  // Order is signed > accepted > completed: the most-advanced milestone
-  // wins so saving all three at once still lands on 'done'. We look at
-  // the effective post-patch state, not just the keys present in patch,
-  // so unsetting accepted while signed stays set still keeps 'done'.
-  if (hasChildren === 0 && !Object.prototype.hasOwnProperty.call(patch, 'status')) {
+  // already have status locked above).
+  // The drawer echoes the current status in every PATCH (e.g. 'backlog'),
+  // so we can't skip auto-progress just because `status` is in the patch.
+  // We detect a *real* manual status change: patch.status present AND
+  // different from existing.status. That keeps the override path open for
+  // re-opens ('done' → 'in-progress') while still letting a freshly
+  // ticked milestone bump the status.
+  if (hasChildren === 0) {
     const effCompleted = Object.prototype.hasOwnProperty.call(patch, 'completedDate')
       ? patch.completedDate : existing.completedDate;
     const effAccepted = Object.prototype.hasOwnProperty.call(patch, 'acceptanceDate')
       ? patch.acceptanceDate : existing.acceptanceDate;
     const effSigned = Object.prototype.hasOwnProperty.call(patch, 'signedDate')
       ? patch.signedDate : existing.signedDate;
-    if (effSigned) patch.status = 'done';
-    else if (effAccepted) patch.status = 'awaiting_signed_acceptance';
-    else if (effCompleted) patch.status = 'awaiting_qa_approval';
+    const userOverrodeStatus =
+      Object.prototype.hasOwnProperty.call(patch, 'status')
+      && patch.status !== existing.status;
+    let derived = null;
+    if (effSigned) derived = 'done';
+    else if (effAccepted) derived = 'awaiting_signed_acceptance';
+    else if (effCompleted) derived = 'awaiting_qa_approval';
+    if (derived && !userOverrodeStatus) patch.status = derived;
   }
 
   // Re-derive schedule status from the post-update planned+actual start dates.
