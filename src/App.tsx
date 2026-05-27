@@ -3,6 +3,7 @@ import NeoxDashboard from './components/NeoxDashboard'
 import ErrorBoundary from './components/ErrorBoundary'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import LoginPage from './pages/LoginPage'
+import IdleWarningBanner from './components/auth/IdleWarningBanner'
 import ForcePasswordChangePage from './pages/ForcePasswordChangePage'
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
@@ -27,6 +28,7 @@ function App() {
             <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
                 <ErrorBoundary>
                     <BrowserRouter>
+                        <IdleWarningBanner />
                         <Routes>
                             <Route path="/login" element={<LoginPage />} />
                             <Route
