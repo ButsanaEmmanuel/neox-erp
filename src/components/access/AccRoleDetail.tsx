@@ -122,9 +122,10 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({
         </div>
       </div>
 
-      {/* Tabs — horizontal scroll only inside this strip; dark-themed
-          scrollbar so it stops looking like a system-OS bar. */}
-      <div className="px-6 border-b border-border/60 flex gap-4 overflow-x-auto custom-scrollbar-thin shrink-0">
+      {/* Tabs wrap to a second line instead of scrolling — the thin dark
+          scrollbar was invisible on wide viewports and admins thought
+          the trailing tabs (Members, Audit Trail) had been dropped. */}
+      <div className="px-6 border-b border-border/60 flex flex-wrap gap-x-4 gap-y-0 shrink-0 min-w-0">
         {ACC_ROLE_TABS.map((t) => {
           const active = t.key === tab;
           return (
