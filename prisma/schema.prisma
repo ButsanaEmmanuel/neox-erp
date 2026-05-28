@@ -236,6 +236,12 @@ model Role {
   deletedAt   DateTime?
   userRoles   UserRole[]
   permissions RolePermission[]
+  // Access Control Center phase 1 — business-layer back-relations.
+  pageAccess              RolePageAccess[]
+  actionPermissions       RoleActionPermission[]
+  dataScopes              RoleDataScope[]
+  fieldPermissions        FieldPermission[]
+  linkedRecordPermissions LinkedRecordPermission[]
 
   @@index([isDeleted])
   @@index([isSystem])
@@ -2152,4 +2158,219 @@ model BudgetLine {
 
   @@unique([budgetId, categoryId])
   @@index([categoryId])
+}
+
+// =============================================================================
+// Access Control Center — phase 1 (business layer)
+// =============================================================================
+// These tables are the source of truth for the new Settings → Access Control
+// Center UI. A projection service denormalises them into the existing
+// RolePermission rows so legacy assertPermission(ctx, key) calls keep working
+// unchanged. Nothing below removes or alters existing primitives.
+
+model AppModule {
+  id          String   @id @default(cuid())
+  moduleKey   String   @unique
+  moduleName  String
+  sortOrder   Int      @default(0)
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  pages       AppPage[]
+}
+
+model AppPage {
+  id               String   @id @default(cuid())
+  moduleId         String
+  parentPageId     String?
+  pageKey          String   @unique
+  pageName         String
+  route            String?
+  icon             String?
+  sortOrder        Int      @default(0)
+  isSidebarVisible Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  module           AppModule              @relation(fields: [moduleId], references: [id])
+  parent           AppPage?               @relation("AppPageChildren", fields: [parentPageId], references: [id])
+  children         AppPage[]              @relation("AppPageChildren")
+  rolePageAccess   RolePageAccess[]
+  actionPermissions RoleActionPermission[]
+
+  @@index([moduleId])
+  @@index([parentPageId])
+}
+
+model RolePageAccess {
+  id        String   @id @default(cuid())
+  roleId    String
+  pageId    String
+  canView   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  page      AppPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, pageId])
+  @@index([pageId])
+}
+
+model PermissionAction {
+  id          String   @id @default(cuid())
+  actionKey   String   @unique
+  actionName  String
+  description String?
+  createdAt   DateTime @default(now())
+  rolePermissions RoleActionPermission[]
+}
+
+model RoleActionPermission {
+  id        String   @id @default(cuid())
+  roleId    String
+  pageId    String
+  actionId  String
+  allowed   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  role      Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  page      AppPage          @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  action    PermissionAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, pageId, actionId])
+  @@index([pageId])
+  @@index([actionId])
+}
+
+model RoleDataScope {
+  id         String   @id @default(cuid())
+  roleId     String
+  moduleKey  String
+  pageKey    String?
+  scopeType  String   // own | department | project | location | related | company | custom
+  customRule Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([roleId, moduleKey])
+  @@index([roleId, pageKey])
+}
+
+model FieldPermission {
+  id         String   @id @default(cuid())
+  roleId     String
+  moduleKey  String
+  entityName String
+  fieldName  String   // dot-path for JSON, e.g. "metadata.bankDetails.accountNumber"
+  canView    Boolean  @default(true)
+  canEdit    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, entityName, fieldName])
+  @@index([roleId, moduleKey])
+}
+
+model CrossModuleWorkflow {
+  id           String                       @id @default(cuid())
+  workflowKey  String                       @unique
+  name         String
+  sourceModule String
+  description  String?
+  isActive     Boolean                      @default(true)
+  createdAt    DateTime                     @default(now())
+  updatedAt    DateTime                     @updatedAt
+  modules      CrossModuleWorkflowModule[]
+  steps        CrossModuleWorkflowStep[]
+}
+
+model CrossModuleWorkflowModule {
+  id               String   @id @default(cuid())
+  workflowId       String
+  moduleKey        String
+  relationshipType String   // primary | secondary | observer
+  workflow         CrossModuleWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, moduleKey])
+}
+
+model CrossModuleWorkflowStep {
+  id                 String   @id @default(cuid())
+  workflowId         String
+  stepOrder          Int
+  stepName           String
+  responsibleRoleId  String?
+  actionRequired     String
+  conditionType      String?
+  conditionValue     String?
+  conditionCurrency  String?
+  escalationRoleId   String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  workflow           CrossModuleWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+  @@index([responsibleRoleId])
+}
+
+model LinkedRecordPermission {
+  id               String   @id @default(cuid())
+  roleId           String
+  sourceModule     String
+  targetModule     String
+  sourceRecordType String
+  targetRecordType String
+  visibilityLevel  String   // summary | limited | full
+  allowedActions   String[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  role             Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, sourceRecordType, targetRecordType])
+  @@index([roleId, sourceModule])
+}
+
+model ApprovalWorkflow {
+  id          String         @id @default(cuid())
+  workflowKey String         @unique
+  name        String
+  moduleKey   String
+  description String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  steps       ApprovalStep[]
+}
+
+model ApprovalStep {
+  id                String   @id @default(cuid())
+  workflowId        String
+  stepOrder         Int
+  approverRoleId    String
+  conditionType     String?
+  conditionValue    String?
+  conditionCurrency String?
+  createdAt         DateTime @default(now())
+  workflow          ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+  @@index([approverRoleId])
+}
+
+model PermissionAuditLog {
+  id            String   @id @default(cuid())
+  roleId        String?
+  userId        String?
+  changedBy     String
+  changeType    String
+  entityType    String
+  entityId      String?
+  previousValue Json?
+  newValue      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([roleId, createdAt])
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
 }

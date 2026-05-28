@@ -2373,6 +2373,24 @@ void ensureLockedAdminIdentity().catch((error) => {
   console.error('Failed to enforce locked admin identity:', error);
 });
 
+// Access Control Center — phase 1. Boots the business-layer baseline
+// (default roles, page registry, actions, scopes, field restrictions)
+// and projects RolePageAccess + RoleActionPermission into the legacy
+// RolePermission table so assertPermission(ctx, key) keeps working.
+// All operations are idempotent — re-running on every boot is the
+// intended pattern, mirroring the existing ensureLockedAdminIdentity.
+void (async () => {
+  try {
+    const { seedAccessControlBaseline } = await import('./services/access/accessSeed.service.mjs');
+    const { projectRolePermissions } = await import('./services/access/accessProjection.service.mjs');
+    await seedAccessControlBaseline(prisma);
+    const result = await projectRolePermissions(prisma);
+    console.info('[acc:boot] seeded baseline + projected', result);
+  } catch (error) {
+    console.error('[acc:boot] failed to bootstrap Access Control Center:', error);
+  }
+})();
+
 void (async () => {
   try {
     const { warnOnMissingPermissions } = await import('./services/auth/rbacGuard.mjs');
