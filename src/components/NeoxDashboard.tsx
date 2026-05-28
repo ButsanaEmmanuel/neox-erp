@@ -53,6 +53,7 @@ import BudgetsPage from './finance/budgets/BudgetsPage';
 import FinanceReportsPage from './FinanceReportsPage';
 import FinanceSettingsPage from './FinanceSettingsPage';
 import SettingsPage from './SettingsPage';
+import AccessControlCenter from './access/AccessControlCenter';
 import SCMOverview from './scm/SCMOverview';
 import SuppliersPage from './scm/SuppliersPage';
 import ProductsPage from './scm/ProductsPage';
@@ -190,6 +191,10 @@ const DashboardContent: React.FC = () => {
 
   useEffect(() => {
     const path = location.pathname;
+    if (path.startsWith('/settings/access-control-center')) {
+      setActiveView('access-control-center');
+      return;
+    }
     if (path.startsWith('/settings')) {
       setActiveView('settings');
       return;
@@ -397,7 +402,11 @@ const DashboardContent: React.FC = () => {
               <Reports isDark={isDark} isSidebarOpen={true} />
             ) : activeView === 'settings' ? (
               <motion.div key="settings" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
-                <SettingsPage isDark={isDark} />
+                <SettingsPage isDark={isDark} onNavigate={setActiveView} />
+              </motion.div>
+            ) : activeView === 'access-control-center' ? (
+              <motion.div key="access-control-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
+                <AccessControlCenter />
               </motion.div>
             ) : activeView === 'crm-pipeline' ? (
               <Pipeline isDark={isDark} />
