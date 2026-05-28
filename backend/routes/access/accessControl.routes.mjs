@@ -16,15 +16,22 @@ import {
   savePageAccessForRole,
   SuperAdminLockedError,
 } from '../../services/access/pageAccess.service.mjs';
+import {
+  readActionPermissionsForRole,
+  saveActionPermissionsForRole,
+  SuperAdminLockedError as ActionSuperAdminLockedError,
+} from '../../services/access/actionPermissions.service.mjs';
 
 const ROLE_DETAIL = /^\/api\/v1\/access-control\/roles\/([^/]+)$/;
 const ROLE_PAGE_ACCESS = /^\/api\/v1\/access-control\/roles\/([^/]+)\/page-access$/;
+const ROLE_ACTION_PERMISSIONS = /^\/api\/v1\/access-control\/roles\/([^/]+)\/action-permissions$/;
 
 export function hasMatch(pathname) {
   return (
     pathname === '/api/v1/access-control/summary'
     || pathname === '/api/v1/access-control/roles'
     || ROLE_PAGE_ACCESS.test(pathname)
+    || ROLE_ACTION_PERMISSIONS.test(pathname)
     || ROLE_DETAIL.test(pathname)
   );
 }
@@ -70,6 +77,41 @@ export async function handleAccessControlRoutes(ctx) {
         json(res, 200, result);
       } catch (err) {
         if (err instanceof SuperAdminLockedError) {
+          json(res, 409, { error: err.message, code: err.code });
+        } else if (err?.statusCode === 404) {
+          json(res, 404, { error: err.message, code: err.code });
+        } else {
+          throw err;
+        }
+      }
+      return true;
+    }
+
+    // Phase 4 — Action Permissions tab.
+    const actionPermsMatch = pathname.match(ROLE_ACTION_PERMISSIONS);
+    if (actionPermsMatch && method === 'GET') {
+      const [, roleId] = actionPermsMatch;
+      const result = await readActionPermissionsForRole(prisma, roleId);
+      if (!result) {
+        json(res, 404, { error: 'Role not found.' });
+        return true;
+      }
+      json(res, 200, result);
+      return true;
+    }
+    if (actionPermsMatch && method === 'PATCH') {
+      const [, roleId] = actionPermsMatch;
+      const body = await parseBody(ctx.req);
+      try {
+        const result = await saveActionPermissionsForRole(prisma, {
+          roleId,
+          changes: Array.isArray(body?.changes) ? body.changes : [],
+          actorUserId: actor.actorUserId || null,
+          actorDisplayName: String(body?.actorDisplayName || '').trim() || null,
+        });
+        json(res, 200, result);
+      } catch (err) {
+        if (err instanceof ActionSuperAdminLockedError) {
           json(res, 409, { error: err.message, code: err.code });
         } else if (err?.statusCode === 404) {
           json(res, 404, { error: err.message, code: err.code });

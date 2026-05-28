@@ -93,6 +93,68 @@ export interface AccPageAccessSaveResult {
   projected: number;
 }
 
+// Phase 4 — Action Permissions tab.
+export interface AccActionDef {
+  id: string;
+  actionKey: string;
+  actionName: string;
+  description: string | null;
+}
+
+export interface AccActionStateOnPage {
+  actionId: string;
+  actionKey: string;
+  actionName: string;
+  allowed: boolean;
+}
+
+export interface AccActionPageNode {
+  id: string;
+  pageKey: string;
+  pageName: string;
+  route: string | null;
+  icon: string | null;
+  parentPageId: string | null;
+  sortOrder: number;
+  canView: boolean;
+  actions: AccActionStateOnPage[];
+}
+
+export interface AccActionModuleNode {
+  id: string;
+  moduleKey: string;
+  moduleName: string;
+  icon: string | null;
+  sortOrder: number;
+  pages: AccActionPageNode[];
+}
+
+export interface AccActionPermissionsTree {
+  role: {
+    id: string;
+    code: string;
+    label: string;
+    isSystem: boolean;
+    isActive: boolean;
+    locked: boolean;
+  };
+  actions: AccActionDef[];
+  modules: AccActionModuleNode[];
+}
+
+export interface AccActionPermissionChange {
+  pageId: string;
+  actionId: string;
+  allowed: boolean;
+}
+
+export interface AccActionPermissionsSaveResult {
+  saved: number;
+  audited: number;
+  projected: number;
+  skippedHidden: number;
+}
+
 function actorQs(userId?: string): string {
   return userId ? `?userId=${encodeURIComponent(userId)}` : '';
 }
@@ -129,6 +191,25 @@ export const accessControlApi = {
   ): Promise<AccPageAccessSaveResult> {
     return apiRequest<AccPageAccessSaveResult>(
       `/api/v1/access-control/roles/${encodeURIComponent(roleId)}/page-access${actorQs(userId)}`,
+      {
+        method: 'PATCH',
+        body: { changes, actorDisplayName: actorDisplayName ?? null },
+      },
+    );
+  },
+  async getActionPermissions(roleId: string, userId?: string): Promise<AccActionPermissionsTree> {
+    return apiRequest<AccActionPermissionsTree>(
+      `/api/v1/access-control/roles/${encodeURIComponent(roleId)}/action-permissions${actorQs(userId)}`,
+    );
+  },
+  async saveActionPermissions(
+    roleId: string,
+    changes: AccActionPermissionChange[],
+    userId?: string,
+    actorDisplayName?: string,
+  ): Promise<AccActionPermissionsSaveResult> {
+    return apiRequest<AccActionPermissionsSaveResult>(
+      `/api/v1/access-control/roles/${encodeURIComponent(roleId)}/action-permissions${actorQs(userId)}`,
       {
         method: 'PATCH',
         body: { changes, actorDisplayName: actorDisplayName ?? null },
