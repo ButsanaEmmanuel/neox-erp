@@ -22,9 +22,12 @@ interface SettingsPageProps {
 const SettingsPage: React.FC<SettingsPageProps> = ({ isDark, onNavigate }) => {
   const { user, permissions, updateProfile, completePasswordChange } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = (() => {
+  // Mirror the AccessControlCenter gate so the card never shows for
+  // users who would land on the 403 screen anyway.
+  const isAccAuthorised = (() => {
     if (!user) return false;
     if (permissions.includes('*')) return true;
+    if (permissions.includes('system.rbac.read')) return true;
     const role = (user.role || '').toLowerCase();
     return role === 'admin' || role === 'super_admin' || role === 'superadmin';
   })();
@@ -149,7 +152,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ isDark, onNavigate }) => {
         </p>
       </div>
 
-      {isAdmin && (
+      {isAccAuthorised && (
         <button
           type="button"
           onClick={() => { onNavigate?.('access-control-center'); navigate('/settings/access-control-center'); }}

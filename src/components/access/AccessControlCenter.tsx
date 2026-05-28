@@ -12,7 +12,8 @@
 // a 403-style banner — no UI breakage.
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ShieldCheck, Lock, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   accessControlApi,
@@ -29,10 +30,19 @@ import AccSectionPlaceholder from './AccSectionPlaceholder';
 
 const AccessControlCenter: React.FC = () => {
   const { user, permissions } = useAuth();
+  const navigate = useNavigate();
 
-  const isAdmin = (() => {
+  // Hard gate. The Access Control Center is sensitive — non-admins
+  // never see the shell, roles, scopes, workflows, or security model.
+  // Authorised set:
+  //   - legacy ADMIN role
+  //   - new super_admin role
+  //   - users carrying the `system.rbac.read` permission key
+  //   - any wildcard '*' bypass holder
+  const isAuthorised = (() => {
     if (!user) return false;
     if (permissions.includes('*')) return true;
+    if (permissions.includes('system.rbac.read')) return true;
     const role = (user.role || '').toLowerCase();
     return role === 'admin' || role === 'super_admin' || role === 'superadmin';
   })();
@@ -51,10 +61,11 @@ const AccessControlCenter: React.FC = () => {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  // Initial summary + roles. Both 403-tolerant so non-admins see the
-  // shell with a clear access banner instead of a crash.
+  // Initial summary + roles. Skipped entirely for unauthorised users
+  // — the Access Restricted screen renders before any data fetch
+  // and no API calls are ever issued from their session.
   useEffect(() => {
-    if (!isAdmin) {
+    if (!isAuthorised) {
       setSummaryLoading(false);
       setRolesLoading(false);
       return;
@@ -75,11 +86,11 @@ const AccessControlCenter: React.FC = () => {
       .catch((e) => { if (!cancelled) setRolesError(e instanceof Error ? e.message : 'Failed to load roles'); })
       .finally(() => { if (!cancelled) setRolesLoading(false); });
     return () => { cancelled = true; };
-  }, [isAdmin, user?.id]);
+  }, [isAuthorised, user?.id]);
 
   // Fetch detail whenever the selection changes.
   useEffect(() => {
-    if (!isAdmin || !selectedRoleId) {
+    if (!isAuthorised || !selectedRoleId) {
       setRoleDetail(null);
       return;
     }
@@ -90,11 +101,46 @@ const AccessControlCenter: React.FC = () => {
       .catch((e) => { if (!cancelled) setDetailError(e instanceof Error ? e.message : 'Failed to load role'); })
       .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
-  }, [isAdmin, selectedRoleId, user?.id]);
+  }, [isAuthorised, selectedRoleId, user?.id]);
 
   const handleJumpFromCard = useCallback((target: AccSectionKey) => {
     setSection(target);
   }, []);
+
+  // Hard 403: render nothing of the actual console for non-admins.
+  // No roles, no counts, no section descriptions — just a clean
+  // Access Restricted state and a way back. This mirrors the backend
+  // gate (`system.rbac.read`) so the UI can't leak structure even if
+  // the API ever returned partial data.
+  if (!isAuthorised) {
+    return (
+      <div className="h-full flex items-center justify-center bg-app text-primary p-6">
+        <div className="max-w-md w-full rounded-2xl border border-border/60 bg-surface/50 p-8 text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-300">
+            <Lock size={20} />
+          </div>
+          <h2 className="mt-4 text-base font-semibold tracking-tight">Access restricted</h2>
+          <p className="mt-2 text-[12px] text-muted leading-relaxed">
+            The Access Control Center is reserved for administrators.
+            Ask your system administrator for the appropriate role if you need access.
+          </p>
+          <div className="mt-5 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/settings')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-surface px-3 py-1.5 text-[11px] text-secondary hover:text-primary hover:bg-card transition-colors"
+            >
+              <ArrowLeft size={12} />
+              Back to Settings
+            </button>
+          </div>
+          <p className="mt-6 text-[10px] uppercase tracking-wider text-muted">
+            Error code · 403
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-app text-primary">
@@ -111,18 +157,6 @@ const AccessControlCenter: React.FC = () => {
             </p>
           </div>
         </div>
-
-        {!isAdmin && (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-            <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">Read-only preview.</p>
-              <p className="text-amber-300/80">
-                Full Access Control Center features require an admin role (ADMIN or super_admin).
-              </p>
-            </div>
-          </div>
-        )}
 
         <div className="mt-4">
           <AccSummaryCards
