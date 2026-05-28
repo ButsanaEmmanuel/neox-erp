@@ -185,11 +185,11 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
   if (!tree) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       {locked && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
           <Lock size={14} className="shrink-0 mt-0.5" />
-          <div>
+          <div className="min-w-0">
             <p className="font-semibold">super_admin is locked.</p>
             <p className="text-amber-300/80">
               Action permissions are read-only and forced to allowed for every page.
@@ -198,8 +198,10 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
         </div>
       )}
 
-      <div className="flex items-center gap-2 sticky top-0 z-10 bg-app/95 backdrop-blur-sm py-2 -mt-2 border-b border-border/40">
-        <div className="relative flex-1 max-w-md">
+      {/* Toolbar wraps on narrow viewports so it never stretches the
+          panel sideways. flex-wrap + min-w-0 on the search input. */}
+      <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-app/95 backdrop-blur-sm py-2 -mt-2 border-b border-border/40 min-w-0">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-md min-w-0">
           <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="search"
@@ -209,8 +211,8 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
             className="w-full rounded-lg border border-border/70 bg-surface pl-8 pr-3 py-1.5 text-[12px] text-primary placeholder:text-muted focus:border-blue-400 focus:outline-none"
           />
         </div>
-        <div className="flex-1" />
-        <span className="text-[11px] text-muted">
+        <div className="hidden sm:block sm:flex-1" />
+        <span className="text-[11px] text-muted shrink-0">
           {dirtyChanges.length > 0
             ? `${dirtyChanges.length} pending change${dirtyChanges.length === 1 ? '' : 's'}`
             : 'No pending changes'}
@@ -219,7 +221,7 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
           type="button"
           onClick={handleReset}
           disabled={dirtyChanges.length === 0 || saving || locked}
-          className="inline-flex items-center gap-1 rounded-lg border border-border/70 bg-surface px-3 py-1.5 text-[11px] text-secondary hover:text-primary hover:bg-card disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1 rounded-lg border border-border/70 bg-surface px-3 py-1.5 text-[11px] text-secondary hover:text-primary hover:bg-card disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
         >
           <RotateCcw size={12} />
           Reset
@@ -228,14 +230,14 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
           type="button"
           onClick={handleSave}
           disabled={dirtyChanges.length === 0 || saving || locked}
-          className="inline-flex items-center gap-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
         >
           {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
           Save changes
         </button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         {filteredModules.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border/60 bg-surface/30 p-8 text-center">
             <p className="text-[12px] text-muted">No module or page matches “{search}”.</p>
@@ -245,8 +247,8 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
             const isCollapsed = collapsed.has(m.id);
             const editablePages = m.pages.filter((p) => p.canView);
             return (
-              <div key={m.id} className="rounded-xl border border-border/60 bg-surface/40">
-                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
+              <div key={m.id} className="rounded-xl border border-border/60 bg-surface/40 min-w-0 overflow-hidden">
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40 min-w-0">
                   <button
                     type="button"
                     onClick={() => toggleCollapse(m.id)}
@@ -255,8 +257,8 @@ const ActionPermissionsTab: React.FC<ActionPermissionsTabProps> = ({ roleId, ref
                   >
                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                   </button>
-                  <span className="text-[13px] font-semibold text-primary">{m.moduleName}</span>
-                  <span className="text-[10px] uppercase tracking-wider text-muted">
+                  <span className="text-[13px] font-semibold text-primary truncate min-w-0">{m.moduleName}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted shrink-0 whitespace-nowrap">
                     {editablePages.length}/{m.pages.length} editable
                   </span>
                 </div>
@@ -312,8 +314,9 @@ const PageActionRow: React.FC<PageActionRowProps> = ({
   );
 
   return (
-    <li className={`px-4 py-3 ${disabled ? 'bg-surface/20' : ''}`}>
-      <div className="flex items-center gap-2 mb-2">
+    <li className={`px-4 py-3 min-w-0 ${disabled ? 'bg-surface/20' : ''}`}>
+      {/* Row header wraps so the Allow-all / Deny-all shortcuts never push the page name out of view. */}
+      <div className="flex flex-wrap items-center gap-2 mb-2 min-w-0">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-[12px] font-medium truncate ${disabled ? 'text-muted' : 'text-primary'}`}>

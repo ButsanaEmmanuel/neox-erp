@@ -94,9 +94,9 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-w-0">
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border/60 bg-card/40 flex items-start justify-between gap-4">
+      <div className="px-6 py-4 border-b border-border/60 bg-card/40 flex items-start justify-between gap-4 min-w-0">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted">
             <span className="font-mono">{role.code}</span>
@@ -122,8 +122,9 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="px-6 border-b border-border/60 flex gap-4 overflow-x-auto">
+      {/* Tabs — horizontal scroll only inside this strip; dark-themed
+          scrollbar so it stops looking like a system-OS bar. */}
+      <div className="px-6 border-b border-border/60 flex gap-4 overflow-x-auto custom-scrollbar-thin shrink-0">
         {ACC_ROLE_TABS.map((t) => {
           const active = t.key === tab;
           return (
@@ -144,8 +145,9 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({
         })}
       </div>
 
-      {/* Tab body */}
-      <div className="flex-1 overflow-y-auto p-6">
+      {/* Tab body — vertical scroll only; horizontal contained so action
+          chips wrap inside their parent instead of pushing the panel. */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar p-6">
         {tab === 'overview' && <OverviewTab role={role} />}
         {tab === 'module-page-access' && (
           <PageAccessTab roleId={role.id} refreshKey={refreshKey} onSaved={onSaved} />

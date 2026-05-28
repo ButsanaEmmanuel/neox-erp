@@ -181,12 +181,12 @@ const PageAccessTab: React.FC<PageAccessTabProps> = ({ roleId, refreshKey, onSav
   if (!tree) return null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       {/* Locked banner for super_admin. */}
       {locked && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
           <Lock size={14} className="shrink-0 mt-0.5" />
-          <div>
+          <div className="min-w-0">
             <p className="font-semibold">super_admin is locked.</p>
             <p className="text-amber-300/80">
               This role retains full access to every module and page by design.
@@ -196,9 +196,10 @@ const PageAccessTab: React.FC<PageAccessTabProps> = ({ roleId, refreshKey, onSav
         </div>
       )}
 
-      {/* Sticky toolbar: search + dirty counter + Save / Reset. */}
-      <div className="flex items-center gap-2 sticky top-0 z-10 bg-app/95 backdrop-blur-sm py-2 -mt-2 border-b border-border/40">
-        <div className="relative flex-1 max-w-md">
+      {/* Sticky toolbar: search + dirty counter + Save / Reset. Wraps
+          on narrow viewports so it never stretches the panel sideways. */}
+      <div className="flex flex-wrap items-center gap-2 sticky top-0 z-10 bg-app/95 backdrop-blur-sm py-2 -mt-2 border-b border-border/40 min-w-0">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:max-w-md min-w-0">
           <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             type="search"
@@ -208,8 +209,8 @@ const PageAccessTab: React.FC<PageAccessTabProps> = ({ roleId, refreshKey, onSav
             className="w-full rounded-lg border border-border/70 bg-surface pl-8 pr-3 py-1.5 text-[12px] text-primary placeholder:text-muted focus:border-blue-400 focus:outline-none"
           />
         </div>
-        <div className="flex-1" />
-        <span className="text-[11px] text-muted">
+        <div className="hidden sm:block sm:flex-1" />
+        <span className="text-[11px] text-muted shrink-0">
           {dirtyChanges.length > 0
             ? `${dirtyChanges.length} pending change${dirtyChanges.length === 1 ? '' : 's'}`
             : 'No pending changes'}
@@ -235,7 +236,7 @@ const PageAccessTab: React.FC<PageAccessTabProps> = ({ roleId, refreshKey, onSav
       </div>
 
       {/* Module list. */}
-      <div className="space-y-3">
+      <div className="space-y-3 min-w-0">
         {filteredModules.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border/60 bg-surface/30 p-8 text-center">
             <p className="text-[12px] text-muted">No module or page matches “{search}”.</p>
@@ -245,21 +246,21 @@ const PageAccessTab: React.FC<PageAccessTabProps> = ({ roleId, refreshKey, onSav
             const isCollapsed = collapsed.has(m.id);
             const visibleCount = m.pages.reduce((n, p) => n + (effectiveCanView(p) ? 1 : 0), 0);
             return (
-              <div key={m.id} className="rounded-xl border border-border/60 bg-surface/40">
-                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border/40">
+              <div key={m.id} className="rounded-xl border border-border/60 bg-surface/40 min-w-0 overflow-hidden">
+                <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-border/40 min-w-0">
                   <button
                     type="button"
                     onClick={() => toggleCollapse(m.id)}
-                    className="p-0.5 rounded hover:bg-surface text-muted hover:text-primary"
+                    className="p-0.5 rounded hover:bg-surface text-muted hover:text-primary shrink-0"
                     aria-label={isCollapsed ? 'Expand module' : 'Collapse module'}
                   >
                     {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                   </button>
-                  <span className="text-[13px] font-semibold text-primary">{m.moduleName}</span>
-                  <span className="text-[10px] uppercase tracking-wider text-muted">
+                  <span className="text-[13px] font-semibold text-primary truncate min-w-0">{m.moduleName}</span>
+                  <span className="text-[10px] uppercase tracking-wider text-muted shrink-0 whitespace-nowrap">
                     {visibleCount}/{m.pages.length} visible
                   </span>
-                  <div className="flex-1" />
+                  <div className="hidden sm:block sm:flex-1" />
                   <button
                     type="button"
                     onClick={() => handleModuleToggleAll(m, true)}
