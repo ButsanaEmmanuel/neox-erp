@@ -298,12 +298,14 @@ async function ensureLockedAdminIdentity() {
     where: { code: 'ADMIN' },
     update: {
       name: 'Administrator',
+      label: 'Administrator',
       isActive: true,
       isDeleted: false,
     },
     create: {
       code: 'ADMIN',
       name: 'Administrator',
+      label: 'Administrator',
       isActive: true,
       isDeleted: false,
     },
