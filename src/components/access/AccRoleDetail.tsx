@@ -10,11 +10,16 @@ import {
 } from 'lucide-react';
 import { ACC_ROLE_TABS, type AccRoleTabKey } from './acc.constants';
 import type { AccRoleDetail as AccRoleDetailType } from '../../services/accessControlApi';
+import PageAccessTab from './PageAccessTab';
 
 interface AccRoleDetailProps {
   role: AccRoleDetailType | null;
   loading: boolean;
   error: string | null;
+  /** Bumped after a save to invalidate cached counters in this view. */
+  refreshKey?: number;
+  /** Notifies the parent that the role tree should refetch its counters. */
+  onSaved?: () => void;
 }
 
 const TAB_ICONS: Record<AccRoleTabKey, React.ReactNode> = {
@@ -29,7 +34,7 @@ const TAB_ICONS: Record<AccRoleTabKey, React.ReactNode> = {
   'audit-trail':       <History size={13} />,
 };
 
-const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error }) => {
+const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error, refreshKey, onSaved }) => {
   const [tab, setTab] = useState<AccRoleTabKey>('overview');
 
   if (loading && !role) {
@@ -112,7 +117,13 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error }) =
 
       {/* Tab body */}
       <div className="flex-1 overflow-y-auto p-6">
-        {tab === 'overview' ? <OverviewTab role={role} /> : <PlaceholderTab tabKey={tab} />}
+        {tab === 'overview' && <OverviewTab role={role} />}
+        {tab === 'module-page-access' && (
+          <PageAccessTab roleId={role.id} refreshKey={refreshKey} onSaved={onSaved} />
+        )}
+        {tab !== 'overview' && tab !== 'module-page-access' && (
+          <PlaceholderTab tabKey={tab} />
+        )}
       </div>
     </div>
   );
@@ -190,9 +201,9 @@ const PlaceholderTab: React.FC<{ tabKey: AccRoleTabKey }> = ({ tabKey }) => {
 
 const PhaseBanner: React.FC = () => (
   <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-[11px] text-amber-300 leading-relaxed">
-    <strong className="font-semibold">Phase 2 — visual shell.</strong>{' '}
-    No save buttons, no toggles, no mutations. Phase 3 wires real editing; phase 4 enforces backend gating per page;
-    phases 5–10 cover data scope, cross-module access, approvals, field-level, and audit log.
+    <strong className="font-semibold">Phase 3 in progress.</strong>{' '}
+    The <strong>Module &amp; Page Access</strong> tab is live with real toggles and audited saves.
+    Other tabs remain placeholders until phase 4 (actions), phase 5 (data scope), and beyond.
   </div>
 );
 

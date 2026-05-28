@@ -48,6 +48,51 @@ export interface AccRoleDetail extends AccRole {
   scopes: AccRoleScope[];
 }
 
+// Phase 3 — Module & Page Access tab.
+export interface AccPageNode {
+  id: string;
+  pageKey: string;
+  pageName: string;
+  route: string | null;
+  icon: string | null;
+  parentPageId: string | null;
+  sortOrder: number;
+  isSidebarVisible: boolean;
+  canView: boolean;
+}
+
+export interface AccModuleNode {
+  id: string;
+  moduleKey: string;
+  moduleName: string;
+  icon: string | null;
+  sortOrder: number;
+  pages: AccPageNode[];
+}
+
+export interface AccPageAccessTree {
+  role: {
+    id: string;
+    code: string;
+    label: string;
+    isSystem: boolean;
+    isActive: boolean;
+    locked: boolean;
+  };
+  modules: AccModuleNode[];
+}
+
+export interface AccPageAccessChange {
+  pageId: string;
+  canView: boolean;
+}
+
+export interface AccPageAccessSaveResult {
+  saved: number;
+  audited: number;
+  projected: number;
+}
+
 function actorQs(userId?: string): string {
   return userId ? `?userId=${encodeURIComponent(userId)}` : '';
 }
@@ -70,5 +115,24 @@ export const accessControlApi = {
       `/api/v1/access-control/roles/${encodeURIComponent(roleId)}${actorQs(userId)}`,
     );
     return role;
+  },
+  async getPageAccess(roleId: string, userId?: string): Promise<AccPageAccessTree> {
+    return apiRequest<AccPageAccessTree>(
+      `/api/v1/access-control/roles/${encodeURIComponent(roleId)}/page-access${actorQs(userId)}`,
+    );
+  },
+  async savePageAccess(
+    roleId: string,
+    changes: AccPageAccessChange[],
+    userId?: string,
+    actorDisplayName?: string,
+  ): Promise<AccPageAccessSaveResult> {
+    return apiRequest<AccPageAccessSaveResult>(
+      `/api/v1/access-control/roles/${encodeURIComponent(roleId)}/page-access${actorQs(userId)}`,
+      {
+        method: 'PATCH',
+        body: { changes, actorDisplayName: actorDisplayName ?? null },
+      },
+    );
   },
 };

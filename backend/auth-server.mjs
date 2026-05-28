@@ -962,7 +962,7 @@ const server = http.createServer(async (req, res) => {
     // is `system.rbac.read`, covered by the existing ADMIN UserPermissionSet
     // and the super_admin wildcard bypass.
     const accessControlHandled = await handleAccessControlRoutes({
-      req, res, url, pathname, method, prisma, json,
+      req, res, url, pathname, method, prisma, parseBody, json,
     });
     if (accessControlHandled) return;
 
