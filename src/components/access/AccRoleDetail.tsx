@@ -11,6 +11,7 @@ import {
 import { ACC_ROLE_TABS, type AccRoleTabKey } from './acc.constants';
 import type { AccRoleDetail as AccRoleDetailType } from '../../services/accessControlApi';
 import PageAccessTab from './PageAccessTab';
+import ActionPermissionsTab from './ActionPermissionsTab';
 
 interface AccRoleDetailProps {
   role: AccRoleDetailType | null;
@@ -121,7 +122,10 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error, ref
         {tab === 'module-page-access' && (
           <PageAccessTab roleId={role.id} refreshKey={refreshKey} onSaved={onSaved} />
         )}
-        {tab !== 'overview' && tab !== 'module-page-access' && (
+        {tab === 'actions' && (
+          <ActionPermissionsTab roleId={role.id} refreshKey={refreshKey} onSaved={onSaved} />
+        )}
+        {tab !== 'overview' && tab !== 'module-page-access' && tab !== 'actions' && (
           <PlaceholderTab tabKey={tab} />
         )}
       </div>
@@ -201,9 +205,10 @@ const PlaceholderTab: React.FC<{ tabKey: AccRoleTabKey }> = ({ tabKey }) => {
 
 const PhaseBanner: React.FC = () => (
   <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-[11px] text-amber-300 leading-relaxed">
-    <strong className="font-semibold">Phase 3 in progress.</strong>{' '}
-    The <strong>Module &amp; Page Access</strong> tab is live with real toggles and audited saves.
-    Other tabs remain placeholders until phase 4 (actions), phase 5 (data scope), and beyond.
+    <strong className="font-semibold">Phase 4 in progress.</strong>{' '}
+    The <strong>Module &amp; Page Access</strong> and <strong>Actions</strong> tabs are live with real toggles
+    and audited saves. Other tabs remain placeholders until phase 5 (data scope), phase 7 (cross-module),
+    phase 8 (approvals), phase 9 (field-level), phase 10 (audit log).
   </div>
 );
 
