@@ -48,6 +48,12 @@ const AccessControlCenter: React.FC = () => {
   })();
 
   const [section, setSection] = useState<AccSectionKey>('roles');
+  // Forced per-role tab + nonce. The left-nav shortcuts for "Page Access"
+  // and "Action Permissions" set these to land users directly on the
+  // matching editor inside the Roles flow, instead of showing a
+  // placeholder card that admins thought was the real editor.
+  const [forcedTab, setForcedTab] = useState<'module-page-access' | 'actions' | null>(null);
+  const [forcedTabNonce, setForcedTabNonce] = useState(0);
   const [summary, setSummary] = useState<AccSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -106,9 +112,31 @@ const AccessControlCenter: React.FC = () => {
     return () => { cancelled = true; };
   }, [isAuthorised, selectedRoleId, user?.id]);
 
-  const handleJumpFromCard = useCallback((target: AccSectionKey) => {
+  // Centralised handler for every left-nav click. Two sections are
+  // intercepted because the real editors live as per-role tabs inside
+  // the Roles flow: clicking "Page Access" or "Action Permissions"
+  // would otherwise drop the admin on a Phase-2 placeholder card that
+  // looks like the editor is missing.
+  const handleSectionChange = useCallback((target: AccSectionKey) => {
+    if (target === 'page-access') {
+      setSection('roles');
+      setForcedTab('module-page-access');
+      setForcedTabNonce((n) => n + 1);
+      return;
+    }
+    if (target === 'action-permissions') {
+      setSection('roles');
+      setForcedTab('actions');
+      setForcedTabNonce((n) => n + 1);
+      return;
+    }
     setSection(target);
+    setForcedTab(null);
   }, []);
+
+  const handleJumpFromCard = useCallback((target: AccSectionKey) => {
+    handleSectionChange(target);
+  }, [handleSectionChange]);
 
   // Hard 403: render nothing of the actual console for non-admins.
   // No roles, no counts, no section descriptions — just a clean
@@ -175,7 +203,7 @@ const AccessControlCenter: React.FC = () => {
 
       {/* Body: left nav · main area */}
       <div className="flex-1 flex min-h-0">
-        <AccLeftNav active={section} onSelect={setSection} />
+        <AccLeftNav active={section} onSelect={handleSectionChange} />
         {section === 'roles' ? (
           <>
             <AccRoleList
@@ -192,6 +220,8 @@ const AccessControlCenter: React.FC = () => {
               loading={detailLoading}
               error={detailError}
               refreshKey={refreshKey}
+              forceTab={forcedTab ?? undefined}
+              forceTabNonce={forcedTabNonce}
               onSaved={() => {
                 // Re-fetch the role tile counters + this role's detail
                 // so the new "pages granted" badge reflects the save.

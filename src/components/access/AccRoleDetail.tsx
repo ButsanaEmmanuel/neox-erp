@@ -3,7 +3,7 @@
 // Phase 2: every tab renders an explanatory placeholder card. Phase 3+
 // wires real toggles + saves. No mutations are exposed here yet.
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ShieldCheck, LayoutGrid, ListChecks, MapPin, Network,
   Workflow, EyeOff, Users, History, Info, Sparkles,
@@ -21,6 +21,15 @@ interface AccRoleDetailProps {
   refreshKey?: number;
   /** Notifies the parent that the role tree should refetch its counters. */
   onSaved?: () => void;
+  /**
+   * Optional controlled override: when this changes, the internal tab
+   * state snaps to it. Used by the left-nav shortcuts (Page Access,
+   * Action Permissions) so clicking those entries lands the user
+   * directly on the corresponding per-role editor.
+   */
+  forceTab?: AccRoleTabKey;
+  /** Bumps each time the parent wants to re-trigger forceTab even if the value is unchanged. */
+  forceTabNonce?: number;
 }
 
 const TAB_ICONS: Record<AccRoleTabKey, React.ReactNode> = {
@@ -35,8 +44,17 @@ const TAB_ICONS: Record<AccRoleTabKey, React.ReactNode> = {
   'audit-trail':       <History size={13} />,
 };
 
-const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error, refreshKey, onSaved }) => {
+const AccRoleDetail: React.FC<AccRoleDetailProps> = ({
+  role, loading, error, refreshKey, onSaved, forceTab, forceTabNonce,
+}) => {
   const [tab, setTab] = useState<AccRoleTabKey>('overview');
+
+  // Pull the forced tab in whenever the parent pushes a new request.
+  // Watching nonce too lets the same key (e.g. 'actions') re-fire when
+  // the user clicks the left-nav shortcut twice in a row.
+  useEffect(() => {
+    if (forceTab) setTab(forceTab);
+  }, [forceTab, forceTabNonce]);
 
   if (loading && !role) {
     return (
@@ -49,6 +67,13 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error, ref
     );
   }
   if (!role) {
+    // Contextual hint when admins arrive here via the left-nav
+    // shortcuts. The editors are per-role, so we tell them which
+    // editor we'll open once a role is picked.
+    const incomingEditor =
+      forceTab === 'module-page-access' ? 'Module & Page Access editor'
+      : forceTab === 'actions' ? 'Action Permissions editor'
+      : null;
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="max-w-sm text-center">
@@ -57,8 +82,11 @@ const AccRoleDetail: React.FC<AccRoleDetailProps> = ({ role, loading, error, ref
           </div>
           <p className="mt-3 text-sm text-primary font-medium">Pick a role to inspect</p>
           <p className="mt-1 text-[11px] text-muted leading-relaxed">
-            Roles list on the left. Selection brings up every tab below for read-only inspection.
-            Phase 3 will add toggles and save buttons.
+            Roles list on the left. Selection brings up every tab below.
+            {incomingEditor && (
+              <> The <strong className="text-primary">{incomingEditor}</strong> will open
+              automatically once you pick a role.</>
+            )}
           </p>
         </div>
       </div>
