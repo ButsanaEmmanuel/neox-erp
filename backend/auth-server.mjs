@@ -158,6 +158,7 @@ import { handlePmProjectRoutes } from './routes/pm/projects.routes.mjs';
 
 // Auth route modules (HRM-1.2)
 import { handleAuthMeRoutes } from './routes/auth/me.routes.mjs';
+import { handleAccessControlRoutes } from './routes/access/accessControl.routes.mjs';
 
 // HRM route modules (HRM-1.3)
 import { handleHrmRbacRoutes } from './routes/hrm/rbac.routes.mjs';
@@ -956,6 +957,14 @@ const server = http.createServer(async (req, res) => {
       req, res, url, pathname, method, json,
     });
     if (authMeHandled) return;
+
+    // Access Control Center — phase 2 read-only routes. Permission gate
+    // is `system.rbac.read`, covered by the existing ADMIN UserPermissionSet
+    // and the super_admin wildcard bypass.
+    const accessControlHandled = await handleAccessControlRoutes({
+      req, res, url, pathname, method, prisma, json,
+    });
+    if (accessControlHandled) return;
 
     const hrmRbacHandled = await handleHrmRbacRoutes({
       req, res, url, pathname, method, prisma, parseBody, json,

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Shield, User, SlidersHorizontal } from 'lucide-react';
+import { Shield, User, SlidersHorizontal, ShieldCheck, ChevronRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -10,8 +11,23 @@ function cn(...inputs: Array<string | false | null | undefined>) {
 
 type SettingsTab = 'profile' | 'preferences' | 'security';
 
-const SettingsPage: React.FC<{ isDark: boolean }> = ({ isDark }) => {
-  const { user, updateProfile, completePasswordChange } = useAuth();
+interface SettingsPageProps {
+  isDark: boolean;
+  /** Optional. When provided, the ACC card uses it to switch internal
+   *  view in addition to the URL navigation — keeps the experience in
+   *  sync with NeoxDashboard's activeView state. */
+  onNavigate?: (view: string) => void;
+}
+
+const SettingsPage: React.FC<SettingsPageProps> = ({ isDark, onNavigate }) => {
+  const { user, permissions, updateProfile, completePasswordChange } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = (() => {
+    if (!user) return false;
+    if (permissions.includes('*')) return true;
+    const role = (user.role || '').toLowerCase();
+    return role === 'admin' || role === 'super_admin' || role === 'superadmin';
+  })();
   const [tab, setTab] = useState<SettingsTab>('profile');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -132,6 +148,35 @@ const SettingsPage: React.FC<{ isDark: boolean }> = ({ isDark }) => {
           Gere votre profil, vos preferences et votre securite.
         </p>
       </div>
+
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={() => { onNavigate?.('access-control-center'); navigate('/settings/access-control-center'); }}
+          className={cn(
+            'w-full text-left rounded-xl border p-4 flex items-center gap-4 transition-colors group',
+            isDark
+              ? 'bg-[#0f172a] border-blue-500/30 hover:bg-[#111e36]'
+              : 'bg-blue-50 border-blue-200 hover:bg-blue-100',
+          )}
+        >
+          <div className={cn(
+            'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
+            isDark ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' : 'bg-white text-blue-600 border border-blue-300',
+          )}>
+            <ShieldCheck size={20} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className={cn('text-sm font-semibold', isDark ? 'text-slate-100' : 'text-slate-900')}>
+              Access Control Center
+            </p>
+            <p className={cn('text-xs mt-0.5 leading-relaxed', isDark ? 'text-slate-400' : 'text-slate-600')}>
+              Roles, page access, action permissions, data scope, approval workflows, cross-module rules, field-level security, members, and audit log — all in one console.
+            </p>
+          </div>
+          <ChevronRight size={18} className={cn(isDark ? 'text-slate-500 group-hover:text-slate-200' : 'text-slate-400 group-hover:text-slate-700')} />
+        </button>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => setTab('profile')} className={tabButtonClass('profile')}><User size={14} /> Profil</button>
