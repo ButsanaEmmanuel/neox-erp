@@ -60,6 +60,9 @@ const AccessControlCenter: React.FC = () => {
   const [roleDetail, setRoleDetail] = useState<AccRoleDetailType | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Bumped after a successful save so children that need to invalidate
+  // cached state (e.g. PageAccessTab counters) can react cheaply.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Initial summary + roles. Skipped entirely for unauthorised users
   // — the Access Restricted screen renders before any data fetch
@@ -188,6 +191,20 @@ const AccessControlCenter: React.FC = () => {
               role={roleDetail}
               loading={detailLoading}
               error={detailError}
+              refreshKey={refreshKey}
+              onSaved={() => {
+                // Re-fetch the role tile counters + this role's detail
+                // so the new "pages granted" badge reflects the save.
+                setRefreshKey((n) => n + 1);
+                if (user?.id) {
+                  void accessControlApi.listRoles(user.id).then((r) => setRoles(r)).catch(() => {});
+                  if (selectedRoleId) {
+                    void accessControlApi.getRole(selectedRoleId, user.id)
+                      .then((r) => setRoleDetail(r))
+                      .catch(() => {});
+                  }
+                }
+              }}
             />
           </>
         ) : (

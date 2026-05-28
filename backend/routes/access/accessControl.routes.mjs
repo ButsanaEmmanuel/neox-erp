@@ -1,22 +1,30 @@
-// Access Control Center — phase 2 read-only routes.
+// Access Control Center routes.
 //
-// Three endpoints, all GET, all gated by `system.rbac.read` (which the
-// legacy ADMIN role already holds via the seeded UserPermissionSet and
-// which the super_admin wildcard bypass also covers). Nothing mutates
-// from this module — phase 2 is the visual shell only.
+// All endpoints gated by `system.rbac.read` for GET, `system.rbac.write`
+// for PATCH. The legacy ADMIN role already holds both via the seeded
+// UserPermissionSet; the super_admin wildcard bypass also covers them.
 //
-//   GET /api/v1/access-control/summary    → counts for top cards
-//   GET /api/v1/access-control/roles      → list of roles (read-only)
-//   GET /api/v1/access-control/roles/:id  → single role + per-tab counters
+//   GET   /api/v1/access-control/summary                       → counts for top cards
+//   GET   /api/v1/access-control/roles                         → list of roles
+//   GET   /api/v1/access-control/roles/:id                     → single role + counters
+//   GET   /api/v1/access-control/roles/:id/page-access         → page tree + visibility (phase 3)
+//   PATCH /api/v1/access-control/roles/:id/page-access         → save page-access changes (phase 3)
 
 import { assertPermission } from '../../services/auth/rbac.service.mjs';
+import {
+  readPageAccessForRole,
+  savePageAccessForRole,
+  SuperAdminLockedError,
+} from '../../services/access/pageAccess.service.mjs';
 
 const ROLE_DETAIL = /^\/api\/v1\/access-control\/roles\/([^/]+)$/;
+const ROLE_PAGE_ACCESS = /^\/api\/v1\/access-control\/roles\/([^/]+)\/page-access$/;
 
 export function hasMatch(pathname) {
   return (
     pathname === '/api/v1/access-control/summary'
     || pathname === '/api/v1/access-control/roles'
+    || ROLE_PAGE_ACCESS.test(pathname)
     || ROLE_DETAIL.test(pathname)
   );
 }
@@ -26,13 +34,53 @@ function parseActorFromUrl(url) {
 }
 
 export async function handleAccessControlRoutes(ctx) {
-  const { method, pathname, url, res, json, prisma } = ctx;
-  if (method !== 'GET' || !hasMatch(pathname)) return false;
+  const { method, pathname, url, res, json, prisma, parseBody } = ctx;
+  if (!hasMatch(pathname)) return false;
+  if (method !== 'GET' && method !== 'PATCH') return false;
 
   const actor = parseActorFromUrl(url);
-  if (!(await assertPermission({ userId: actor.actorUserId, res }, 'system.rbac.read'))) return true;
+  // Read needs system.rbac.read; mutations need system.rbac.write.
+  // Wildcard '*' bypass covers both (super_admin + legacy ADMIN).
+  const requiredKey = method === 'GET' ? 'system.rbac.read' : 'system.rbac.write';
+  if (!(await assertPermission({ userId: actor.actorUserId, res }, requiredKey))) return true;
 
   try {
+    // Phase 3 — Module & Page Access tab.
+    const pageAccessMatch = pathname.match(ROLE_PAGE_ACCESS);
+    if (pageAccessMatch && method === 'GET') {
+      const [, roleId] = pageAccessMatch;
+      const result = await readPageAccessForRole(prisma, roleId);
+      if (!result) {
+        json(res, 404, { error: 'Role not found.' });
+        return true;
+      }
+      json(res, 200, result);
+      return true;
+    }
+    if (pageAccessMatch && method === 'PATCH') {
+      const [, roleId] = pageAccessMatch;
+      const body = await parseBody(ctx.req);
+      try {
+        const result = await savePageAccessForRole(prisma, {
+          roleId,
+          changes: Array.isArray(body?.changes) ? body.changes : [],
+          actorUserId: actor.actorUserId || null,
+          actorDisplayName: String(body?.actorDisplayName || '').trim() || null,
+        });
+        json(res, 200, result);
+      } catch (err) {
+        if (err instanceof SuperAdminLockedError) {
+          json(res, 409, { error: err.message, code: err.code });
+        } else if (err?.statusCode === 404) {
+          json(res, 404, { error: err.message, code: err.code });
+        } else {
+          throw err;
+        }
+      }
+      return true;
+    }
+
+    if (method !== 'GET') return false;
     if (pathname === '/api/v1/access-control/summary') {
       const [roles, systemRoles, modules, pages, actions, auditEvents, approvalWorkflows, crossWorkflows] = await Promise.all([
         prisma.role.count({ where: { isDeleted: false } }),
