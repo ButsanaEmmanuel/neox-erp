@@ -37,26 +37,33 @@ function resourceFromPageKey(pageKey) {
 
 // Ensure a Permission row exists for the key. Permissions are the
 // authoritative catalogue; RolePermission references them by id.
-async function ensurePermission(prisma, key, name, description) {
+//
+// The Permission model has no `name` column — only key/module/resource/
+// action/description. We encode the human label in `description` so the
+// Advanced Matrix view in phase 4 still has a readable string.
+async function ensurePermission(prisma, key, humanLabel, sourceTag) {
   const existing = await prisma.permission.findUnique({ where: { key } });
+  const description = `${humanLabel} — ${sourceTag}`;
   if (existing) {
-    if (existing.name !== name) {
-      await prisma.permission.update({ where: { id: existing.id }, data: { name } });
+    if (existing.description !== description) {
+      await prisma.permission.update({ where: { id: existing.id }, data: { description } });
     }
     return existing;
   }
-  const module = moduleFromPageKey(key.slice(PROJECTED_PREFIX.length));
-  // resource = "<page>.<action>" or "<page>.view" — keep them grouped
-  // by module in the Permission table for the Advanced Matrix view.
-  const resource = resourceFromPageKey(key.slice(PROJECTED_PREFIX.length));
+  const stripped = key.slice(PROJECTED_PREFIX.length);
+  const module = moduleFromPageKey(stripped);
+  // resource = "<page>.<action>" or "<page>.view" — grouped by module
+  // for the Advanced Matrix view, and keeps the @@unique([module,
+  // resource, action]) constraint satisfied because each projected
+  // key is unique on its own.
+  const resource = resourceFromPageKey(stripped);
   return prisma.permission.create({
     data: {
       key,
-      name,
-      description: description || null,
       module,
       resource,
       action: 'access',
+      description,
       isActive: true,
     },
   });
@@ -82,7 +89,7 @@ async function projectOne(prisma, role) {
   for (const pa of pageAccess) {
     if (!pa.page?.pageKey) continue;
     const key = pageViewKey(pa.page.pageKey);
-    await ensurePermission(prisma, key, `${pa.page.pageName} — View`, 'Projected from RolePageAccess');
+    await ensurePermission(prisma, key, `${pa.page.pageName} View`, 'RolePageAccess');
     wanted.add(key);
   }
 
@@ -91,25 +98,32 @@ async function projectOne(prisma, role) {
     const key = pageActionKey(ap.page.pageKey, ap.action.actionKey);
     await ensurePermission(
       prisma, key,
-      `${ap.page.pageName} — ${ap.action.actionName}`,
-      'Projected from RoleActionPermission',
+      `${ap.page.pageName} ${ap.action.actionName}`,
+      'RoleActionPermission',
     );
     wanted.add(key);
   }
 
-  // Reconcile RolePermission for this role's projected set.
-  // 1) Add what's missing.
+  // Reconcile RolePermission for this role's projected set. The
+  // table's natural key is [roleId, permissionId, scopeType, scopeValue]
+  // (composite, not a Prisma compound-id locator), so we can't use
+  // upsert with `where: { roleId_permissionId: ... }`. findFirst +
+  // create is the supported pattern.
   for (const key of wanted) {
     const perm = await prisma.permission.findUnique({ where: { key }, select: { id: true } });
     if (!perm) continue;
-    await prisma.rolePermission.upsert({
-      where: { roleId_permissionId: { roleId: role.id, permissionId: perm.id } },
-      update: {},
-      create: { roleId: role.id, permissionId: perm.id },
+    const present = await prisma.rolePermission.findFirst({
+      where: { roleId: role.id, permissionId: perm.id, scopeType: null, scopeValue: null },
+      select: { id: true },
     });
+    if (!present) {
+      await prisma.rolePermission.create({
+        data: { roleId: role.id, permissionId: perm.id },
+      });
+    }
   }
 
-  // 2) Remove stale projected RolePermission rows (only those with the
+  // Remove stale projected RolePermission rows (only those with the
   // "page." prefix — legacy permissions are left untouched).
   const projectedExisting = await prisma.rolePermission.findMany({
     where: {
@@ -120,9 +134,7 @@ async function projectOne(prisma, role) {
   });
   for (const rp of projectedExisting) {
     if (!wanted.has(rp.permission.key)) {
-      await prisma.rolePermission.delete({
-        where: { roleId_permissionId: { roleId: role.id, permissionId: rp.permission.id } },
-      });
+      await prisma.rolePermission.delete({ where: { id: rp.id } });
     }
   }
 
