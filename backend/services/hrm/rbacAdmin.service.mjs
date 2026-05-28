@@ -48,6 +48,27 @@ function forbidden(message, extra) {
   return new HttpError(403, 'FORBIDDEN', message, extra);
 }
 
+// The UI picker reads from the HRM employees list, where each row's `id`
+// is the HrmEmploymentProfile.id — NOT the User.id. RBAC tables (UserRole,
+// UserPermissionSet) FK to User.id, so we have to resolve the canonical
+// User row before any lookup or mutation. We accept either form: a real
+// User.id or an HrmEmploymentProfile.id. Profiles are 1:1 with users
+// (HrmEmploymentProfile.userId is @unique), so the mapping is exact.
+async function resolveUserId(prisma, idOrProfileId) {
+  const candidate = String(idOrProfileId || '').trim();
+  if (!candidate) return null;
+  const direct = await prisma.user.findFirst({
+    where: { id: candidate, isDeleted: false },
+    select: { id: true },
+  });
+  if (direct) return direct.id;
+  const profile = await prisma.hrmEmploymentProfile.findUnique({
+    where: { id: candidate },
+    select: { userId: true },
+  });
+  return profile?.userId || null;
+}
+
 // ============================================================
 // Catalog reads
 // ============================================================
@@ -229,7 +250,9 @@ export async function deleteRole(prisma, roleId) {
 // User assignments
 // ============================================================
 
-export async function listUserAssignments(prisma, userId) {
+export async function listUserAssignments(prisma, userIdOrProfileId) {
+  const userId = await resolveUserId(prisma, userIdOrProfileId);
+  if (!userId) throw notFound('User not found');
   const user = await prisma.user.findFirst({ where: { id: userId, isDeleted: false } });
   if (!user) throw notFound('User not found');
 
@@ -261,7 +284,9 @@ export async function listUserAssignments(prisma, userId) {
   return { user: { id: user.id, name: user.name, email: user.email }, roles, overrides };
 }
 
-export async function assignRoleToUser(prisma, userId, roleId, { assignedBy } = {}) {
+export async function assignRoleToUser(prisma, userIdOrProfileId, roleId, { assignedBy } = {}) {
+  const userId = await resolveUserId(prisma, userIdOrProfileId);
+  if (!userId) throw notFound('User not found');
   const [user, role] = await Promise.all([
     prisma.user.findFirst({ where: { id: userId, isDeleted: false } }),
     prisma.role.findFirst({ where: { id: roleId, isDeleted: false } }),
@@ -302,7 +327,9 @@ export async function assignRoleToUser(prisma, userId, roleId, { assignedBy } = 
   return created;
 }
 
-export async function revokeUserRole(prisma, userId, roleId) {
+export async function revokeUserRole(prisma, userIdOrProfileId, roleId) {
+  const userId = await resolveUserId(prisma, userIdOrProfileId);
+  if (!userId) throw notFound('User not found');
   const existing = await prisma.userRole.findFirst({
     where: { userId, roleId, validTo: null },
   });
@@ -321,7 +348,9 @@ export async function revokeUserRole(prisma, userId, roleId) {
 // User overrides (UserPermissionSet)
 // ============================================================
 
-export async function upsertUserOverride(prisma, userId, { permissionId, effect, reason, expiresAt, assignedBy }) {
+export async function upsertUserOverride(prisma, userIdOrProfileId, { permissionId, effect, reason, expiresAt, assignedBy }) {
+  const userId = await resolveUserId(prisma, userIdOrProfileId);
+  if (!userId) throw notFound('User not found');
   if (!permissionId || typeof permissionId !== 'string') {
     throw badRequest('permissionId is required', { field: 'permissionId' });
   }
@@ -376,7 +405,9 @@ export async function upsertUserOverride(prisma, userId, { permissionId, effect,
   return upserted;
 }
 
-export async function removeUserOverride(prisma, userId, permissionId) {
+export async function removeUserOverride(prisma, userIdOrProfileId, permissionId) {
+  const userId = await resolveUserId(prisma, userIdOrProfileId);
+  if (!userId) throw notFound('User not found');
   const permission = await prisma.permission.findUnique({ where: { id: permissionId } });
   if (!permission) throw notFound('Permission not found');
 
