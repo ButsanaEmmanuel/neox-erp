@@ -29,8 +29,8 @@ const AccRoleList: React.FC<AccRoleListProps> = ({
   }, [roles, search]);
 
   return (
-    <div className="w-80 shrink-0 border-r border-border/60 bg-surface/20 flex flex-col">
-      <div className="p-3 border-b border-border/60">
+    <div className="w-72 lg:w-80 shrink-0 border-r border-border/60 bg-surface/20 flex flex-col min-h-0">
+      <div className="p-3 border-b border-border/60 shrink-0">
         <div className="relative">
           <Search size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
@@ -45,7 +45,7 @@ const AccRoleList: React.FC<AccRoleListProps> = ({
           {loading ? 'Loading…' : `${filtered.length} of ${roles.length} roles`}
         </p>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden custom-scrollbar-thin p-2 space-y-0.5">
         {error && (
           <p className="text-[11px] text-rose-400 px-2 py-3">{error}</p>
         )}
