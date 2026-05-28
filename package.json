@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "auth:api": "node backend/auth-server.mjs",
+        "auth:api": "node --env-file=.env backend/auth-server.mjs",
         "build": "tsc && vite build",
         "lint": "node scripts/zero-mock-check.mjs && eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
         "lint:zero-mock": "node scripts/zero-mock-check.mjs",
