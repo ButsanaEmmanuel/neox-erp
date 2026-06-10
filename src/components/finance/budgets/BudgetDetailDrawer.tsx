@@ -117,6 +117,12 @@ const BudgetDetailDrawer: React.FC<Props> = ({ budgetId, onClose, onChanged }) =
             <h2 className="text-base font-semibold text-primary">{budget?.name || 'Budget'}</h2>
             <p className="text-[11px] text-muted uppercase tracking-wide mt-0.5">
               {scopeLabel} · {budget?.currencyCode || '—'}
+              {budget?.chargeCode ? (
+                <>
+                  {' · '}
+                  <span className="font-mono text-emerald-500 normal-case">{budget.chargeCode}</span>
+                </>
+              ) : null}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -183,6 +189,11 @@ const BudgetDetailDrawer: React.FC<Props> = ({ budgetId, onClose, onChanged }) =
                       })`
                     : '—'}
                 </p>
+                {totals?.overBudget && (
+                  <p className="text-[9px] font-bold text-rose-500 uppercase tracking-wider mt-0.5">
+                    ⚠ Over budget
+                  </p>
+                )}
               </div>
             </div>
 

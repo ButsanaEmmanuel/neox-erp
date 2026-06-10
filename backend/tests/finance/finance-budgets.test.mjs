@@ -23,6 +23,7 @@ import {
   deleteBudget,
   upsertBudgetLine,
   computeBudgetActuals,
+  getDepartmentEnvelope,
 } from '../../services/finance/budgets.service.mjs';
 import { assertPermission } from '../../services/auth/rbac.service.mjs';
 
@@ -264,6 +265,128 @@ try {
   assert.equal(actuals.totals.actual, 2000, 'totals.actual aggregated');
   assert.equal(actuals.totals.planned, PLANNED, 'totals.planned aggregated');
 
+  // --- Case 8 — chargeCode generated on create (project scope → CC-P) ---
+  assert.ok(
+    typeof budget.chargeCode === 'string' && budget.chargeCode.startsWith('CC-P'),
+    'project budget gets a CC-P charge code',
+  );
+
+  // --- Case 9 — department budget + project allocation drawn from its envelope ---
+  const deptBudget = await createBudget(
+    prisma,
+    {
+      name: `${PREFIX} Dept Annual`,
+      periodStart: new Date('2026-01-01'),
+      periodEnd: new Date('2026-12-31'),
+      departmentId: department.id,
+      currencyCode: 'USD',
+      status: 'active',
+    },
+    { actorUserId: admin.id },
+  );
+  TRACKED.budgetIds.add(deptBudget.id);
+  assert.ok(
+    typeof deptBudget.chargeCode === 'string' && deptBudget.chargeCode.startsWith('CC-D'),
+    'department budget gets a CC-D charge code',
+  );
+
+  const deptLine = await upsertBudgetLine(
+    prisma,
+    deptBudget.id,
+    { categoryId: category.id, plannedAmount: 10000 },
+    { actorUserId: admin.id },
+  );
+  TRACKED.budgetLineIds.add(deptLine.id);
+
+  const childBudget = await createBudget(
+    prisma,
+    {
+      name: `${PREFIX} Project Allocation`,
+      periodStart: new Date('2026-01-01'),
+      periodEnd: new Date('2026-06-30'),
+      projectId: project.id,
+      parentBudgetId: deptBudget.id,
+      currencyCode: 'USD',
+      status: 'active',
+    },
+    { actorUserId: admin.id },
+  );
+  TRACKED.budgetIds.add(childBudget.id);
+  assert.equal(childBudget.parentBudgetId, deptBudget.id, 'child budget linked to parent department budget');
+
+  const childLine = await upsertBudgetLine(
+    prisma,
+    childBudget.id,
+    { categoryId: category.id, plannedAmount: 3000 },
+    { actorUserId: admin.id },
+  );
+  TRACKED.budgetLineIds.add(childLine.id);
+
+  const envelope = await getDepartmentEnvelope(prisma, deptBudget.id);
+  assert.equal(envelope.votedTotal, 10000, 'envelope votedTotal = sum of dept budget lines');
+  assert.equal(envelope.allocated, 3000, 'envelope allocated = sum of child project budget lines');
+  assert.equal(envelope.remaining, 7000, 'envelope remaining = voted - allocated');
+  assert.equal(envelope.overAllocated, false, 'envelope not over-allocated');
+  assert.equal(envelope.children.length, 1, 'envelope lists one child allocation');
+
+  // --- Case 10 — charge-code imputation rolls up alongside legacy, no double count ---
+  // Entry imputed by chargeCode only (no projectId) toward the dept budget. The dept
+  // budget also picks up Case 4's project entries via the legacy scope path. The two
+  // paths combine without double-counting (charge-coded vs chargeCode=null are disjoint).
+  const ccEntry = await prisma.financeEntry.create({
+    data: {
+      referenceCode: `${PREFIX}FE_CC`,
+      entryType: 'expense',
+      direction: 'outflow',
+      title: `${PREFIX} cc entry`,
+      currencyCode: 'USD',
+      amount: 2500,
+      sourceModule: 'test',
+      sourceEntity: 'budget_cc_test',
+      sourceEntityId: `${PREFIX}CC`,
+      sourceEvent: 'test_seed',
+      sourceEventAt: new Date('2026-05-15'),
+      chargeCode: deptBudget.chargeCode,
+      categoryCode: category.code,
+      lifecycleStatus: 'approved',
+      approvalStatus: 'approved',
+      evidenceStatus: 'not_required',
+      settlementStatus: 'settled',
+    },
+  });
+  TRACKED.financeEntryIds.add(ccEntry.id);
+  const deptActuals = await computeBudgetActuals(prisma, deptBudget.id);
+  // 2500 (charge-coded, scope-free) + 2000 (Case 4 project entries via legacy path); EUR excluded.
+  assert.equal(deptActuals.totals.actual, 4500, 'dept actuals combine charge-code (2500) + legacy project (2000)');
+  assert.equal(deptActuals.totals.overBudget, false, 'dept budget not over (4500 < 10000)');
+
+  // --- Case 11 — overBudget flag flips when actual exceeds planned ---
+  const overEntry = await prisma.financeEntry.create({
+    data: {
+      referenceCode: `${PREFIX}FE_OVER`,
+      entryType: 'expense',
+      direction: 'outflow',
+      title: `${PREFIX} over entry`,
+      currencyCode: 'USD',
+      amount: 5000,
+      sourceModule: 'test',
+      sourceEntity: 'budget_over_test',
+      sourceEntityId: `${PREFIX}OVER`,
+      sourceEvent: 'test_seed',
+      sourceEventAt: new Date('2026-03-15'),
+      chargeCode: childBudget.chargeCode,
+      categoryCode: category.code,
+      lifecycleStatus: 'approved',
+      approvalStatus: 'approved',
+      evidenceStatus: 'not_required',
+      settlementStatus: 'settled',
+    },
+  });
+  TRACKED.financeEntryIds.add(overEntry.id);
+  const childActuals = await computeBudgetActuals(prisma, childBudget.id);
+  assert.equal(childActuals.totals.actual, 5000, 'child actual = charge-coded 5000');
+  assert.equal(childActuals.totals.overBudget, true, 'overBudget true when actual (5000) > planned (3000)');
+
   // --- Case 5 — updateBudget on closed budget → 409 ---
   // First close the budget (allowed transition from active).
   const closedBudget = await updateBudget(
@@ -305,7 +428,7 @@ try {
   assert.equal(body.code, 'PERMISSION_DENIED');
   assert.equal(body.required, 'finance.budgets.write');
 
-  console.log('✓ F4.5 finance-budgets — 7/7 assertions OK (create + scope conflict + line + actuals + closed conflict + soft delete + 403)');
+  console.log('✓ F4.5 finance-budgets — 11/11 cases OK (create + scope conflict + line + actuals + closed conflict + soft delete + 403 + chargeCode + dept→project envelope + chargeCode roll-up + overBudget flag)');
 } finally {
   try {
     await teardown();

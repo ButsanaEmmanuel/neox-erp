@@ -58,6 +58,47 @@ function assertScopeXor(departmentId, projectId) {
   }
 }
 
+// chargeCode generator — readable, sortable, unique. CC-D###### for department
+// budgets, CC-P###### for project budgets. Mirrors nextDisplayCode (counter off
+// the current max); the @unique index is the integrity backstop on collision.
+async function nextChargeCode(prisma, scopeKind) {
+  const prefix = scopeKind === 'project' ? 'CC-P' : 'CC-D';
+  const last = await prisma.budget.findFirst({
+    where: { chargeCode: { startsWith: prefix } },
+    orderBy: { chargeCode: 'desc' },
+    select: { chargeCode: true },
+  });
+  let next = 1;
+  if (last?.chargeCode) {
+    const parsed = Number(last.chargeCode.slice(prefix.length));
+    if (Number.isFinite(parsed) && parsed >= 1) next = parsed + 1;
+  }
+  return `${prefix}${String(next).padStart(6, '0')}`;
+}
+
+// Validates a project budget's parent: must be a non-deleted, non-closed
+// DEPARTMENT budget in the same currency. Returns the lean parent or throws.
+async function assertValidParentBudget(prisma, parentBudgetId, childCurrency) {
+  const parent = await prisma.budget.findFirst({
+    where: { id: String(parentBudgetId), isDeleted: false },
+    select: { id: true, departmentId: true, projectId: true, status: true, currencyCode: true },
+  });
+  if (!parent) throw notFound(`Parent budget '${parentBudgetId}' not found.`, { id: parentBudgetId });
+  if (!parent.departmentId || parent.projectId) {
+    throw badRequest('parentBudgetId must reference a department budget.', { parentBudgetId });
+  }
+  if (parent.status === 'closed') {
+    throw conflict('Parent department budget is closed.', { parentBudgetId });
+  }
+  if (childCurrency && parent.currencyCode !== childCurrency) {
+    throw badRequest(
+      `Parent budget currency (${parent.currencyCode}) must match the project budget currency (${childCurrency}).`,
+      { parentBudgetId },
+    );
+  }
+  return parent;
+}
+
 export async function listBudgets(prisma, filters = {}) {
   const where = { isDeleted: false };
   if (filters.status) where.status = String(filters.status);
@@ -70,7 +111,7 @@ export async function listBudgets(prisma, filters = {}) {
     if (filters.periodTo) where.AND.push({ periodStart: { lte: new Date(filters.periodTo) } });
   }
 
-  return prisma.budget.findMany({
+  const rows = await prisma.budget.findMany({
     where,
     orderBy: [{ periodStart: 'desc' }, { createdAt: 'desc' }],
     include: {
@@ -82,6 +123,47 @@ export async function listBudgets(prisma, filters = {}) {
       },
     },
     take: filters.take ? Number(filters.take) : 200,
+  });
+
+  // Opt-in: attach actuals so the list view can show real spend / variance
+  // without opening each budget. Reuses the already-loaded budget+lines
+  // (opts.budget) to avoid a refetch per row.
+  if (filters.withActuals) {
+    return Promise.all(
+      rows.map(async (b) => ({ ...b, actuals: await computeBudgetActuals(prisma, b.id, { budget: b }) })),
+    );
+  }
+  return rows;
+}
+
+// Lightweight scope picker for the budget create/edit modal. Gated by
+// finance.budgets.read so a finance user needs no cross-module HRM/PM
+// permission. Projects carry ownerDepartmentId so the UI can suggest the
+// parent department budget for the hierarchy (project budgets draw from it).
+export async function listBudgetScopes(prisma) {
+  const [departments, projects] = await Promise.all([
+    prisma.department.findMany({
+      where: { isDeleted: false },
+      select: { id: true, code: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.project.findMany({
+      where: { isDeleted: false },
+      select: { id: true, name: true, ownerDepartmentId: true },
+      orderBy: { name: 'asc' },
+    }),
+  ]);
+  return { departments, projects };
+}
+
+// Active finance categories for the budget-line editor. Gated by
+// finance.budgets.read (same as the rest of the budget UI) so adding a line
+// doesn't require a separate finance.settings permission.
+export async function listBudgetCategories(prisma) {
+  return prisma.financeCategorySetting.findMany({
+    where: { isActive: true },
+    select: { id: true, code: true, name: true, direction: true, isActive: true },
+    orderBy: [{ direction: 'asc' }, { name: 'asc' }],
   });
 }
 
@@ -104,6 +186,52 @@ export async function getBudgetDetail(prisma, budgetId) {
 
   const actuals = await computeBudgetActuals(prisma, id, { budget });
   return { ...budget, actuals };
+}
+
+// Department voted envelope vs. the project budgets drawn from it.
+//   votedTotal = Σ department budget lines (the "voted" plan)
+//   allocated  = Σ each child project budget's planned total
+//   remaining  = votedTotal − allocated
+// Soft control: over-allocation is flagged (overAllocated), not blocked —
+// consistent with the expense overspend policy ("avertir et autoriser").
+export async function getDepartmentEnvelope(prisma, deptBudgetId) {
+  const id = String(deptBudgetId || '').trim();
+  if (!id) throw badRequest('deptBudgetId is required.');
+
+  const dept = await prisma.budget.findFirst({
+    where: { id, isDeleted: false },
+    include: { lines: { select: { plannedAmount: true } } },
+  });
+  if (!dept) throw notFound(`Budget '${id}' not found.`, { id });
+  if (!dept.departmentId) throw badRequest('Envelope is only defined for department budgets.', { id });
+
+  const votedTotal = (dept.lines || []).reduce((acc, l) => acc + decimalToNumber(l.plannedAmount), 0);
+
+  const children = await prisma.budget.findMany({
+    where: { parentBudgetId: id, isDeleted: false },
+    include: {
+      lines: { select: { plannedAmount: true } },
+      project: { select: { id: true, name: true } },
+    },
+  });
+  const childRows = children.map((c) => ({
+    id: c.id,
+    name: c.name,
+    projectId: c.projectId,
+    projectName: c.project?.name || null,
+    total: (c.lines || []).reduce((acc, l) => acc + decimalToNumber(l.plannedAmount), 0),
+  }));
+  const allocated = childRows.reduce((acc, c) => acc + c.total, 0);
+
+  return {
+    budgetId: id,
+    currencyCode: dept.currencyCode,
+    votedTotal,
+    allocated,
+    remaining: votedTotal - allocated,
+    overAllocated: allocated > votedTotal,
+    children: childRows,
+  };
 }
 
 export async function createBudget(prisma, payload = {}, actor = {}) {
@@ -142,6 +270,17 @@ export async function createBudget(prisma, payload = {}, actor = {}) {
     if (!proj) throw notFound(`Project '${payload.projectId}' not found.`, { id: payload.projectId });
   }
 
+  let parentBudgetId = null;
+  if (payload.parentBudgetId) {
+    if (!payload.projectId) {
+      throw badRequest('parentBudgetId is only valid for project budgets.', { parentBudgetId: payload.parentBudgetId });
+    }
+    await assertValidParentBudget(prisma, payload.parentBudgetId, currencyCode);
+    parentBudgetId = String(payload.parentBudgetId);
+  }
+
+  const chargeCode = await nextChargeCode(prisma, payload.projectId ? 'project' : 'department');
+
   return prisma.budget.create({
     data: {
       name,
@@ -149,6 +288,8 @@ export async function createBudget(prisma, payload = {}, actor = {}) {
       periodEnd,
       departmentId: payload.departmentId ? String(payload.departmentId) : null,
       projectId: payload.projectId ? String(payload.projectId) : null,
+      parentBudgetId,
+      chargeCode,
       currencyCode,
       status,
       createdBy,
@@ -167,7 +308,7 @@ export async function updateBudget(prisma, budgetId, payload = {}, actor = {}) {
 
   const existing = await prisma.budget.findFirst({
     where: { id, isDeleted: false },
-    select: { id: true, status: true, departmentId: true, projectId: true },
+    select: { id: true, status: true, departmentId: true, projectId: true, currencyCode: true },
   });
   if (!existing) throw notFound(`Budget '${id}' not found.`, { id });
   if (existing.status === 'closed') {
@@ -226,6 +367,20 @@ export async function updateBudget(prisma, budgetId, payload = {}, actor = {}) {
         });
         if (!proj) throw notFound(`Project '${nextProj}' not found.`, { id: nextProj });
       }
+    }
+  }
+
+  if (payload.parentBudgetId !== undefined) {
+    if (payload.parentBudgetId) {
+      const effectiveProjectId = wantsProjUpdate ? payload.projectId : existing.projectId;
+      if (!effectiveProjectId) {
+        throw badRequest('parentBudgetId is only valid for project budgets.', { parentBudgetId: payload.parentBudgetId });
+      }
+      const currency = data.currencyCode ?? existing.currencyCode;
+      await assertValidParentBudget(prisma, payload.parentBudgetId, currency);
+      data.parentBudgetId = String(payload.parentBudgetId);
+    } else {
+      data.parentBudgetId = null;
     }
   }
 
@@ -340,7 +495,7 @@ export async function computeBudgetActuals(prisma, budgetId, opts = {}) {
 
   const lines = budget.lines || [];
   if (lines.length === 0) {
-    return { lines: [], totals: { planned: 0, actual: 0, variance: 0, variancePct: null } };
+    return { lines: [], totals: { planned: 0, actual: 0, variance: 0, variancePct: null, overBudget: false } };
   }
 
   // [1] Resolve dept scope → set of projectIds. Null = no scope filter on projectId.
@@ -353,8 +508,9 @@ export async function computeBudgetActuals(prisma, budgetId, opts = {}) {
       select: { id: true },
     });
     scopedProjectIds = projects.map((p) => p.id);
-    // If the department has no projects, no entries can match — short-circuit with zero actuals.
-    if (scopedProjectIds.length === 0) {
+    // No projects AND no charge code → nothing can match; short-circuit to zero.
+    // A charge-coded budget may still have directly-imputed entries, so let it through.
+    if (scopedProjectIds.length === 0 && !budget.chargeCode) {
       return {
         lines: lines.map((line) => buildEmptyActual(line)),
         totals: aggregateTotals(lines.map((line) => buildEmptyActual(line))),
@@ -373,27 +529,42 @@ export async function computeBudgetActuals(prisma, budgetId, opts = {}) {
   }
 
   const sumsByCode = new Map();
+  const addSum = (code, amount) => sumsByCode.set(code, (sumsByCode.get(code) || 0) + amount);
+
   for (const [direction, codeSet] of byDirection.entries()) {
     const codes = [...codeSet];
     if (codes.length === 0) continue;
 
-    const where = {
+    const baseWhere = {
       isDeleted: false,
       categoryCode: { in: codes },        // [2] logical join via code
       direction,                          // [4] direction inherited from category
       currencyCode: budget.currencyCode,  // [3] same-currency only
       sourceEventAt: { gte: budget.periodStart, lte: budget.periodEnd },
     };
-    if (scopedProjectIds) where.projectId = { in: scopedProjectIds };
 
-    const grouped = await prisma.financeEntry.groupBy({
+    // (a) Explicit charge-code imputation — authoritative. The charge code IS
+    //     the scope, so no projectId filter applies here.
+    if (budget.chargeCode) {
+      const groupedCc = await prisma.financeEntry.groupBy({
+        by: ['categoryCode'],
+        where: { ...baseWhere, chargeCode: budget.chargeCode },
+        _sum: { amount: true },
+      });
+      for (const row of groupedCc) addSum(row.categoryCode, decimalToNumber(row._sum?.amount));
+    }
+
+    // (b) Legacy inferred attribution — only entries NOT charge-coded, matched
+    //     by dept/project scope. The chargeCode=null filter prevents
+    //     double-counting rows already captured by path (a).
+    const legacyWhere = { ...baseWhere, chargeCode: null };
+    if (scopedProjectIds) legacyWhere.projectId = { in: scopedProjectIds };
+    const groupedLegacy = await prisma.financeEntry.groupBy({
       by: ['categoryCode'],
-      where,
+      where: legacyWhere,
       _sum: { amount: true },
     });
-    for (const row of grouped) {
-      sumsByCode.set(row.categoryCode, decimalToNumber(row._sum?.amount));
-    }
+    for (const row of groupedLegacy) addSum(row.categoryCode, decimalToNumber(row._sum?.amount));
   }
 
   const enriched = lines.map((line) => {
@@ -412,6 +583,7 @@ export async function computeBudgetActuals(prisma, budgetId, opts = {}) {
       actualAmount: actual,
       variance,
       variancePct,
+      overBudget: planned > 0 && actual > planned,
     };
   });
 
@@ -430,6 +602,7 @@ function buildEmptyActual(line) {
     actualAmount: 0,
     variance: planned,
     variancePct: planned > 0 ? 100 : null,
+    overBudget: false,
   };
 }
 
@@ -438,5 +611,5 @@ function aggregateTotals(lines) {
   const actual = lines.reduce((acc, l) => acc + (l.actualAmount || 0), 0);
   const variance = planned - actual;
   const variancePct = planned > 0 ? Number(((variance / planned) * 100).toFixed(2)) : null;
-  return { planned, actual, variance, variancePct };
+  return { planned, actual, variance, variancePct, overBudget: planned > 0 && actual > planned };
 }

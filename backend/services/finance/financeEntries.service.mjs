@@ -248,6 +248,51 @@ async function softDeleteFinanceEntry(tx, existing, actor, reason) {
   return updated;
 }
 
+// Resolves the charge code an expense should be imputed to, from the most
+// specific active budget covering the event date: the project's own budget
+// first, else its owning department's budget. Returns null when nothing
+// matches (entry stays unattributed — legacy inferred attribution still works).
+// Accepts a prisma client or a transaction client.
+export async function resolveChargeCode(client, { projectId, sourceEventAt } = {}) {
+  if (!projectId) return null;
+  const at = sourceEventAt ? new Date(sourceEventAt) : new Date();
+
+  const projectBudget = await client.budget.findFirst({
+    where: {
+      projectId: String(projectId),
+      isDeleted: false,
+      status: 'active',
+      chargeCode: { not: null },
+      periodStart: { lte: at },
+      periodEnd: { gte: at },
+    },
+    orderBy: { periodStart: 'desc' },
+    select: { chargeCode: true },
+  });
+  if (projectBudget?.chargeCode) return projectBudget.chargeCode;
+
+  const project = await client.project.findFirst({
+    where: { id: String(projectId) },
+    select: { ownerDepartmentId: true },
+  });
+  if (project?.ownerDepartmentId) {
+    const deptBudget = await client.budget.findFirst({
+      where: {
+        departmentId: project.ownerDepartmentId,
+        isDeleted: false,
+        status: 'active',
+        chargeCode: { not: null },
+        periodStart: { lte: at },
+        periodEnd: { gte: at },
+      },
+      orderBy: { periodStart: 'desc' },
+      select: { chargeCode: true },
+    });
+    if (deptBudget?.chargeCode) return deptBudget.chargeCode;
+  }
+  return null;
+}
+
 async function upsertFinanceEntry(tx, payload) {
   const existing = await tx.financeEntry.findUnique({
     where: { referenceCode: payload.referenceCode },
@@ -262,6 +307,18 @@ async function upsertFinanceEntry(tx, payload) {
   const evidenceCount = existing?.evidenceDocuments?.length || 0;
   const evidenceStatus = detectEvidenceStatus(payload.entryType, evidenceCount);
   const lifecycleStatus = detectLifecycleStatus(payload.entryType, evidenceCount, existing?.approvalStatus || payload.approvalStatus || 'pending');
+
+  // Charge-code imputation: an explicit payload value wins; otherwise auto-resolve
+  // from the project's (or its department's) active budget covering the event date.
+  let chargeCode = payload.chargeCode || null;
+  if (!chargeCode && payload.projectId) {
+    try {
+      chargeCode = await resolveChargeCode(tx, { projectId: payload.projectId, sourceEventAt: payload.sourceEventAt });
+    } catch {
+      chargeCode = null;
+    }
+  }
+
   const data = {
     referenceCode: payload.referenceCode,
     entryType: payload.entryType,
@@ -281,6 +338,7 @@ async function upsertFinanceEntry(tx, payload) {
     clientAccountId: payload.clientAccountId || null,
     accountCode: payload.accountCode || null,
     categoryCode: payload.categoryCode || null,
+    chargeCode,
     lifecycleStatus,
     evidenceStatus,
     approvalStatus: existing?.approvalStatus || payload.approvalStatus || (payload.entryType === 'receivable' ? 'approved' : 'pending'),

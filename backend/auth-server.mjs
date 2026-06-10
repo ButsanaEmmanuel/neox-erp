@@ -79,6 +79,7 @@ import {
 import { getFinanceReports } from './services/finance/financeReporting.service.mjs';
 import {
   listBudgets,
+  listBudgetScopes,
   getBudgetDetail,
   createBudget,
   updateBudget,
@@ -86,6 +87,8 @@ import {
   upsertBudgetLine,
   deleteBudgetLine,
   computeBudgetActuals,
+  getDepartmentEnvelope,
+  listBudgetCategories,
 } from './services/finance/budgets.service.mjs';
 import {
   getFinanceGovernanceSettings,
@@ -1621,6 +1624,7 @@ const server = http.createServer(async (req, res) => {
         periodFrom: url.searchParams.get('periodFrom') || undefined,
         periodTo: url.searchParams.get('periodTo') || undefined,
         take: url.searchParams.get('take') || undefined,
+        withActuals: url.searchParams.get('withActuals') === 'true',
       });
       return json(res, 200, { budgets });
     }
@@ -1633,6 +1637,22 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, { budget });
     }
 
+    // Scope picker for the create/edit modal. Must precede the single-segment
+    // budgetDetailMatch below, else "/budgets/scopes" is read as a budget id.
+    if (method === 'GET' && pathname === '/api/v1/finance/budgets/scopes') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+      const scopes = await listBudgetScopes(prisma);
+      return json(res, 200, scopes);
+    }
+
+    if (method === 'GET' && pathname === '/api/v1/finance/budgets/categories') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+      const categories = await listBudgetCategories(prisma);
+      return json(res, 200, { categories });
+    }
+
     const budgetActualsMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/actuals$/);
     if (method === 'GET' && budgetActualsMatch) {
       const actor = parseActorFromUrl(url);
@@ -1640,6 +1660,15 @@ const server = http.createServer(async (req, res) => {
       const [, budgetId] = budgetActualsMatch;
       const actuals = await computeBudgetActuals(prisma, budgetId);
       return json(res, 200, { actuals });
+    }
+
+    const budgetEnvelopeMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/envelope$/);
+    if (method === 'GET' && budgetEnvelopeMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.budgets.read'))) return;
+      const [, budgetId] = budgetEnvelopeMatch;
+      const envelope = await getDepartmentEnvelope(prisma, budgetId);
+      return json(res, 200, { envelope });
     }
 
     const budgetLinesMatch = pathname.match(/^\/api\/v1\/finance\/budgets\/([^/]+)\/lines$/);

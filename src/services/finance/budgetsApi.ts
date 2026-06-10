@@ -33,6 +33,8 @@ export interface Budget {
   periodEnd: string;
   departmentId: string | null;
   projectId: string | null;
+  parentBudgetId: string | null;
+  chargeCode: string | null;
   currencyCode: string;
   status: BudgetStatus;
   createdBy: string;
@@ -56,6 +58,7 @@ export interface BudgetActualLine {
   actualAmount: number;
   variance: number;
   variancePct: number | null;
+  overBudget: boolean;
 }
 
 export interface BudgetActualsTotals {
@@ -63,6 +66,7 @@ export interface BudgetActualsTotals {
   actual: number;
   variance: number;
   variancePct: number | null;
+  overBudget: boolean;
 }
 
 export interface BudgetActuals {
@@ -78,6 +82,7 @@ export interface BudgetFilters {
   periodFrom?: string;
   periodTo?: string;
   take?: number;
+  withActuals?: boolean;
 }
 
 export interface CreateBudgetInput {
@@ -86,6 +91,7 @@ export interface CreateBudgetInput {
   periodEnd: string;
   departmentId?: string | null;
   projectId?: string | null;
+  parentBudgetId?: string | null;
   currencyCode?: string;
   status?: BudgetStatus;
 }
@@ -96,6 +102,7 @@ export interface UpdateBudgetInput {
   periodEnd?: string;
   departmentId?: string | null;
   projectId?: string | null;
+  parentBudgetId?: string | null;
   currencyCode?: string;
   status?: BudgetStatus;
 }
@@ -151,6 +158,7 @@ export async function listBudgets(filters: BudgetFilters = {}): Promise<Budget[]
   if (filters.periodFrom) params.set('periodFrom', filters.periodFrom);
   if (filters.periodTo) params.set('periodTo', filters.periodTo);
   if (filters.take) params.set('take', String(filters.take));
+  if (filters.withActuals) params.set('withActuals', 'true');
   const qs = params.toString();
   const path = withActor(`${BASE}${qs ? `?${qs}` : ''}`);
   const data = await apiRequest<{ budgets: Budget[] }>(path);
@@ -202,4 +210,69 @@ export async function getBudgetActuals(id: string): Promise<BudgetActuals> {
     withActor(`${BASE}/${encodeURIComponent(id)}/actuals`),
   );
   return data.actuals;
+}
+
+export interface BudgetScopeDepartment {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface BudgetScopeProject {
+  id: string;
+  name: string;
+  ownerDepartmentId: string | null;
+}
+
+export interface BudgetScopes {
+  departments: BudgetScopeDepartment[];
+  projects: BudgetScopeProject[];
+}
+
+// Departments + projects a budget can target. One call, gated by
+// finance.budgets.read (no HRM/PM permission needed).
+export async function listBudgetScopes(): Promise<BudgetScopes> {
+  const data = await apiRequest<BudgetScopes>(withActor(`${BASE}/scopes`));
+  return { departments: data.departments || [], projects: data.projects || [] };
+}
+
+export interface BudgetEnvelopeChild {
+  id: string;
+  name: string;
+  projectId: string | null;
+  projectName: string | null;
+  total: number;
+}
+
+export interface BudgetEnvelope {
+  budgetId: string;
+  currencyCode: string;
+  votedTotal: number;
+  allocated: number;
+  remaining: number;
+  overAllocated: boolean;
+  children: BudgetEnvelopeChild[];
+}
+
+// Voted envelope of a DEPARTMENT budget and the project allocations drawn from it.
+export async function getBudgetEnvelope(deptBudgetId: string): Promise<BudgetEnvelope> {
+  const data = await apiRequest<{ envelope: BudgetEnvelope }>(
+    withActor(`${BASE}/${encodeURIComponent(deptBudgetId)}/envelope`),
+  );
+  return data.envelope;
+}
+
+export interface BudgetCategoryOption {
+  id: string;
+  code: string;
+  name: string;
+  direction: FinanceDirection;
+  isActive: boolean;
+}
+
+// Active finance categories for the budget-line editor. Gated by
+// finance.budgets.read (no separate finance.settings permission needed).
+export async function listBudgetCategories(): Promise<BudgetCategoryOption[]> {
+  const data = await apiRequest<{ categories: BudgetCategoryOption[] }>(withActor(`${BASE}/categories`));
+  return data.categories || [];
 }

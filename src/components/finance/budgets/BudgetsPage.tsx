@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, X, PieChart, TrendingDown, TrendingUp } from 'lucide-react';
-import { apiRequest } from '../../../lib/apiClient';
 import {
   listBudgets,
   createBudget,
+  listBudgetScopes,
+  getBudgetEnvelope,
   type Budget,
   type BudgetStatus,
+  type BudgetEnvelope,
   type CreateBudgetInput,
 } from '../../../services/finance/budgetsApi';
 import { formatCurrency } from '../../../utils/formatters';
@@ -20,6 +22,7 @@ interface DepartmentRef {
 interface ProjectRef {
   id: string;
   name: string;
+  ownerDepartmentId?: string | null;
 }
 
 function sumPlanned(b: Budget): number {
@@ -54,6 +57,7 @@ const BudgetsPage: React.FC = () => {
       const rows = await listBudgets({
         status: status || undefined,
         take: 200,
+        withActuals: true,
       });
       setBudgets(rows);
     } catch (err) {
@@ -219,7 +223,12 @@ const BudgetsPage: React.FC = () => {
                     onClick={() => setSelectedBudgetId(b.id)}
                     className="border-t border-border hover:bg-surface cursor-pointer"
                   >
-                    <td className="px-4 py-3 text-primary font-medium">{b.name}</td>
+                    <td className="px-4 py-3 text-primary font-medium">
+                      {b.name}
+                      {b.chargeCode ? (
+                        <div className="text-[10px] font-mono text-emerald-500/80">{b.chargeCode}</div>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-xs text-muted">
                       {b.project ? `Project · ${b.project.name}` : b.department ? `Dept · ${b.department.name}` : '—'}
                     </td>
@@ -323,6 +332,9 @@ const CreateBudgetModal: React.FC<CreateModalProps> = ({ onClose, onCreated }) =
   const [projectId, setProjectId] = useState('');
   const [departments, setDepartments] = useState<DepartmentRef[]>([]);
   const [projects, setProjects] = useState<ProjectRef[]>([]);
+  const [parentBudgetId, setParentBudgetId] = useState('');
+  const [deptBudgets, setDeptBudgets] = useState<Budget[]>([]);
+  const [envelope, setEnvelope] = useState<BudgetEnvelope | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -330,26 +342,45 @@ const CreateBudgetModal: React.FC<CreateModalProps> = ({ onClose, onCreated }) =
     let cancelled = false;
     (async () => {
       try {
-        const [deptData, projData] = await Promise.all([
-          apiRequest<{ departments: DepartmentRef[] }>('/api/v1/hrm/bootstrap?take=500').catch(() => ({
-            departments: [] as DepartmentRef[],
-          })),
-          apiRequest<{ projects: ProjectRef[] } | ProjectRef[]>('/api/v1/projects').catch(() => ({
-            projects: [] as ProjectRef[],
-          })),
-        ]);
+        const [scopes, allBudgets] = await Promise.all([listBudgetScopes(), listBudgets({ take: 200 })]);
         if (cancelled) return;
-        setDepartments(deptData.departments || []);
-        const rawProjects = Array.isArray(projData) ? projData : projData.projects || [];
-        setProjects(rawProjects);
-      } catch {
-        // Best-effort dropdowns; user can still type-paste an id if needed.
+        setDepartments(scopes.departments);
+        setProjects(scopes.projects);
+        // Candidate parents: department budgets still open (not closed).
+        setDeptBudgets(allBudgets.filter((b) => b.departmentId && !b.projectId && b.status !== 'closed'));
+      } catch (err) {
+        if (cancelled) return;
+        setError(
+          err instanceof Error
+            ? `Unable to load departments/projects: ${err.message}`
+            : 'Unable to load departments and projects.',
+        );
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Live department envelope for the selected parent (project scope only).
+  useEffect(() => {
+    let cancelled = false;
+    if (scopeKind !== 'project' || !parentBudgetId) {
+      setEnvelope(null);
+      return;
+    }
+    (async () => {
+      try {
+        const env = await getBudgetEnvelope(parentBudgetId);
+        if (!cancelled) setEnvelope(env);
+      } catch {
+        if (!cancelled) setEnvelope(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scopeKind, parentBudgetId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,6 +401,7 @@ const CreateBudgetModal: React.FC<CreateModalProps> = ({ onClose, onCreated }) =
       status,
       departmentId: scopeKind === 'department' ? departmentId || null : null,
       projectId: scopeKind === 'project' ? projectId || null : null,
+      parentBudgetId: scopeKind === 'project' ? parentBudgetId || null : null,
     };
     if (scopeKind === 'department' && !payload.departmentId) {
       setError('Select a department.');
@@ -487,18 +519,58 @@ const CreateBudgetModal: React.FC<CreateModalProps> = ({ onClose, onCreated }) =
                 ))}
               </select>
             ) : (
-              <select
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value)}
-                className="input"
-              >
-                <option value="">Select a project</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Select a project</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2">
+                  <p className="text-[11px] font-bold text-muted uppercase tracking-wider mb-1.5">
+                    Parent department budget (optional)
+                  </p>
+                  <select
+                    value={parentBudgetId}
+                    onChange={(e) => setParentBudgetId(e.target.value)}
+                    className="input"
+                  >
+                    <option value="">None — standalone project budget</option>
+                    {deptBudgets.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}{b.chargeCode ? ` · ${b.chargeCode}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {envelope && (
+                    <div className="mt-2 text-[11px] bg-surface border border-border rounded-lg px-3 py-2 space-y-0.5">
+                      <div className="flex justify-between">
+                        <span className="text-muted">Voted envelope</span>
+                        <span className="tabular-nums text-primary">{formatCurrency(envelope.votedTotal)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted">Already allocated</span>
+                        <span className="tabular-nums text-primary">{formatCurrency(envelope.allocated)}</span>
+                      </div>
+                      <div className="flex justify-between font-bold">
+                        <span className={envelope.remaining < 0 ? 'text-rose-500' : 'text-emerald-500'}>Remaining</span>
+                        <span className={`tabular-nums ${envelope.remaining < 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                          {formatCurrency(envelope.remaining)}
+                        </span>
+                      </div>
+                      {envelope.overAllocated && (
+                        <p className="text-rose-500 font-bold pt-0.5">⚠ Department envelope over-allocated</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
 

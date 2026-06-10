@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
-import { apiRequest } from '../../../lib/apiClient';
-import { upsertBudgetLine, type BudgetLine } from '../../../services/finance/budgetsApi';
+import { upsertBudgetLine, listBudgetCategories, type BudgetLine } from '../../../services/finance/budgetsApi';
 
 interface CategoryOption {
   id: string;
@@ -9,10 +8,6 @@ interface CategoryOption {
   name: string;
   direction: string;
   isActive: boolean;
-}
-
-interface FinanceSettingsResponse {
-  settings: { categories: CategoryOption[] };
 }
 
 interface Props {
@@ -45,10 +40,10 @@ const BudgetLineEditor: React.FC<Props> = ({
   useEffect(() => {
     let cancelled = false;
     setLoadingCategories(true);
-    apiRequest<FinanceSettingsResponse>('/api/v1/finance/settings')
-      .then((data) => {
+    listBudgetCategories()
+      .then((cats) => {
         if (cancelled) return;
-        setCategories((data.settings?.categories || []).filter((c) => c.isActive));
+        setCategories(cats.filter((c) => c.isActive));
       })
       .catch(() => {
         if (cancelled) return;
@@ -100,7 +95,10 @@ const BudgetLineEditor: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="w-full max-w-md bg-card border border-border rounded-xl shadow-2xl">
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-sm font-semibold text-primary">

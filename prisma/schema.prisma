@@ -823,6 +823,7 @@ model FinanceEntry {
   clientAccountId   String?
   accountCode       String?
   categoryCode      String?
+  chargeCode        String?
   lifecycleStatus   String                    @default("draft")
   evidenceStatus    String                    @default("required_missing")
   approvalStatus    String                    @default("pending")
@@ -852,6 +853,7 @@ model FinanceEntry {
   @@index([approvalStatus])
   @@index([evidenceStatus])
   @@index([settlementStatus])
+  @@index([chargeCode])
   @@index([isDeleted])
 }
 
@@ -2123,24 +2125,29 @@ model Budget {
   name         String
   periodStart  DateTime
   periodEnd    DateTime
-  departmentId String?
-  projectId    String?
-  currencyCode String    @default("USD")
-  status       String    @default("draft")
-  createdBy    String
+  departmentId   String?
+  projectId      String?
+  parentBudgetId String?
+  currencyCode   String    @default("USD")
+  status         String    @default("draft")
+  chargeCode     String?   @unique
+  createdBy      String
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   isDeleted    Boolean   @default(false)
   deletedAt    DateTime?
 
-  department Department?  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  project    Project?     @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  lines      BudgetLine[]
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parentBudget Budget?      @relation("BudgetHierarchy", fields: [parentBudgetId], references: [id], onDelete: SetNull)
+  childBudgets Budget[]     @relation("BudgetHierarchy")
+  lines        BudgetLine[]
 
   @@index([status])
   @@index([periodStart, periodEnd])
   @@index([departmentId])
   @@index([projectId])
+  @@index([parentBudgetId])
   @@index([isDeleted])
 }
 
