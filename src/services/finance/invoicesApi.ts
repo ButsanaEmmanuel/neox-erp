@@ -133,6 +133,24 @@ export interface RecordInvoicePaymentResult {
   applied: number;
 }
 
+// Editable invoice fields — every key is optional; only the changed ones are sent.
+// taxRate is a fraction (e.g. 0.16 for 16% VAT); the backend recomputes totals.
+export interface UpdateInvoiceInput {
+  dueDate?: string;
+  issueDate?: string;
+  notes?: string;
+  currencyCode?: string;
+  status?: string;
+  taxRate?: number;
+  taxAmount?: number;
+}
+
+export interface DeleteInvoiceResult {
+  id: string;
+  deleted: boolean;
+  receivablesReleased: number;
+}
+
 // Un-invoiced, non-cancelled receivables of a project — the lines that would
 // roll into a generated invoice.
 export async function listProjectBillableReceivables(projectId: string): Promise<ReceivableRecord[]> {
@@ -180,5 +198,32 @@ export async function recordInvoicePayment(
     invoice: data.invoice ?? null,
     receipts: data.receipts || [],
     applied: Number(data.applied || 0),
+  };
+}
+
+// Patches editable invoice fields. Totals recompute server-side; a 'cancelled'
+// status is preserved. Only pass the keys that actually changed.
+export async function updateInvoice(
+  invoiceId: string,
+  patch: UpdateInvoiceInput,
+): Promise<{ invoice: CustomerInvoiceRecord }> {
+  const data = await apiRequest<{ invoice: CustomerInvoiceRecord }>(
+    withActor(`${BASE}/invoices/${encodeURIComponent(invoiceId)}`),
+    { method: 'PATCH', body: actorBody({ ...patch }) },
+  );
+  return { invoice: data.invoice };
+}
+
+// Removes the invoice, its allocated receipts, and releases (recomputes) its
+// receivables. receivablesReleased is how many receivables were freed.
+export async function deleteInvoice(invoiceId: string): Promise<DeleteInvoiceResult> {
+  const data = await apiRequest<DeleteInvoiceResult>(
+    withActor(`${BASE}/invoices/${encodeURIComponent(invoiceId)}`),
+    { method: 'DELETE' },
+  );
+  return {
+    id: data.id,
+    deleted: Boolean(data.deleted),
+    receivablesReleased: Number(data.receivablesReleased || 0),
   };
 }

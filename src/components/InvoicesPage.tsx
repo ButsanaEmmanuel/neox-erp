@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CreditCard, FolderInput, Plus, Search, X } from 'lucide-react';
+import { Check, CreditCard, FolderInput, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
@@ -10,10 +10,13 @@ import ComboboxSelect from './ui/ComboboxSelect';
 import { listBudgetScopes, BudgetScopeProject } from '../services/finance/budgetsApi';
 import {
     createInvoiceFromProject,
+    deleteInvoice,
     getInvoiceDetail,
     listProjectBillableReceivables,
     recordInvoicePayment,
+    updateInvoice,
     InvoiceDetail,
+    UpdateInvoiceInput,
 } from '../services/finance/invoicesApi';
 
 const PAYMENT_METHOD_OPTIONS = [
@@ -24,6 +27,14 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 const INVOICE_STATUS_OPTIONS = ['all', 'draft', 'sent', 'partial', 'paid', 'overdue', 'cancelled'];
+// Statuses selectable when editing an invoice (the drawer edit form).
+const EDIT_STATUS_OPTIONS = [
+    { value: 'draft', label: 'Draft' },
+    { value: 'sent', label: 'Sent' },
+    { value: 'partially_paid', label: 'Partially paid' },
+    { value: 'paid', label: 'Paid' },
+    { value: 'cancelled', label: 'Cancelled' },
+];
 const VAT_RATE = 0.16; // 16% VAT, applied optionally when generating from a project
 
 interface CustomerInvoicesResponse {
@@ -66,6 +77,21 @@ const InvoicesPage: React.FC = () => {
     const [paySubmitting, setPaySubmitting] = useState(false);
     const [payError, setPayError] = useState<string | null>(null);
     const [paySuccess, setPaySuccess] = useState<string | null>(null);
+
+    // Delete flow (drawer) — inline confirm + error/note surfaced in the drawer.
+    const [confirmingDelete, setConfirmingDelete] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+
+    // Edit flow (drawer modal) — fields pre-filled from invoiceDetail on open.
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [editDueDate, setEditDueDate] = useState('');
+    const [editNotes, setEditNotes] = useState('');
+    const [editCurrency, setEditCurrency] = useState('USD');
+    const [editStatus, setEditStatus] = useState('draft');
+    const [editApplyTax, setEditApplyTax] = useState(false);
+    const [editSubmitting, setEditSubmitting] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
 
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createReceivableId, setCreateReceivableId] = useState('');
@@ -235,6 +261,10 @@ const InvoicesPage: React.FC = () => {
         setPayNotes('');
         setPayError(null);
         setPaySuccess(null);
+        setConfirmingDelete(false);
+        setDeleteError(null);
+        setShowEditModal(false);
+        setEditError(null);
         const detail = await loadInvoiceDetail(invoice.id);
         if (detail) {
             const outstanding = Number(detail.outstandingAmount || 0);
@@ -248,6 +278,10 @@ const InvoicesPage: React.FC = () => {
         setDetailError(null);
         setPayError(null);
         setPaySuccess(null);
+        setConfirmingDelete(false);
+        setDeleteError(null);
+        setShowEditModal(false);
+        setEditError(null);
     };
 
     const submitInvoicePayment = async (e: React.FormEvent) => {
@@ -289,6 +323,89 @@ const InvoicesPage: React.FC = () => {
             setPayError(err instanceof Error ? err.message : 'Unable to record payment.');
         } finally {
             setPaySubmitting(false);
+        }
+    };
+
+    // Delete the invoice (after inline confirm), then close the drawer and refresh.
+    const confirmDeleteInvoice = async () => {
+        if (!selectedInvoiceId) return;
+        setDeleting(true);
+        setDeleteError(null);
+        try {
+            const result = await deleteInvoice(selectedInvoiceId);
+            await refreshInvoices();
+            closeInvoiceDetail();
+            setProjSuccess(
+                `Facture supprimée — ${result.receivablesReleased} receivable${result.receivablesReleased > 1 ? 's' : ''} libéré${result.receivablesReleased > 1 ? 's' : ''}.`,
+            );
+        } catch (err) {
+            setDeleteError(err instanceof Error ? err.message : 'Unable to delete invoice.');
+            setConfirmingDelete(false);
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    // Open the edit modal pre-filled from the loaded detail.
+    const openEditModal = () => {
+        if (!invoiceDetail) return;
+        setEditDueDate(invoiceDetail.dueDate ? invoiceDetail.dueDate.slice(0, 10) : '');
+        setEditNotes(invoiceDetail.notes || '');
+        setEditCurrency(invoiceDetail.currencyCode || 'USD');
+        setEditStatus(invoiceDetail.status || 'draft');
+        setEditApplyTax(Number(invoiceDetail.taxAmount || 0) > 0);
+        setEditError(null);
+        setShowEditModal(true);
+    };
+
+    const closeEditModal = () => {
+        setShowEditModal(false);
+        setEditError(null);
+    };
+
+    // Diff the form against the loaded detail and PATCH only what changed.
+    const submitEdit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedInvoiceId || !invoiceDetail) return;
+
+        const patch: UpdateInvoiceInput = {};
+        const originalDue = invoiceDetail.dueDate ? invoiceDetail.dueDate.slice(0, 10) : '';
+        if (editDueDate && editDueDate !== originalDue) {
+            patch.dueDate = new Date(editDueDate).toISOString();
+        }
+        if (editNotes !== (invoiceDetail.notes || '')) {
+            patch.notes = editNotes;
+        }
+        const currency = (editCurrency || '').toUpperCase().slice(0, 3);
+        if (currency && currency !== (invoiceDetail.currencyCode || '')) {
+            patch.currencyCode = currency;
+        }
+        if (editStatus && editStatus !== invoiceDetail.status) {
+            patch.status = editStatus;
+        }
+        // Tax checkbox → taxRate 0.16 / 0. Only send when the on/off state changed.
+        const hadTax = Number(invoiceDetail.taxAmount || 0) > 0;
+        if (editApplyTax !== hadTax) {
+            patch.taxRate = editApplyTax ? VAT_RATE : 0;
+        }
+
+        if (Object.keys(patch).length === 0) {
+            closeEditModal();
+            return;
+        }
+
+        setEditSubmitting(true);
+        setEditError(null);
+        try {
+            await updateInvoice(selectedInvoiceId, patch);
+            // Re-fetch the detail in place so totals/status reflect the recompute.
+            await loadInvoiceDetail(selectedInvoiceId);
+            await refreshInvoices();
+            closeEditModal();
+        } catch (err) {
+            setEditError(err instanceof Error ? err.message : 'Unable to update invoice.');
+        } finally {
+            setEditSubmitting(false);
         }
     };
 
@@ -574,7 +691,7 @@ const InvoicesPage: React.FC = () => {
                         className="w-full max-w-2xl h-full bg-[#0f172a] border-l border-border/80 flex flex-col"
                         onMouseDown={(e) => e.stopPropagation()}
                     >
-                        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between">
+                        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between gap-4">
                             <div>
                                 <p className="text-xs uppercase tracking-wider text-secondary">Customer Invoice</p>
                                 <div className="flex items-center gap-3">
@@ -582,7 +699,50 @@ const InvoicesPage: React.FC = () => {
                                     <StatusPill status={invoiceDetail?.status || selectedInvoice.status} />
                                 </div>
                             </div>
-                            <button type="button" onClick={closeInvoiceDetail} className="text-secondary hover:text-primary"><X size={20} /></button>
+                            <div className="flex items-center gap-2">
+                                {invoiceDetail && !confirmingDelete && (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={openEditModal}
+                                            disabled={deleting}
+                                            className="h-9 px-3 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                        >
+                                            <Pencil size={13} /> Modifier
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setConfirmingDelete(true); setDeleteError(null); }}
+                                            disabled={deleting}
+                                            className="h-9 px-3 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                        >
+                                            <Trash2 size={13} /> Supprimer
+                                        </button>
+                                    </>
+                                )}
+                                {invoiceDetail && confirmingDelete && (
+                                    <>
+                                        <span className="text-xs text-rose-300">Confirmer la suppression&nbsp;?</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => void confirmDeleteInvoice()}
+                                            disabled={deleting}
+                                            className="h-9 px-3 rounded-lg bg-rose-500/30 text-rose-200 border border-rose-500/40 hover:bg-rose-500/40 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                        >
+                                            <Trash2 size={13} /> {deleting ? 'Suppression...' : 'Confirmer'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setConfirmingDelete(false); setDeleteError(null); }}
+                                            disabled={deleting}
+                                            className="h-9 px-3 rounded-lg border border-border text-secondary hover:text-primary disabled:opacity-60 text-xs"
+                                        >
+                                            Annuler
+                                        </button>
+                                    </>
+                                )}
+                                <button type="button" onClick={closeInvoiceDetail} className="text-secondary hover:text-primary"><X size={20} /></button>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
@@ -591,6 +751,9 @@ const InvoicesPage: React.FC = () => {
                             )}
                             {detailError && (
                                 <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">{detailError}</div>
+                            )}
+                            {deleteError && (
+                                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">{deleteError}</div>
                             )}
 
                             {invoiceDetail && (
@@ -887,6 +1050,99 @@ const InvoicesPage: React.FC = () => {
                                 className="h-9 px-4 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-60 text-xs font-semibold"
                             >
                                 {createSubmitting ? 'Creating...' : 'Create Invoice'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {showEditModal && invoiceDetail && (
+                <div
+                    className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4"
+                    onMouseDown={(e) => { if (e.target === e.currentTarget) closeEditModal(); }}
+                >
+                    <form
+                        onSubmit={submitEdit}
+                        className="w-full max-w-2xl bg-[#0f172a] border border-border/80 rounded-xl flex flex-col max-h-[90vh]"
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-6 py-4 border-b border-border/80 flex items-center justify-between">
+                            <div>
+                                <p className="text-xs uppercase tracking-wider text-secondary">Modifier la facture</p>
+                                <h3 className="text-lg font-semibold text-primary">{invoiceDetail.invoiceNumber}</h3>
+                            </div>
+                            <button type="button" onClick={closeEditModal} className="text-secondary hover:text-primary"><X size={20} /></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+                            {editError && (
+                                <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">{editError}</div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <FormField label="Due date">
+                                    <input
+                                        type="date"
+                                        value={editDueDate}
+                                        onChange={(e) => setEditDueDate(e.target.value)}
+                                        className="h-10 bg-slate-900/70 border border-border/80 rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-blue-500/40 w-full"
+                                    />
+                                </FormField>
+                                <FormField label="Currency">
+                                    <input
+                                        value={editCurrency}
+                                        onChange={(e) => setEditCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                                        maxLength={3}
+                                        className="h-10 bg-slate-900/70 border border-border/80 rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-blue-500/40 w-full uppercase"
+                                    />
+                                </FormField>
+                                <FormField label="Status">
+                                    <select
+                                        value={editStatus}
+                                        onChange={(e) => setEditStatus(e.target.value)}
+                                        className="h-10 bg-slate-900/70 border border-border/80 rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-blue-500/40 w-full"
+                                    >
+                                        {EDIT_STATUS_OPTIONS.map((s) => (
+                                            <option key={s.value} value={s.value}>{s.label}</option>
+                                        ))}
+                                    </select>
+                                </FormField>
+                            </div>
+
+                            <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={editApplyTax}
+                                    onChange={(e) => setEditApplyTax(e.target.checked)}
+                                    className="accent-emerald-500 h-4 w-4"
+                                />
+                                Appliquer la TVA (16%)
+                            </label>
+
+                            <FormField label="Notes">
+                                <textarea
+                                    value={editNotes}
+                                    onChange={(e) => setEditNotes(e.target.value)}
+                                    placeholder="Optional context for the invoice"
+                                    className="min-h-[72px] bg-slate-900/70 border border-border/80 rounded-lg px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-blue-500/40 w-full"
+                                />
+                            </FormField>
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-border/80 flex items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={closeEditModal}
+                                className="h-9 px-4 rounded-lg border border-border text-secondary hover:text-primary text-xs"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={editSubmitting}
+                                className="h-9 px-4 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                            >
+                                <Check size={13} /> {editSubmitting ? 'Enregistrement...' : 'Enregistrer'}
                             </button>
                         </div>
                     </form>
