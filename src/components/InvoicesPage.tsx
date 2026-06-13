@@ -251,7 +251,7 @@ const InvoicesPage: React.FC = () => {
         }
     };
 
-    const openInvoiceDetail = async (invoice: CustomerInvoiceRecord) => {
+    const openInvoiceDetail = async (invoice: CustomerInvoiceRecord, opts: { edit?: boolean; confirmDelete?: boolean } = {}) => {
         setSelectedInvoiceId(invoice.id);
         setInvoiceDetail(null);
         setDetailError(null);
@@ -269,6 +269,35 @@ const InvoicesPage: React.FC = () => {
         if (detail) {
             const outstanding = Number(detail.outstandingAmount || 0);
             if (outstanding > 0) setPayAmount(String(outstanding));
+            if (opts.edit) {
+                setEditDueDate(detail.dueDate ? detail.dueDate.slice(0, 10) : '');
+                setEditNotes(detail.notes || '');
+                setEditCurrency(detail.currencyCode || 'USD');
+                setEditStatus(detail.status || 'draft');
+                setEditApplyTax(Number(detail.taxAmount || 0) > 0);
+                setEditError(null);
+                setShowEditModal(true);
+            }
+            if (opts.confirmDelete) setConfirmingDelete(true);
+        }
+    };
+
+    // Finalize/validate a draft invoice → 'sent' (the reviewed, client-ready
+    // state). Generated invoices start as 'draft' on purpose so they can be
+    // checked before being issued.
+    const [finalizingId, setFinalizingId] = useState<string | null>(null);
+    const finalizeInvoice = async (invoice: CustomerInvoiceRecord) => {
+        setFinalizingId(invoice.id);
+        setProjError(null);
+        try {
+            await updateInvoice(invoice.id, { status: 'sent' });
+            await refreshInvoices();
+            if (selectedInvoiceId === invoice.id) await loadInvoiceDetail(invoice.id);
+            setProjSuccess(`Facture ${invoice.invoiceNumber} validée.`);
+        } catch (err) {
+            setProjError(err instanceof Error ? err.message : 'Validation échouée.');
+        } finally {
+            setFinalizingId(null);
         }
     };
 
@@ -649,6 +678,7 @@ const InvoicesPage: React.FC = () => {
                                     <th className="px-6 py-3 text-[10px] font-bold text-muted uppercase tracking-widest">Status</th>
                                     <th className="px-6 py-3 text-[10px] font-bold text-muted uppercase tracking-widest">Issue</th>
                                     <th className="px-6 py-3 text-[10px] font-bold text-muted uppercase tracking-widest">Due</th>
+                                    <th className="px-6 py-3 text-[10px] font-bold text-muted uppercase tracking-widest text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
@@ -664,10 +694,41 @@ const InvoicesPage: React.FC = () => {
                                         <td className="px-6 py-4 text-right text-sm text-secondary tabular-nums">{formatCurrency(Number(invoice.subtotalAmount || 0))}</td>
                                         <td className="px-6 py-4 text-right text-xs text-secondary tabular-nums">{formatCurrency(Number(invoice.taxAmount || 0))}</td>
                                         <td className="px-6 py-4 text-right text-sm font-semibold text-emerald-300 tabular-nums">{formatCurrency(Number(invoice.totalAmount || 0))}</td>
-                                        <td className="px-6 py-4 text-right text-sm text-amber-300 tabular-nums">{formatCurrency(Number(invoice.receivable?.outstandingAmount || 0))}</td>
+                                        <td className="px-6 py-4 text-right text-sm text-amber-300 tabular-nums">{formatCurrency(Number(invoice.outstandingAmount ?? invoice.receivable?.outstandingAmount ?? 0))}</td>
                                         <td className="px-6 py-4"><StatusPill status={invoice.status} /></td>
                                         <td className="px-6 py-4 text-xs text-secondary">{invoice.issueDate ? formatDate(invoice.issueDate, 'short') : '-'}</td>
                                         <td className="px-6 py-4 text-xs text-secondary">{invoice.dueDate ? formatDate(invoice.dueDate, 'short') : '-'}</td>
+                                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                            <div className="flex items-center justify-end gap-1.5">
+                                                {invoice.status === 'draft' && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void finalizeInvoice(invoice)}
+                                                        disabled={finalizingId === invoice.id}
+                                                        title="Valider la facture (brouillon → émise)"
+                                                        className="h-7 px-2.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-60 text-[11px] font-semibold flex items-center gap-1"
+                                                    >
+                                                        <Check size={12} /> {finalizingId === invoice.id ? '...' : 'Valider'}
+                                                    </button>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void openInvoiceDetail(invoice, { edit: true })}
+                                                    title="Modifier"
+                                                    className="h-7 w-7 rounded-md bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/30 flex items-center justify-center"
+                                                >
+                                                    <Pencil size={12} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void openInvoiceDetail(invoice, { confirmDelete: true })}
+                                                    title="Supprimer"
+                                                    className="h-7 w-7 rounded-md bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 flex items-center justify-center"
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            </div>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -702,6 +763,17 @@ const InvoicesPage: React.FC = () => {
                             <div className="flex items-center gap-2">
                                 {invoiceDetail && !confirmingDelete && (
                                     <>
+                                        {invoiceDetail.status === 'draft' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => void finalizeInvoice(selectedInvoice)}
+                                                disabled={deleting || finalizingId === invoiceDetail.id}
+                                                title="Valider la facture (brouillon → émise)"
+                                                className="h-9 px-3 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                            >
+                                                <Check size={13} /> {finalizingId === invoiceDetail.id ? 'Validation...' : 'Valider'}
+                                            </button>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={openEditModal}
