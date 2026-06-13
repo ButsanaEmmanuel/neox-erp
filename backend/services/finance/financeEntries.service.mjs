@@ -1256,9 +1256,11 @@ export async function refreshInvoiceTotals(tx, invoiceId) {
   const outstanding = Math.max(total - collected, 0);
 
   let status = invoice.status;
-  if (total > 0 && outstanding <= 0) status = 'paid';
-  else if (collected > 0) status = 'partially_paid';
-  else if (status === 'paid' || status === 'partially_paid') status = 'sent'; // payments reversed
+  if (status !== 'cancelled') {
+    if (total > 0 && outstanding <= 0.005) status = 'paid';
+    else if (collected > 0) status = 'partially_paid';
+    else if (status === 'paid' || status === 'partially_paid') status = 'sent'; // payments reversed
+  }
 
   return tx.customerInvoice.update({
     where: { id: invoiceId },
@@ -1525,29 +1527,44 @@ export async function recordInvoicePayment(prisma, invoiceId, payload = {}) {
       include: { lines: { include: { receivable: true } } },
     });
     if (!invoice) throw new Error('Invoice not found.');
+    if (invoice.status === 'cancelled') throw new Error('Cannot record a payment on a cancelled invoice.');
 
-    const payableLines = (invoice.lines || [])
-      .filter((line) => line.receivable && Number(line.receivable.outstandingAmount || 0) > 0);
-    const totalOutstanding = payableLines.reduce((sum, line) => sum + Number(line.receivable.outstandingAmount || 0), 0);
-    if (totalOutstanding <= 0) throw new Error('Invoice has no outstanding amount to settle.');
-    // Reject overpayment instead of silently capping — a payment must never exceed
-    // the invoice's outstanding balance. Small epsilon tolerates float rounding.
-    if (amount > totalOutstanding + 0.005) {
-      throw new Error(`Payment amount exceeds the invoice outstanding (${totalOutstanding.toFixed(2)}).`);
+    // The amount the client owes is the invoice TOTAL (VAT included), not the
+    // sum of the ex-tax receivables. Each line's full contribution = its ex-tax
+    // amount scaled by the VAT factor (total/subtotal). A line's remaining =
+    // that share minus what its receivable has already collected; summed, this
+    // is the invoice's true outstanding (TAX INCLUDED).
+    const total = Number(invoice.totalAmount || 0);
+    const subtotal = Number(invoice.subtotalAmount || 0);
+    const ratio = subtotal > 0 ? total / subtotal : 1;
+    const remainings = (invoice.lines || [])
+      .filter((line) => line.receivable)
+      .map((line) => ({
+        line,
+        rem: Math.max(Number(line.amount || 0) * ratio - Number(line.receivable.collectedAmount || 0), 0),
+      }));
+    const invoiceOutstanding = remainings.reduce((sum, r) => sum + r.rem, 0);
+    if (invoiceOutstanding <= 0) throw new Error('Invoice has no outstanding amount to settle.');
+    // Reject overpayment instead of silently capping (epsilon tolerates rounding).
+    if (amount > invoiceOutstanding + 0.005) {
+      throw new Error(`Payment amount exceeds the invoice outstanding (${invoiceOutstanding.toFixed(2)}).`);
     }
 
-    const applied = Math.min(amount, totalOutstanding);
+    const applied = Math.min(amount, invoiceOutstanding);
 
-    // Prorata allocation; last line absorbs the rounding remainder, capped to its outstanding.
+    // Allocate prorata of each line's VAT-inclusive remaining; last line absorbs
+    // the rounding remainder. NB: a line receipt carries its VAT share, so the
+    // receivable's collectedAmount can exceed its ex-tax total (VAT collected
+    // through the receivable — acceptable absent a dedicated VAT account).
+    const payableLines = remainings.filter((r) => r.rem > 0);
     let allocatedSoFar = 0;
     const receipts = [];
     for (let i = 0; i < payableLines.length; i += 1) {
-      const line = payableLines[i];
-      const lineOutstanding = Number(line.receivable.outstandingAmount || 0);
+      const { line, rem } = payableLines[i];
       let share = i === payableLines.length - 1
         ? Number((applied - allocatedSoFar).toFixed(2))
-        : Number(((applied * lineOutstanding) / totalOutstanding).toFixed(2));
-      share = Math.min(Math.max(share, 0), lineOutstanding);
+        : Number(((applied * rem) / invoiceOutstanding).toFixed(2));
+      share = Math.min(Math.max(share, 0), rem + 0.005);
       if (share <= 0) continue;
       allocatedSoFar += share;
 
@@ -1586,6 +1603,58 @@ export async function recordInvoicePayment(prisma, invoiceId, payload = {}) {
 
     const updatedInvoice = await refreshInvoiceTotals(tx, invoiceId);
     return { invoice: updatedInvoice, receipts, applied };
+  });
+}
+
+// Edit an invoice (in case of error): due/issue date, notes, currency, status,
+// and tax (taxAmount wins, else taxRate × subtotal). Lines/receivables are not
+// edited here — to change the grouping, delete and regenerate. Totals + status
+// are recomputed. 'cancelled' is preserved by refreshInvoiceTotals.
+export async function updateCustomerInvoice(prisma, invoiceId, patch = {}) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.customerInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
+    if (!invoice) throw new Error('Invoice not found.');
+
+    const data = {};
+    if (patch.dueDate) data.dueDate = new Date(patch.dueDate);
+    if (patch.issueDate) data.issueDate = new Date(patch.issueDate);
+    if (patch.notes !== undefined) data.notes = patch.notes || null;
+    if (patch.currencyCode) data.currencyCode = String(patch.currencyCode).toUpperCase().slice(0, 3);
+    if (patch.status) data.status = String(patch.status);
+
+    const subtotal = (invoice.lines || []).reduce((sum, l) => sum + Number(l.amount || 0), 0);
+    if (patch.taxAmount !== undefined && patch.taxAmount !== null) {
+      data.taxAmount = Number(patch.taxAmount);
+    } else if (patch.taxRate !== undefined && patch.taxRate !== null) {
+      data.taxAmount = Number((subtotal * Number(patch.taxRate)).toFixed(2));
+    }
+
+    await tx.customerInvoice.update({ where: { id: invoiceId }, data });
+    return refreshInvoiceTotals(tx, invoiceId);
+  });
+}
+
+// Delete an invoice (in case of error). Reverses any allocated payments: its
+// receipts are removed and each affected receivable is recomputed, then the
+// invoice (and its lines, via cascade) is deleted. The grouped receivables
+// become billable again.
+export async function deleteCustomerInvoice(prisma, invoiceId) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.customerInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { lines: true, receipts: true },
+    });
+    if (!invoice) throw new Error('Invoice not found.');
+
+    const receivableIds = [...new Set((invoice.lines || []).map((l) => l.receivableId))];
+
+    await tx.receiptCollection.deleteMany({ where: { invoiceId } });
+    await tx.customerInvoice.delete({ where: { id: invoiceId } }); // cascades lines
+
+    for (const receivableId of receivableIds) {
+      await refreshReceivableTotals(tx, receivableId);
+    }
+    return { id: invoiceId, deleted: true, receivablesReleased: receivableIds.length };
   });
 }
 

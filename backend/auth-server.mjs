@@ -49,6 +49,8 @@ import {
   listProjectBillableReceivables,
   getCustomerInvoiceDetail,
   recordInvoicePayment,
+  updateCustomerInvoice,
+  deleteCustomerInvoice,
   createPaymentDisbursement,
   createReceiptCollection,
   attachPaymentProof,
@@ -1783,6 +1785,21 @@ const server = http.createServer(async (req, res) => {
       const invoice = await getCustomerInvoiceDetail(prisma, invoiceId);
       if (!invoice) return json(res, 404, { message: 'Invoice not found.' });
       return json(res, 200, { invoice });
+    }
+    if (method === 'PATCH' && invoiceDetailMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.write'))) return;
+      const [, invoiceId] = invoiceDetailMatch;
+      const body = await parseBody(req);
+      const invoice = await updateCustomerInvoice(prisma, invoiceId, body);
+      return json(res, 200, { invoice });
+    }
+    if (method === 'DELETE' && invoiceDetailMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.write'))) return;
+      const [, invoiceId] = invoiceDetailMatch;
+      const result = await deleteCustomerInvoice(prisma, invoiceId);
+      return json(res, 200, result);
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/bills') {
