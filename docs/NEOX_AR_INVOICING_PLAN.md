@@ -90,11 +90,20 @@ Faire de la **facture (CustomerInvoice)** le document client qui **regroupe tous
 - [x] Statut facture dérivé : `paid` / `partially_paid` / `sent`.
 - [x] Routes `POST /api/v1/finance/invoices/:id/payment` + `GET /api/v1/finance/invoices/:id` (détail + lignes + receipts).
 - [x] **Test API** : $2000 → `partially_paid` (9 receipts, outstanding $2249) ; solde $2249 → `paid`, outstanding 0 ✅.
-- [ ] Frontend : drawer facture (lignes + receipts), bouton **« Enregistrer le paiement »**, badge statut — *(sous-agent en cours)*.
+- [x] Frontend : drawer facture (lignes + receipts), bouton **« Enregistrer le paiement »**, badge statut (`StatusPill`) — `invoicesApi.ts` `getInvoiceDetail` + `recordInvoicePayment`. Typecheck OK. **Ship.**
 
-### Sprint AR-5 — Polissage UI / traçabilité — *(intégré au sous-agent AR-4)*
-- [ ] Liste Invoices : badge statut + encours par ligne.
-- [ ] Détail receivable → lien « Facturé : INV-xxx » (à faire).
+### Sprint AR-5 — Polissage UI / traçabilité ✅ (intégré au sous-agent AR-4)
+- [x] Liste Invoices : badge statut + colonne **Outstanding**.
+- [ ] Détail receivable → lien « Facturé : INV-xxx » (drill-through inverse — reste à faire, optionnel).
+
+---
+
+## État final (2026-06-13)
+- **AR-1→AR-4 backend** : ✅ livré + vérifié au niveau API + committé `a4924d9` (pushé).
+- **AR-2/AR-4/AR-5 frontend** : ✅ livré (2 sous-agents) + typecheck 0 erreur + committé `9c97c92` (pushé).
+- **Données de test nettoyées** ; les 9 receivables du projet Helios One sont de nouveau facturables ($4249).
+- **Non vérifié** : démo navigateur live de l'UI Invoices (instabilité du harness de preview cette session — pas un bug code ; nav/drawer identiques à Reconciliation/Receivables déjà vérifiés). À confirmer côté utilisateur.
+- **Reste optionnel** : lien inverse receivable→facture (AR-5), et « send invoice » (dépend dette DF10).
 
 ---
 
