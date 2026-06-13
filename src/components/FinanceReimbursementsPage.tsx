@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, RefreshCcw } from 'lucide-react';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
 interface ExpenseClaim {
@@ -31,11 +32,12 @@ const FinanceReimbursementsPage: React.FC = () => {
   const [claims, setClaims] = useState<ExpenseClaim[]>([]);
   const [advances, setAdvances] = useState<EmployeeAdvance[]>([]);
   const [busy, setBusy] = useState(false);
+  const withActor = useActorPath();
 
   const load = async () => {
     const [claimsData, advancesData] = await Promise.all([
-      apiRequest<{ claims: ExpenseClaim[] }>('/api/v1/finance/hrm/expense-claims?take=200'),
-      apiRequest<{ advances: EmployeeAdvance[] }>('/api/v1/finance/hrm/employee-advances?take=200'),
+      apiRequest<{ claims: ExpenseClaim[] }>(withActor('/api/v1/finance/hrm/expense-claims?take=200')),
+      apiRequest<{ advances: EmployeeAdvance[] }>(withActor('/api/v1/finance/hrm/employee-advances?take=200')),
     ]);
     setClaims(claimsData.claims || []);
     setAdvances(advancesData.advances || []);
@@ -54,7 +56,7 @@ const FinanceReimbursementsPage: React.FC = () => {
   const quickCreateClaim = async () => {
     setBusy(true);
     try {
-      await apiRequest('/api/v1/finance/hrm/expense-claims', {
+      await apiRequest(withActor('/api/v1/finance/hrm/expense-claims'), {
         method: 'POST',
         body: {
           employeeName: 'Employee Reimbursement',
@@ -73,7 +75,7 @@ const FinanceReimbursementsPage: React.FC = () => {
   const quickCreateAdvance = async () => {
     setBusy(true);
     try {
-      await apiRequest('/api/v1/finance/hrm/employee-advances', {
+      await apiRequest(withActor('/api/v1/finance/hrm/employee-advances'), {
         method: 'POST',
         body: {
           employeeName: 'Employee Advance',
@@ -91,7 +93,7 @@ const FinanceReimbursementsPage: React.FC = () => {
   const approveClaim = async (id: string) => {
     setBusy(true);
     try {
-      await apiRequest(`/api/v1/finance/hrm/expense-claims/${id}/approve`, {
+      await apiRequest(withActor(`/api/v1/finance/hrm/expense-claims/${id}/approve`), {
         method: 'POST',
         body: { actorDisplayName: 'Finance Approver' },
       });
@@ -104,7 +106,7 @@ const FinanceReimbursementsPage: React.FC = () => {
   const approveAdvance = async (id: string) => {
     setBusy(true);
     try {
-      await apiRequest(`/api/v1/finance/hrm/employee-advances/${id}/approve`, {
+      await apiRequest(withActor(`/api/v1/finance/hrm/employee-advances/${id}/approve`), {
         method: 'POST',
         body: { actorDisplayName: 'Finance Approver' },
       });

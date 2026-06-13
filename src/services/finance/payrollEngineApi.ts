@@ -24,15 +24,35 @@ import type {
 
 const BASE = '/api/v1/finance/hrm';
 
+// Finance routes run assertPermission against ?userId=. Append the session
+// actor so these calls don't 403 (same pattern as budgetsApi/reconciliationApi).
+function getSessionUserId(): string | null {
+  try {
+    const raw = localStorage.getItem('neox-auth-session');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return String(parsed?.id || parsed?.user?.id || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function withActor(path: string): string {
+  const uid = getSessionUserId();
+  if (!uid) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}userId=${encodeURIComponent(uid)}`;
+}
+
 // ── Schedules ─────────────────────────────────────────────────────────
 
 export async function listPayrollSchedules(): Promise<PayrollSchedule[]> {
-  const data = await apiRequest<{ schedules: PayrollSchedule[] }>(`${BASE}/payroll-schedules`);
+  const data = await apiRequest<{ schedules: PayrollSchedule[] }>(withActor(`${BASE}/payroll-schedules`));
   return data.schedules || [];
 }
 
 export async function upsertPayrollSchedule(payload: UpsertScheduleInput): Promise<PayrollSchedule> {
-  const data = await apiRequest<{ schedule: PayrollSchedule }>(`${BASE}/payroll-schedules`, {
+  const data = await apiRequest<{ schedule: PayrollSchedule }>(withActor(`${BASE}/payroll-schedules`), {
     method: 'POST',
     body: payload,
   });
@@ -47,13 +67,13 @@ export async function listSalaryProfiles(filters?: { take?: number; userId?: str
   if (filters?.userId) params.set('userId', filters.userId);
   const qs = params.toString();
   const data = await apiRequest<{ profiles: SalaryProfile[] }>(
-    `${BASE}/salary-profiles${qs ? `?${qs}` : ''}`,
+    withActor(`${BASE}/salary-profiles${qs ? `?${qs}` : ''}`),
   );
   return data.profiles || [];
 }
 
 export async function upsertSalaryProfile(payload: UpsertSalaryProfileInput): Promise<SalaryProfile> {
-  const data = await apiRequest<{ profile: SalaryProfile }>(`${BASE}/salary-profiles`, {
+  const data = await apiRequest<{ profile: SalaryProfile }>(withActor(`${BASE}/salary-profiles`), {
     method: 'POST',
     body: payload,
   });
@@ -68,18 +88,18 @@ export async function listPayrollRuns(filters?: { take?: number; status?: string
   if (filters?.status) params.set('status', filters.status);
   const qs = params.toString();
   const data = await apiRequest<{ runs: PayrollRun[] }>(
-    `${BASE}/payroll-runs${qs ? `?${qs}` : ''}`,
+    withActor(`${BASE}/payroll-runs${qs ? `?${qs}` : ''}`),
   );
   return data.runs || [];
 }
 
 export async function getPayrollRunDetail(runId: string): Promise<PayrollRun | null> {
-  const data = await apiRequest<{ run: PayrollRun }>(`${BASE}/payroll-runs/${runId}`);
+  const data = await apiRequest<{ run: PayrollRun }>(withActor(`${BASE}/payroll-runs/${runId}`));
   return data.run || null;
 }
 
 export async function executePayrollRun(payload: ExecuteRunInput): Promise<PayrollRun> {
-  const data = await apiRequest<{ run: PayrollRun }>(`${BASE}/payroll-runs/execute`, {
+  const data = await apiRequest<{ run: PayrollRun }>(withActor(`${BASE}/payroll-runs/execute`), {
     method: 'POST',
     body: payload,
   });
@@ -87,7 +107,7 @@ export async function executePayrollRun(payload: ExecuteRunInput): Promise<Payro
 }
 
 export async function runDuePayrollSchedules(payload?: { actorUserId?: string; actorDisplayName?: string }): Promise<{ runs: PayrollRun[]; count: number }> {
-  const data = await apiRequest<{ runs: PayrollRun[]; count: number }>(`${BASE}/payroll-runs/run-due`, {
+  const data = await apiRequest<{ runs: PayrollRun[]; count: number }>(withActor(`${BASE}/payroll-runs/run-due`), {
     method: 'POST',
     body: payload || {},
   });
@@ -95,7 +115,7 @@ export async function runDuePayrollSchedules(payload?: { actorUserId?: string; a
 }
 
 export async function postPayrollRun(runId: string, payload: PostRunInput): Promise<{ run: PayrollRun; batch?: PayrollBatch }> {
-  return apiRequest<{ run: PayrollRun; batch?: PayrollBatch }>(`${BASE}/payroll-runs/${runId}/post`, {
+  return apiRequest<{ run: PayrollRun; batch?: PayrollBatch }>(withActor(`${BASE}/payroll-runs/${runId}/post`), {
     method: 'POST',
     body: payload,
   });
@@ -103,7 +123,7 @@ export async function postPayrollRun(runId: string, payload: PostRunInput): Prom
 
 export async function adjustPayrollRunEmployee(employeeLineId: string, payload: AdjustEmployeeInput): Promise<PayrollRunEmployee> {
   const data = await apiRequest<{ employeeLine: PayrollRunEmployee }>(
-    `${BASE}/payroll-runs/employees/${employeeLineId}/adjust`,
+    withActor(`${BASE}/payroll-runs/employees/${employeeLineId}/adjust`),
     { method: 'PATCH', body: payload },
   );
   return data.employeeLine;
@@ -117,18 +137,18 @@ export async function listPayrollBatches(filters?: { take?: number; status?: str
   if (filters?.status) params.set('status', filters.status);
   const qs = params.toString();
   const data = await apiRequest<{ batches: PayrollBatch[] }>(
-    `${BASE}/payroll-batches${qs ? `?${qs}` : ''}`,
+    withActor(`${BASE}/payroll-batches${qs ? `?${qs}` : ''}`),
   );
   return data.batches || [];
 }
 
 export async function getPayrollBatchDetail(batchId: string): Promise<PayrollBatch | null> {
-  const data = await apiRequest<{ batch: PayrollBatch }>(`${BASE}/payroll-batches/${batchId}`);
+  const data = await apiRequest<{ batch: PayrollBatch }>(withActor(`${BASE}/payroll-batches/${batchId}`));
   return data.batch || null;
 }
 
 export async function approvePayrollBatch(batchId: string, payload: ApproveBatchInput): Promise<PayrollBatch> {
-  const data = await apiRequest<{ batch: PayrollBatch }>(`${BASE}/payroll-batches/${batchId}/approve`, {
+  const data = await apiRequest<{ batch: PayrollBatch }>(withActor(`${BASE}/payroll-batches/${batchId}/approve`), {
     method: 'POST',
     body: payload,
   });
@@ -136,7 +156,7 @@ export async function approvePayrollBatch(batchId: string, payload: ApproveBatch
 }
 
 export async function reconcilePayrollBatch(batchId: string, payload: ReconcileBatchInput): Promise<PayrollBatch> {
-  const data = await apiRequest<{ batch: PayrollBatch }>(`${BASE}/payroll-batches/${batchId}/reconcile`, {
+  const data = await apiRequest<{ batch: PayrollBatch }>(withActor(`${BASE}/payroll-batches/${batchId}/reconcile`), {
     method: 'POST',
     body: payload,
   });
@@ -146,7 +166,7 @@ export async function reconcilePayrollBatch(batchId: string, payload: ReconcileB
 // ── Disbursement lines ────────────────────────────────────────────────
 
 export async function disbursePayrollLine(lineId: string, payload: DisburseLineInput) {
-  return apiRequest(`${BASE}/payroll-lines/${lineId}/disburse`, {
+  return apiRequest(withActor(`${BASE}/payroll-lines/${lineId}/disburse`), {
     method: 'POST',
     body: payload,
   });

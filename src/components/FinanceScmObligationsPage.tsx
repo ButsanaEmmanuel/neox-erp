@@ -3,6 +3,7 @@ import { Search, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 import { PayableRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
@@ -28,6 +29,7 @@ function getThreeWay(item: PayableRecord) {
 const FinanceScmObligationsPage: React.FC = () => {
   const { payables: contextPayables } = useFinance();
   const { user } = useAuth();
+  const withActor = useActorPath();
 
   const [payables, setPayables] = useState<PayableRecord[]>([]);
   const [search, setSearch] = useState('');
@@ -40,7 +42,7 @@ const FinanceScmObligationsPage: React.FC = () => {
   }, [contextPayables]);
 
   const refresh = async () => {
-    const data = await apiRequest<PayablesResponse>('/api/v1/finance/payables?take=200');
+    const data = await apiRequest<PayablesResponse>(withActor('/api/v1/finance/payables?take=200'));
     setPayables((data.payables || []).filter(isScmPayable));
   };
 
@@ -66,7 +68,7 @@ const FinanceScmObligationsPage: React.FC = () => {
     setBusyId(item.id);
     setError(null);
     try {
-      await apiRequest(`/api/v1/finance/entries/${item.financeEntryId}/approve`, {
+      await apiRequest(withActor(`/api/v1/finance/entries/${item.financeEntryId}/approve`), {
         method: 'PATCH',
         body: {
           notes: 'Approved from SCM obligations board',

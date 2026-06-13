@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 
 interface FinanceSettingsPayload {
   categories: Array<{ id: string; code: string; name: string; direction: string; isActive: boolean }>;
@@ -25,6 +26,7 @@ const FinanceSettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('');
+  const withActor = useActorPath();
 
   const [categoryName, setCategoryName] = useState('Project Receivables');
   const [categoryDirection, setCategoryDirection] = useState('inflow');
@@ -51,7 +53,7 @@ const FinanceSettingsPage: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiRequest<{ settings: FinanceSettingsPayload }>('/api/v1/finance/settings');
+      const data = await apiRequest<{ settings: FinanceSettingsPayload }>(withActor('/api/v1/finance/settings'));
       setSettings(data.settings || emptySettings);
     } finally {
       setLoading(false);
@@ -66,7 +68,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/categories', {
+      await apiRequest(withActor('/api/v1/finance/settings/categories'), {
         method: 'POST',
         body: {
           name: categoryName,
@@ -84,7 +86,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/evidence-rules', {
+      await apiRequest(withActor('/api/v1/finance/settings/evidence-rules'), {
         method: 'POST',
         body: {
           transactionType: evidenceType,
@@ -103,7 +105,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/approval-thresholds', {
+      await apiRequest(withActor('/api/v1/finance/settings/approval-thresholds'), {
         method: 'POST',
         body: {
           transactionType: thresholdType,
@@ -122,7 +124,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/numbering-schemes', {
+      await apiRequest(withActor('/api/v1/finance/settings/numbering-schemes'), {
         method: 'POST',
         body: {
           targetType: numberingTarget,
@@ -142,7 +144,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/payment-methods', {
+      await apiRequest(withActor('/api/v1/finance/settings/payment-methods'), {
         method: 'POST',
         body: {
           label: paymentMethodLabel,
@@ -161,7 +163,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/settings/ledger-mappings', {
+      await apiRequest(withActor('/api/v1/finance/settings/ledger-mappings'), {
         method: 'POST',
         body: {
           sourceModule: ledgerModule,
@@ -182,7 +184,7 @@ const FinanceSettingsPage: React.FC = () => {
     setSaving(true);
     setStatus('');
     try {
-      await apiRequest('/api/v1/finance/governance/rollout', { method: 'POST', body: {} });
+      await apiRequest(withActor('/api/v1/finance/governance/rollout'), { method: 'POST', body: {} });
       setStatus('Finance permissions and workflow transitions rolled out.');
       await load();
     } finally {

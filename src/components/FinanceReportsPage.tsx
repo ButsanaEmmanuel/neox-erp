@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, CheckCircle2, Clock3, RefreshCw } from 'lucide-react';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
 interface AgingBucket {
@@ -42,11 +43,12 @@ const emptyReports: FinanceReportsPayload = {
 const FinanceReportsPage: React.FC = () => {
   const [reports, setReports] = useState<FinanceReportsPayload>(emptyReports);
   const [loading, setLoading] = useState(false);
+  const withActor = useActorPath();
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiRequest<{ reports: FinanceReportsPayload }>('/api/v1/finance/reports');
+      const data = await apiRequest<{ reports: FinanceReportsPayload }>(withActor('/api/v1/finance/reports'));
       setReports(data.reports || emptyReports);
     } finally {
       setLoading(false);

@@ -3,6 +3,7 @@ import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 import { PayableRecord, VendorBillRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
@@ -31,6 +32,7 @@ const isoPlusDays = (days: number) => {
 const BillsPage: React.FC = () => {
     const { vendorBills: contextBills, payables } = useFinance();
     const { user } = useAuth();
+    const withActor = useActorPath();
 
     const [bills, setBills] = useState<VendorBillRecord[]>(contextBills);
     const [searchQuery, setSearchQuery] = useState('');
@@ -117,7 +119,7 @@ const BillsPage: React.FC = () => {
     }), [filteredRows]);
 
     const refreshBills = async () => {
-        const data = await apiRequest<VendorBillsResponse>('/api/v1/finance/bills?take=200');
+        const data = await apiRequest<VendorBillsResponse>(withActor('/api/v1/finance/bills?take=200'));
         setBills(data.bills || []);
     };
 
@@ -130,7 +132,7 @@ const BillsPage: React.FC = () => {
         if (!bill.payableId) return;
         setLoadingDetail(true);
         try {
-            const data = await apiRequest<PayableDetailResponse>(`/api/v1/finance/payables/${bill.payableId}`);
+            const data = await apiRequest<PayableDetailResponse>(withActor(`/api/v1/finance/payables/${bill.payableId}`));
             setSelectedParentPayable(data.payable || null);
         } catch (err) {
             setDetailError(err instanceof Error ? err.message : 'Unable to load parent payable.');
@@ -185,7 +187,7 @@ const BillsPage: React.FC = () => {
         setCreateSubmitting(true);
         setCreateError(null);
         try {
-            await apiRequest<CreateBillResponse>('/api/v1/finance/bills', {
+            await apiRequest<CreateBillResponse>(withActor('/api/v1/finance/bills'), {
                 method: 'POST',
                 body: {
                     payableId: createPayableId,

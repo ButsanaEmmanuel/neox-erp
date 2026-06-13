@@ -1,6 +1,27 @@
 import { apiRequest } from '../lib/apiClient';
 import type { PurchaseOrder } from '../types/po';
 
+// Finance routes run assertPermission against ?userId=. Resolve the real
+// session actor (these calls previously hardcoded a fake 'current-user' that
+// neither authorized nor attributed correctly).
+function getSessionUserId(): string | null {
+  try {
+    const raw = localStorage.getItem('neox-auth-session');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return String(parsed?.id || parsed?.user?.id || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function withActor(path: string): string {
+  const uid = getSessionUserId();
+  if (!uid) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}userId=${encodeURIComponent(uid)}`;
+}
+
 interface ScmFinanceStatusResponse {
   poId: string;
   commitments: Array<{ id: string; lifecycleStatus: string; amount: number; updatedAt: string }>;
@@ -23,7 +44,7 @@ interface ScmFinanceStatusResponse {
 }
 
 export async function syncPoFinanceCommitment(po: PurchaseOrder, event: 'po_approved' | 'po_sent' | 'po_acknowledged') {
-  return apiRequest<{ entry: unknown }>('/api/v1/finance/scm/po-commitment', {
+  return apiRequest<{ entry: unknown }>(withActor('/api/v1/finance/scm/po-commitment'), {
     method: 'POST',
     body: {
       poId: po.id,
@@ -35,7 +56,7 @@ export async function syncPoFinanceCommitment(po: PurchaseOrder, event: 'po_appr
       event,
       memo: `SCM PO ${po.poNumber} transitioned to ${po.status}`,
       actorDisplayName: 'SCM User',
-      actorUserId: 'current-user',
+      actorUserId: getSessionUserId() || undefined,
     },
   });
 }
@@ -51,18 +72,18 @@ export async function createScmVendorBill(payload: {
   vendorName?: string;
   currencyCode?: string;
 }) {
-  return apiRequest('/api/v1/finance/scm/vendor-bills', {
+  return apiRequest(withActor('/api/v1/finance/scm/vendor-bills'), {
     method: 'POST',
     body: {
       ...payload,
       actorDisplayName: 'SCM User',
-      actorUserId: 'current-user',
+      actorUserId: getSessionUserId() || undefined,
     },
   });
 }
 
 export async function fetchPoFinanceStatus(poId: string) {
-  return apiRequest<ScmFinanceStatusResponse>(`/api/v1/finance/scm/po/${poId}/status`);
+  return apiRequest<ScmFinanceStatusResponse>(withActor(`/api/v1/finance/scm/po/${poId}/status`));
 }
 
 export async function createScmRequisitionCommitment(payload: {
@@ -73,13 +94,13 @@ export async function createScmRequisitionCommitment(payload: {
   neededBy?: string;
   memo?: string;
 }) {
-  return apiRequest('/api/v1/finance/scm/requisition-commitment', {
+  return apiRequest(withActor('/api/v1/finance/scm/requisition-commitment'), {
     method: 'POST',
     body: {
       ...payload,
       event: 'requisition_commitment_candidate',
       actorDisplayName: 'SCM User',
-      actorUserId: 'current-user',
+      actorUserId: getSessionUserId() || undefined,
     },
   });
 }
@@ -91,12 +112,12 @@ export async function recordScmPayment(payload: {
   proofReference: string;
   sourceContext?: { poId?: string; billNumber?: string; grnNumber?: string };
 }) {
-  return apiRequest('/api/v1/finance/payments', {
+  return apiRequest(withActor('/api/v1/finance/payments'), {
     method: 'POST',
     body: {
       ...payload,
       actorDisplayName: 'Finance User',
-      actorUserId: 'current-user',
+      actorUserId: getSessionUserId() || undefined,
       status: 'completed',
     },
   });

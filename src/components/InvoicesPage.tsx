@@ -3,6 +3,7 @@ import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import { useActorPath } from '../lib/useActorPath';
 import { CustomerInvoiceRecord, ReceivableRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
@@ -31,6 +32,7 @@ const isoPlusDays = (days: number) => {
 const InvoicesPage: React.FC = () => {
     const { customerInvoices: contextInvoices, receivables } = useFinance();
     const { user } = useAuth();
+    const withActor = useActorPath();
 
     const [invoices, setInvoices] = useState<CustomerInvoiceRecord[]>(contextInvoices);
     const [searchQuery, setSearchQuery] = useState('');
@@ -121,7 +123,7 @@ const InvoicesPage: React.FC = () => {
     }, [filteredRows]);
 
     const refreshInvoices = async () => {
-        const data = await apiRequest<CustomerInvoicesResponse>('/api/v1/finance/invoices?take=200');
+        const data = await apiRequest<CustomerInvoicesResponse>(withActor('/api/v1/finance/invoices?take=200'));
         setInvoices(data.invoices || []);
     };
 
@@ -134,7 +136,7 @@ const InvoicesPage: React.FC = () => {
         if (!invoice.receivableId) return;
         setLoadingDetail(true);
         try {
-            const data = await apiRequest<ReceivableDetailResponse>(`/api/v1/finance/receivables/${invoice.receivableId}`);
+            const data = await apiRequest<ReceivableDetailResponse>(withActor(`/api/v1/finance/receivables/${invoice.receivableId}`));
             setSelectedParentReceivable(data.receivable || null);
         } catch (err) {
             setDetailError(err instanceof Error ? err.message : 'Unable to load parent receivable.');
@@ -189,7 +191,7 @@ const InvoicesPage: React.FC = () => {
         setCreateSubmitting(true);
         setCreateError(null);
         try {
-            await apiRequest<CreateInvoiceResponse>('/api/v1/finance/invoices', {
+            await apiRequest<CreateInvoiceResponse>(withActor('/api/v1/finance/invoices'), {
                 method: 'POST',
                 body: {
                     receivableId: createReceivableId,

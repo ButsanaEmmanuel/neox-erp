@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ExternalLink, FileText, LayoutGrid, List, Receipt, Search, Wallet, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
+import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
 import { CustomerInvoiceRecord, ReceiptCollectionRecord, ReceivableRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -56,6 +57,15 @@ function getAgedBucket(receivable: ReceivableRecord, today: Date): AgedBucket | 
 
 const ReceivablesPage: React.FC = () => {
     const { receivables: contextReceivables, customerInvoices, receiptCollections } = useFinance();
+    const { user } = useAuth();
+
+    // Finance routes run assertPermission against ?userId=. Append the actor so
+    // the detail fetch doesn't 403 ("Permission denied") even for admins.
+    const withActor = (path: string) => {
+        if (!user?.id) return path;
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}userId=${encodeURIComponent(user.id)}`;
+    };
 
     const [receivables, setReceivables] = useState<ReceivableRecord[]>(contextReceivables);
     const [searchQuery, setSearchQuery] = useState('');
@@ -159,7 +169,7 @@ const ReceivablesPage: React.FC = () => {
         setDetailError(null);
         setLoadingDetail(true);
         try {
-            const data = await apiRequest<ReceivableDetailResponse>(`/api/v1/finance/receivables/${receivable.id}`);
+            const data = await apiRequest<ReceivableDetailResponse>(withActor(`/api/v1/finance/receivables/${receivable.id}`));
             setSelectedDetail(data.receivable || null);
         } catch (err) {
             setDetailError(err instanceof Error ? err.message : 'Unable to load receivable detail.');
