@@ -24,6 +24,7 @@ const PAYMENT_METHOD_OPTIONS = [
 ];
 
 const INVOICE_STATUS_OPTIONS = ['all', 'draft', 'sent', 'partial', 'paid', 'overdue', 'cancelled'];
+const VAT_RATE = 0.16; // 16% VAT, applied optionally when generating from a project
 
 interface CustomerInvoicesResponse {
     invoices: CustomerInvoiceRecord[];
@@ -88,6 +89,7 @@ const InvoicesPage: React.FC = () => {
     const [projCurrency, setProjCurrency] = useState('USD');
     const [projDueDate, setProjDueDate] = useState('');
     const [projNotes, setProjNotes] = useState('');
+    const [projApplyTax, setProjApplyTax] = useState(false);
     const [projBillables, setProjBillables] = useState<ReceivableRecord[]>([]);
     const [projBillablesLoading, setProjBillablesLoading] = useState(false);
     const [projSubmitting, setProjSubmitting] = useState(false);
@@ -360,6 +362,7 @@ const InvoicesPage: React.FC = () => {
         setProjCurrency('USD');
         setProjDueDate('');
         setProjNotes('');
+        setProjApplyTax(false);
         setProjBillables([]);
         setProjError(null);
         setProjSuccess(null);
@@ -396,6 +399,7 @@ const InvoicesPage: React.FC = () => {
                 currencyCode: projCurrency || 'USD',
                 dueDate: projDueDate ? new Date(projDueDate).toISOString() : undefined,
                 notes: projNotes.trim() || undefined,
+                taxRate: projApplyTax ? VAT_RATE : 0,
             });
             if (result.lineCount === 0) {
                 setProjError(result.message || 'Aucun receivable à facturer pour ce projet.');
@@ -538,8 +542,8 @@ const InvoicesPage: React.FC = () => {
                                         className="hover:bg-surface transition-colors cursor-pointer"
                                     >
                                         <td className="px-6 py-4 text-sm font-semibold text-primary">{invoice.invoiceNumber}</td>
-                                        <td className="px-6 py-4 text-sm text-secondary">{invoice.receivable?.clientName || '-'}</td>
-                                        <td className="px-6 py-4 text-xs text-secondary">{invoice.receivable?.referenceCode || '-'}</td>
+                                        <td className="px-6 py-4 text-sm text-secondary">{invoice.clientAccount?.name || invoice.receivable?.clientName || '-'}</td>
+                                        <td className="px-6 py-4 text-xs text-secondary">{invoice._count?.lines ? `${invoice._count.lines} receivable${invoice._count.lines > 1 ? 's' : ''}` : (invoice.receivable?.referenceCode || '-')}</td>
                                         <td className="px-6 py-4 text-right text-sm text-secondary tabular-nums">{formatCurrency(Number(invoice.subtotalAmount || 0))}</td>
                                         <td className="px-6 py-4 text-right text-xs text-secondary tabular-nums">{formatCurrency(Number(invoice.taxAmount || 0))}</td>
                                         <td className="px-6 py-4 text-right text-sm font-semibold text-emerald-300 tabular-nums">{formatCurrency(Number(invoice.totalAmount || 0))}</td>
@@ -949,9 +953,21 @@ const InvoicesPage: React.FC = () => {
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="flex items-center justify-between border-t border-border/80 pt-3 text-sm">
-                                            <span className="text-secondary">Total ({projBillables.length})</span>
-                                            <span className="font-semibold text-emerald-300 tabular-nums">{formatCurrency(projBillablesTotal)}</span>
+                                        <div className="border-t border-border/80 pt-3 space-y-1 text-sm">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-secondary">Sous-total ({projBillables.length})</span>
+                                                <span className="text-primary tabular-nums">{formatCurrency(projBillablesTotal)}</span>
+                                            </div>
+                                            {projApplyTax && (
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <span className="text-secondary">TVA (16%)</span>
+                                                    <span className="text-secondary tabular-nums">{formatCurrency(projBillablesTotal * VAT_RATE)}</span>
+                                                </div>
+                                            )}
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-secondary font-medium">Total</span>
+                                                <span className="font-semibold text-emerald-300 tabular-nums">{formatCurrency(projBillablesTotal * (projApplyTax ? 1 + VAT_RATE : 1))}</span>
+                                            </div>
                                         </div>
                                     </>
                                 )}
@@ -975,6 +991,16 @@ const InvoicesPage: React.FC = () => {
                                     />
                                 </FormField>
                             </div>
+
+                            <label className="flex items-center gap-2 text-xs text-secondary cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={projApplyTax}
+                                    onChange={(e) => setProjApplyTax(e.target.checked)}
+                                    className="accent-emerald-500 h-4 w-4"
+                                />
+                                Appliquer la TVA (16%)
+                            </label>
 
                             <FormField label="Notes">
                                 <textarea

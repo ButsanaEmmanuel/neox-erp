@@ -58,6 +58,7 @@ export interface CreateInvoiceFromProjectInput {
   currencyCode?: string;
   dueDate?: string;
   notes?: string;
+  taxRate?: number; // e.g. 0.16 for 16% VAT; backend computes taxAmount = subtotal * taxRate
 }
 
 export interface CreateInvoiceFromProjectResult {

@@ -230,13 +230,16 @@ export interface PayableRecord {
 
 export interface CustomerInvoiceRecord {
     id: string;
-    receivableId: string;
+    receivableId?: string | null;
+    projectId?: string | null;
     invoiceNumber: string;
     issueDate: string;
     dueDate: string;
     subtotalAmount: number;
     taxAmount: number;
     totalAmount: number;
+    collectedAmount?: number;
+    outstandingAmount?: number;
     currencyCode: string;
     status: string;
     clientAccountId?: string;
@@ -245,7 +248,9 @@ export interface CustomerInvoiceRecord {
     createdByName?: string;
     createdAt: string;
     updatedAt: string;
-    receivable: ReceivableRecord;
+    receivable?: ReceivableRecord | null;
+    clientAccount?: { name: string } | null;
+    _count?: { lines: number };
 }
 
 export interface VendorBillRecord {

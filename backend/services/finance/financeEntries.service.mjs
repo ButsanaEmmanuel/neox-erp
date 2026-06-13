@@ -1356,6 +1356,8 @@ export async function listCustomerInvoices(prisma, filters = {}) {
           financeEntry: true,
         },
       },
+      clientAccount: true,
+      _count: { select: { lines: true } },
     },
     orderBy: { createdAt: 'desc' },
     take: filters.take ? Number(filters.take) : 200,
@@ -1442,8 +1444,12 @@ export async function createInvoiceFromProject(prisma, payload) {
       return { invoice: null, lineCount: 0, message: 'No un-invoiced receivables for this project.' };
     }
 
-    const tax = Number(payload.taxAmount ?? 0);
     const subtotal = receivables.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
+    // Tax: explicit taxAmount wins; otherwise derive from an optional taxRate
+    // (e.g. 0.16 for 16% VAT). Defaults to 0 (no tax).
+    const tax = payload.taxAmount != null
+      ? Number(payload.taxAmount)
+      : Number((subtotal * Number(payload.taxRate || 0)).toFixed(2));
     const now = new Date();
     const clientAccountId = receivables.find((r) => r.clientAccountId)?.clientAccountId || null;
 
