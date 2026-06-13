@@ -464,7 +464,7 @@ const DashboardContent: React.FC = () => {
               </motion.div>
             ) : activeView === 'finance-reconciliation' ? (
               <motion.div key="finance-reconciliation" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
-                <FinanceReconciliationPage />
+                <FinanceReconciliationPage onNavigate={setActiveView} />
               </motion.div>
             ) : activeView === 'finance-receivables' ? (
               <motion.div key="finance-receivables" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
@@ -493,6 +493,14 @@ const DashboardContent: React.FC = () => {
             ) : activeView === 'finance-receipts' ? (
               <motion.div key="finance-receipts" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
                 <ReceiptsPage />
+              </motion.div>
+            ) : activeView.startsWith('finance-payments-detail-') ? (
+              <motion.div key="finance-payments-detail" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
+                <PaymentsPage focusPaymentId={activeView.replace('finance-payments-detail-', '')} onBack={() => setActiveView('finance-reconciliation')} />
+              </motion.div>
+            ) : activeView.startsWith('finance-receipts-detail-') ? (
+              <motion.div key="finance-receipts-detail" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">
+                <ReceiptsPage focusReceiptId={activeView.replace('finance-receipts-detail-', '')} onBack={() => setActiveView('finance-reconciliation')} />
               </motion.div>
             ) : activeView === 'finance-hrm-payroll' ? (
               <motion.div key="finance-hrm-payroll" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full">

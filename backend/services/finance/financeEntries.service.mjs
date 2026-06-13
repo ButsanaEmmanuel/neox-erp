@@ -837,6 +837,68 @@ export async function uploadFinanceEvidence(prisma, payload) {
   });
 }
 
+// Attach a proof document to an EXISTING payment, then stamp its
+// proofDocumentId so reconciliation's missing_proof check clears on the next
+// run. Payments are otherwise immutable — only the proof link is mutated here.
+// The evidence document itself is created on the parent payable's finance entry
+// (where all finance evidence lives), reusing uploadFinanceEvidence.
+export async function attachPaymentProof(prisma, paymentId, payload = {}) {
+  const payment = await prisma.paymentDisbursement.findUnique({
+    where: { id: paymentId },
+    include: { payable: true },
+  });
+  if (!payment) throw new Error('Payment not found.');
+  const financeEntryId = payment.payable?.financeEntryId;
+  if (!financeEntryId) throw new Error('Payment has no linked finance entry to attach proof to.');
+
+  const evidence = await uploadFinanceEvidence(prisma, {
+    financeEntryId,
+    originalFileName: payload.originalFileName,
+    mimeType: payload.mimeType,
+    sizeBytes: payload.sizeBytes,
+    contentBase64: payload.contentBase64,
+    documentType: payload.documentType || 'payment_transfer_proof',
+    notes: payload.notes || null,
+    actorUserId: payload.actorUserId || null,
+    actorDisplayName: payload.actorDisplayName || null,
+  });
+
+  const updated = await prisma.paymentDisbursement.update({
+    where: { id: paymentId },
+    data: { proofDocumentId: evidence.id },
+  });
+  return { payment: updated, evidence };
+}
+
+// Symmetric counterpart for an EXISTING receipt collection.
+export async function attachReceiptProof(prisma, receiptId, payload = {}) {
+  const receipt = await prisma.receiptCollection.findUnique({
+    where: { id: receiptId },
+    include: { receivable: true },
+  });
+  if (!receipt) throw new Error('Receipt not found.');
+  const financeEntryId = receipt.receivable?.financeEntryId;
+  if (!financeEntryId) throw new Error('Receipt has no linked finance entry to attach proof to.');
+
+  const evidence = await uploadFinanceEvidence(prisma, {
+    financeEntryId,
+    originalFileName: payload.originalFileName,
+    mimeType: payload.mimeType,
+    sizeBytes: payload.sizeBytes,
+    contentBase64: payload.contentBase64,
+    documentType: payload.documentType || 'receipt_payment_proof',
+    notes: payload.notes || null,
+    actorUserId: payload.actorUserId || null,
+    actorDisplayName: payload.actorDisplayName || null,
+  });
+
+  const updated = await prisma.receiptCollection.update({
+    where: { id: receiptId },
+    data: { proofDocumentId: evidence.id },
+  });
+  return { receipt: updated, evidence };
+}
+
 export function resolveAbsoluteFinanceStoredPath(storagePath) {
   return path.resolve(process.cwd(), storagePath);
 }

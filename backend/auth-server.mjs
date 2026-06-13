@@ -47,6 +47,8 @@ import {
   createCustomerInvoice,
   createPaymentDisbursement,
   createReceiptCollection,
+  attachPaymentProof,
+  attachReceiptProof,
   createVendorBill,
   listCustomerInvoices,
   listPaymentDisbursements,
@@ -1796,6 +1798,38 @@ const server = http.createServer(async (req, res) => {
       const body = await parseBody(req);
       const bodyActor = parseActor(body);
       const result = await createReceiptCollection(prisma, {
+        ...body,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
+      });
+      return json(res, 201, result);
+    }
+
+    // Attach a proof document to an existing payment / receipt and stamp its
+    // proofDocumentId — clears reconciliation's missing_proof on the next run.
+    const paymentProofMatch = pathname.match(/^\/api\/v1\/finance\/payments\/([^/]+)\/proof$/);
+    if (method === 'POST' && paymentProofMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.evidence.upload'))) return;
+      const [, paymentId] = paymentProofMatch;
+      const body = await parseBody(req);
+      const bodyActor = parseActor(body);
+      const result = await attachPaymentProof(prisma, paymentId, {
+        ...body,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
+      });
+      return json(res, 201, result);
+    }
+
+    const receiptProofMatch = pathname.match(/^\/api\/v1\/finance\/receipts\/([^/]+)\/proof$/);
+    if (method === 'POST' && receiptProofMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.evidence.upload'))) return;
+      const [, receiptId] = receiptProofMatch;
+      const body = await parseBody(req);
+      const bodyActor = parseActor(body);
+      const result = await attachReceiptProof(prisma, receiptId, {
         ...body,
         actorUserId: bodyActor.actorUserId,
         actorDisplayName: bodyActor.actorDisplayName,

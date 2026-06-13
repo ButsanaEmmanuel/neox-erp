@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, CheckCircle2, ExternalLink, Info, Plus, Search, Upload, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import { attachPaymentProof } from '../services/finance/proofApi';
 import { PayableRecord, PaymentDisbursementRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
@@ -25,9 +26,27 @@ interface PayableDetailResponse {
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
 
-const PaymentsPage: React.FC = () => {
+interface PaymentsPageProps {
+    // Drill-through from reconciliation: auto-open this payment's drawer.
+    focusPaymentId?: string;
+    onBack?: () => void;
+}
+
+const PaymentsPage: React.FC<PaymentsPageProps> = ({ focusPaymentId, onBack }) => {
     const { paymentDisbursements: contextPayments, payables } = useFinance();
     const { user } = useAuth();
+
+    // Every finance route runs assertPermission against ?userId=. Append the
+    // actor on calls this page makes directly so they don't 403.
+    const withActor = (path: string) => {
+        if (!user?.id) return path;
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}userId=${encodeURIComponent(user.id)}`;
+    };
+
+    const [proofFile, setProofFile] = useState<File | null>(null);
+    const [uploadingProof, setUploadingProof] = useState(false);
+    const [proofError, setProofError] = useState<string | null>(null);
 
     const [payments, setPayments] = useState<PaymentDisbursementRecord[]>(contextPayments);
     const [searchQuery, setSearchQuery] = useState('');
@@ -115,7 +134,7 @@ const PaymentsPage: React.FC = () => {
     }), [filteredRows]);
 
     const refreshPayments = async () => {
-        const data = await apiRequest<PaymentsResponse>('/api/v1/finance/payments?take=200');
+        const data = await apiRequest<PaymentsResponse>(withActor('/api/v1/finance/payments?take=200'));
         setPayments(data.payments || []);
     };
 
@@ -125,15 +144,53 @@ const PaymentsPage: React.FC = () => {
         setSelectedPaymentId(payment.id);
         setSelectedParentPayable(null);
         setDetailError(null);
+        setProofFile(null);
+        setProofError(null);
         if (!payment.payableId) return;
         setLoadingDetail(true);
         try {
-            const data = await apiRequest<PayableDetailResponse>(`/api/v1/finance/payables/${payment.payableId}`);
+            const data = await apiRequest<PayableDetailResponse>(withActor(`/api/v1/finance/payables/${payment.payableId}`));
             setSelectedParentPayable(data.payable || null);
         } catch (err) {
             setDetailError(err instanceof Error ? err.message : 'Unable to load parent payable.');
         } finally {
             setLoadingDetail(false);
+        }
+    };
+
+    // Drill-through from reconciliation: make sure the list holds the target,
+    // then auto-open its drawer.
+    useEffect(() => {
+        if (!focusPaymentId) return;
+        void refreshPayments();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusPaymentId]);
+
+    // Auto-open the focused payment ONCE — after that the user is free to
+    // close it or open another row without the focus yanking back.
+    const autoOpenedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!focusPaymentId || autoOpenedRef.current === focusPaymentId) return;
+        const target = payments.find((p) => p.id === focusPaymentId);
+        if (target) {
+            autoOpenedRef.current = focusPaymentId;
+            void openPaymentDetail(target);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusPaymentId, payments]);
+
+    const attachProof = async () => {
+        if (!selectedPayment || !proofFile) return;
+        setUploadingProof(true);
+        setProofError(null);
+        try {
+            await attachPaymentProof(selectedPayment.id, proofFile);
+            setProofFile(null);
+            await refreshPayments();
+        } catch (err) {
+            setProofError(err instanceof Error ? err.message : 'Unable to attach proof.');
+        } finally {
+            setUploadingProof(false);
         }
     };
 
@@ -181,7 +238,7 @@ const PaymentsPage: React.FC = () => {
         setCreateSubmitting(true);
         setCreateError(null);
         try {
-            await apiRequest<CreatePaymentResponse>('/api/v1/finance/payments', {
+            await apiRequest<CreatePaymentResponse>(withActor('/api/v1/finance/payments'), {
                 method: 'POST',
                 body: {
                     payableId: createPayableId,
@@ -217,6 +274,15 @@ const PaymentsPage: React.FC = () => {
     return (
         <>
             <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        className="self-start h-8 px-3 rounded-md border border-border text-xs text-secondary hover:text-primary flex items-center gap-1.5"
+                    >
+                        <ArrowLeft size={13} /> Retour à la réconciliation
+                    </button>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <StatCard label="Payments (filtered)" value={String(stats.count)} />
                     <StatCard label="Disbursed (completed)" value={formatCurrency(stats.totalDisbursed)} accent="rose" />
@@ -383,6 +449,43 @@ const PaymentsPage: React.FC = () => {
                                 <div className="text-[11px] text-muted">
                                     Recorded {selectedPayment.createdAt ? formatDate(selectedPayment.createdAt, 'short') : '-'}
                                 </div>
+                            </section>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <h4 className="text-sm font-semibold text-primary">Proof of payment</h4>
+                                {selectedPayment.proofDocumentId ? (
+                                    <div className="flex items-center gap-2 text-sm text-emerald-300">
+                                        <CheckCircle2 size={16} />
+                                        <span>Proof attached</span>
+                                        <code className="text-[11px] text-muted bg-slate-900/60 rounded px-1.5 py-0.5">{selectedPayment.proofDocumentId}</code>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-xs text-amber-300">No proof attached — this is what reconciliation flags as MISSING_PROOF.</p>
+                                        {proofError && (
+                                            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">{proofError}</div>
+                                        )}
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xlsx"
+                                            onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                                            className="w-full bg-slate-900/70 border border-border/80 rounded-lg px-3 py-2 text-xs text-primary file:mr-2 file:rounded file:border-0 file:bg-blue-500/20 file:px-2 file:py-1 file:text-blue-200"
+                                        />
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-[11px] text-muted truncate">
+                                                {proofFile ? `Selected: ${proofFile.name}` : 'PDF / image / Office doc, max 15 MB'}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                disabled={uploadingProof || !proofFile}
+                                                onClick={() => void attachProof()}
+                                                className="h-9 px-3 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                            >
+                                                <Upload size={13} /> {uploadingProof ? 'Attaching...' : 'Attach proof'}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
                             </section>
 
                             <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">

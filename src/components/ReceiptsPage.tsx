@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Info, Plus, Search, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, CheckCircle2, ExternalLink, Info, Plus, Search, Upload, X } from 'lucide-react';
 import { useFinance } from '../contexts/FinanceContext';
 import { useAuth } from '../contexts/AuthContext';
 import { apiRequest } from '../lib/apiClient';
+import { attachReceiptProof } from '../services/finance/proofApi';
 import { ReceiptCollectionRecord, ReceivableRecord } from '../types/finance';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import ComboboxSelect from './ui/ComboboxSelect';
@@ -25,9 +26,26 @@ interface ReceivableDetailResponse {
 
 const isoToday = () => new Date().toISOString().slice(0, 10);
 
-const ReceiptsPage: React.FC = () => {
+interface ReceiptsPageProps {
+    // Drill-through from reconciliation: auto-open this receipt's drawer.
+    focusReceiptId?: string;
+    onBack?: () => void;
+}
+
+const ReceiptsPage: React.FC<ReceiptsPageProps> = ({ focusReceiptId, onBack }) => {
     const { receiptCollections: contextReceipts, receivables } = useFinance();
     const { user } = useAuth();
+
+    // Append the actor on calls this page makes directly so they don't 403.
+    const withActor = (path: string) => {
+        if (!user?.id) return path;
+        const sep = path.includes('?') ? '&' : '?';
+        return `${path}${sep}userId=${encodeURIComponent(user.id)}`;
+    };
+
+    const [proofFile, setProofFile] = useState<File | null>(null);
+    const [uploadingProof, setUploadingProof] = useState(false);
+    const [proofError, setProofError] = useState<string | null>(null);
 
     const [receipts, setReceipts] = useState<ReceiptCollectionRecord[]>(contextReceipts);
     const [searchQuery, setSearchQuery] = useState('');
@@ -115,7 +133,7 @@ const ReceiptsPage: React.FC = () => {
     }), [filteredRows]);
 
     const refreshReceipts = async () => {
-        const data = await apiRequest<ReceiptsResponse>('/api/v1/finance/receipts?take=200');
+        const data = await apiRequest<ReceiptsResponse>(withActor('/api/v1/finance/receipts?take=200'));
         setReceipts(data.receipts || []);
     };
 
@@ -125,15 +143,52 @@ const ReceiptsPage: React.FC = () => {
         setSelectedReceiptId(receipt.id);
         setSelectedParentReceivable(null);
         setDetailError(null);
+        setProofFile(null);
+        setProofError(null);
         if (!receipt.receivableId) return;
         setLoadingDetail(true);
         try {
-            const data = await apiRequest<ReceivableDetailResponse>(`/api/v1/finance/receivables/${receipt.receivableId}`);
+            const data = await apiRequest<ReceivableDetailResponse>(withActor(`/api/v1/finance/receivables/${receipt.receivableId}`));
             setSelectedParentReceivable(data.receivable || null);
         } catch (err) {
             setDetailError(err instanceof Error ? err.message : 'Unable to load parent receivable.');
         } finally {
             setLoadingDetail(false);
+        }
+    };
+
+    // Drill-through from reconciliation: make sure the list holds the target,
+    // then auto-open its drawer.
+    useEffect(() => {
+        if (!focusReceiptId) return;
+        void refreshReceipts();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusReceiptId]);
+
+    // Auto-open the focused receipt ONCE — afterwards the user can navigate freely.
+    const autoOpenedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!focusReceiptId || autoOpenedRef.current === focusReceiptId) return;
+        const target = receipts.find((r) => r.id === focusReceiptId);
+        if (target) {
+            autoOpenedRef.current = focusReceiptId;
+            void openReceiptDetail(target);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusReceiptId, receipts]);
+
+    const attachProof = async () => {
+        if (!selectedReceipt || !proofFile) return;
+        setUploadingProof(true);
+        setProofError(null);
+        try {
+            await attachReceiptProof(selectedReceipt.id, proofFile);
+            setProofFile(null);
+            await refreshReceipts();
+        } catch (err) {
+            setProofError(err instanceof Error ? err.message : 'Unable to attach proof.');
+        } finally {
+            setUploadingProof(false);
         }
     };
 
@@ -185,7 +240,7 @@ const ReceiptsPage: React.FC = () => {
         setCreateSubmitting(true);
         setCreateError(null);
         try {
-            await apiRequest<CreateReceiptResponse>('/api/v1/finance/receipts', {
+            await apiRequest<CreateReceiptResponse>(withActor('/api/v1/finance/receipts'), {
                 method: 'POST',
                 body: {
                     receivableId: createReceivableId,
@@ -221,6 +276,15 @@ const ReceiptsPage: React.FC = () => {
     return (
         <>
             <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+                {onBack && (
+                    <button
+                        type="button"
+                        onClick={onBack}
+                        className="self-start h-8 px-3 rounded-md border border-border text-xs text-secondary hover:text-primary flex items-center gap-1.5"
+                    >
+                        <ArrowLeft size={13} /> Retour à la réconciliation
+                    </button>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <StatCard label="Receipts (filtered)" value={String(stats.count)} />
                     <StatCard label="Collected (completed)" value={formatCurrency(stats.totalCollected)} accent="emerald" />
@@ -387,6 +451,43 @@ const ReceiptsPage: React.FC = () => {
                                 <div className="text-[11px] text-muted">
                                     Recorded {selectedReceipt.createdAt ? formatDate(selectedReceipt.createdAt, 'short') : '-'}
                                 </div>
+                            </section>
+
+                            <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
+                                <h4 className="text-sm font-semibold text-primary">Proof of receipt</h4>
+                                {selectedReceipt.proofDocumentId ? (
+                                    <div className="flex items-center gap-2 text-sm text-emerald-300">
+                                        <CheckCircle2 size={16} />
+                                        <span>Proof attached</span>
+                                        <code className="text-[11px] text-muted bg-slate-900/60 rounded px-1.5 py-0.5">{selectedReceipt.proofDocumentId}</code>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-xs text-amber-300">No proof attached — this is what reconciliation flags as MISSING_PROOF.</p>
+                                        {proofError && (
+                                            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-xs px-3 py-2">{proofError}</div>
+                                        )}
+                                        <input
+                                            type="file"
+                                            accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xlsx"
+                                            onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                                            className="w-full bg-slate-900/70 border border-border/80 rounded-lg px-3 py-2 text-xs text-primary file:mr-2 file:rounded file:border-0 file:bg-blue-500/20 file:px-2 file:py-1 file:text-blue-200"
+                                        />
+                                        <div className="flex items-center justify-between gap-3">
+                                            <p className="text-[11px] text-muted truncate">
+                                                {proofFile ? `Selected: ${proofFile.name}` : 'PDF / image / Office doc, max 15 MB'}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                disabled={uploadingProof || !proofFile}
+                                                onClick={() => void attachProof()}
+                                                className="h-9 px-3 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-60 text-xs font-semibold flex items-center gap-1.5"
+                                            >
+                                                <Upload size={13} /> {uploadingProof ? 'Attaching...' : 'Attach proof'}
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
                             </section>
 
                             <section className="rounded-xl border border-border/80 bg-card p-4 space-y-3">
