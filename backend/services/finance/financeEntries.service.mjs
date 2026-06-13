@@ -1524,6 +1524,11 @@ export async function recordInvoicePayment(prisma, invoiceId, payload = {}) {
       .filter((line) => line.receivable && Number(line.receivable.outstandingAmount || 0) > 0);
     const totalOutstanding = payableLines.reduce((sum, line) => sum + Number(line.receivable.outstandingAmount || 0), 0);
     if (totalOutstanding <= 0) throw new Error('Invoice has no outstanding amount to settle.');
+    // Reject overpayment instead of silently capping — a payment must never exceed
+    // the invoice's outstanding balance. Small epsilon tolerates float rounding.
+    if (amount > totalOutstanding + 0.005) {
+      throw new Error(`Payment amount exceeds the invoice outstanding (${totalOutstanding.toFixed(2)}).`);
+    }
 
     const applied = Math.min(amount, totalOutstanding);
 

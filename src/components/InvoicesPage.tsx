@@ -260,6 +260,11 @@ const InvoicesPage: React.FC = () => {
             setPayError('La référence de preuve est obligatoire.');
             return;
         }
+        const dueOutstanding = Number(invoiceDetail?.outstandingAmount || 0);
+        if (dueOutstanding > 0 && amount > dueOutstanding + 0.005) {
+            setPayError(`Le montant dépasse l'encours de la facture (${formatCurrency(dueOutstanding)}).`);
+            return;
+        }
         setPaySubmitting(true);
         setPayError(null);
         setPaySuccess(null);
@@ -684,13 +689,18 @@ const InvoicesPage: React.FC = () => {
                                                     <input
                                                         type="number"
                                                         min="0"
+                                                        max={Number(invoiceDetail.outstandingAmount || 0)}
                                                         step="0.01"
                                                         required
                                                         value={payAmount}
                                                         onChange={(e) => setPayAmount(e.target.value)}
                                                         className="h-10 bg-slate-900/70 border border-border/80 rounded-lg px-3 text-sm text-primary focus:outline-none focus:border-emerald-500/40 w-full"
                                                     />
-                                                    <p className="text-[11px] text-muted mt-1">Outstanding {formatCurrency(Number(invoiceDetail.outstandingAmount || 0))} {invoiceDetail.currencyCode || ''}.</p>
+                                                    {Number(payAmount || 0) > Number(invoiceDetail.outstandingAmount || 0) + 0.005 ? (
+                                                        <p className="text-[11px] text-rose-400 mt-1">Le montant dépasse l'encours ({formatCurrency(Number(invoiceDetail.outstandingAmount || 0))}).</p>
+                                                    ) : (
+                                                        <p className="text-[11px] text-muted mt-1">Outstanding {formatCurrency(Number(invoiceDetail.outstandingAmount || 0))} {invoiceDetail.currencyCode || ''}.</p>
+                                                    )}
                                                 </FormField>
                                                 <FormField label="Method">
                                                     <select
@@ -726,7 +736,7 @@ const InvoicesPage: React.FC = () => {
                                             <div className="flex items-center justify-end">
                                                 <button
                                                     type="submit"
-                                                    disabled={paySubmitting || Number(payAmount || 0) <= 0 || !payProofReference.trim()}
+                                                    disabled={paySubmitting || Number(payAmount || 0) <= 0 || !payProofReference.trim() || Number(payAmount || 0) > Number(invoiceDetail.outstandingAmount || 0) + 0.005}
                                                     className="h-9 px-4 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-60 text-xs font-semibold"
                                                 >
                                                     {paySubmitting ? 'Enregistrement...' : 'Enregistrer le paiement'}
