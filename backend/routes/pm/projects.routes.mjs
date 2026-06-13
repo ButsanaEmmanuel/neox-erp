@@ -38,6 +38,7 @@ import {
   moveSubMilestone,
 } from '../../services/pm/milestoneHierarchy.service.mjs';
 import { bulkImportWbsWorkItems } from '../../services/pm/wbsBulkImport.service.mjs';
+import { createInvoiceFromProject } from '../../services/finance/financeEntries.service.mjs';
 
 // SSE payload hygiene : exclude auth metadata fields from patchedFields,
 // they are not part of the business state mutated by the request.
@@ -116,9 +117,28 @@ export async function handlePmProjectRoutes(ctx) {
       const body = await ctx.parseBody(ctx.req);
       const actor = ctx.parseActor(body);
       if (!(await assertPermission({ userId: actor.actorUserId, res }, 'pm.projects.write'))) return true;
+      const before = await getProjectById(ctx.prisma, projectId);
       const project = await updateProject(ctx.prisma, projectId, body);
+      // AR-3: when a project transitions INTO a closed/completed state, auto-generate
+      // the consolidated invoice grouping its un-invoiced receivables. Non-fatal —
+      // closure must succeed even if invoicing fails; idempotent if re-run.
+      const CLOSED_STATUSES = new Set(['completed', 'closed']);
+      const wasClosed = CLOSED_STATUSES.has(String(before?.status || '').toLowerCase());
+      const nowClosed = CLOSED_STATUSES.has(String(project?.status || '').toLowerCase());
+      let autoInvoice = null;
+      if (nowClosed && !wasClosed) {
+        try {
+          autoInvoice = await createInvoiceFromProject(ctx.prisma, {
+            projectId,
+            actorUserId: actor.actorUserId,
+            actorDisplayName: actor.actorDisplayName,
+          });
+        } catch (err) {
+          console.error('[AR-3] auto-invoice on project closure failed:', err?.message || err);
+        }
+      }
       safeBroadcast('project_updated', { projectId, patchedFields: patchedFieldsOf(body) });
-      json(res, 200, { project });
+      json(res, 200, { project, autoInvoice });
       return true;
     }
 

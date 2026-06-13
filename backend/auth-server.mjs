@@ -45,6 +45,10 @@ import {
   uploadFinanceEvidence,
   backfillInvoicesAndBills,
   createCustomerInvoice,
+  createInvoiceFromProject,
+  listProjectBillableReceivables,
+  getCustomerInvoiceDetail,
+  recordInvoicePayment,
   createPaymentDisbursement,
   createReceiptCollection,
   attachPaymentProof,
@@ -1734,6 +1738,51 @@ const server = http.createServer(async (req, res) => {
         actorDisplayName: bodyActor.actorDisplayName,
       });
       return json(res, 201, { invoice });
+    }
+    // AR-2: generate one invoice grouping a project's un-invoiced receivables.
+    if (method === 'POST' && pathname === '/api/v1/finance/invoices/from-project') {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.write'))) return;
+      const body = await parseBody(req);
+      const bodyActor = parseActor(body);
+      const result = await createInvoiceFromProject(prisma, {
+        ...body,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
+      });
+      return json(res, 201, result);
+    }
+    const billableReceivablesMatch = pathname.match(/^\/api\/v1\/finance\/projects\/([^/]+)\/billable-receivables$/);
+    if (method === 'GET' && billableReceivablesMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.read'))) return;
+      const [, projectId] = billableReceivablesMatch;
+      const receivables = await listProjectBillableReceivables(prisma, projectId);
+      return json(res, 200, { receivables });
+    }
+    // AR-4: record a payment at the invoice level (allocated across its receivables).
+    const invoicePaymentMatch = pathname.match(/^\/api\/v1\/finance\/invoices\/([^/]+)\/payment$/);
+    if (method === 'POST' && invoicePaymentMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.receipts.write'))) return;
+      const [, invoiceId] = invoicePaymentMatch;
+      const body = await parseBody(req);
+      const bodyActor = parseActor(body);
+      const result = await recordInvoicePayment(prisma, invoiceId, {
+        ...body,
+        actorUserId: bodyActor.actorUserId,
+        actorDisplayName: bodyActor.actorDisplayName,
+      });
+      return json(res, 201, result);
+    }
+    const invoiceDetailMatch = pathname.match(/^\/api\/v1\/finance\/invoices\/([^/]+)$/);
+    if (method === 'GET' && invoiceDetailMatch) {
+      const actor = parseActorFromUrl(url);
+      if (!(await assertPermission({ userId: actor.actorUserId, res }, 'finance.invoices.read'))) return;
+      const [, invoiceId] = invoiceDetailMatch;
+      const invoice = await getCustomerInvoiceDetail(prisma, invoiceId);
+      if (!invoice) return json(res, 404, { message: 'Invoice not found.' });
+      return json(res, 200, { invoice });
     }
 
     if (method === 'GET' && pathname === '/api/v1/finance/bills') {

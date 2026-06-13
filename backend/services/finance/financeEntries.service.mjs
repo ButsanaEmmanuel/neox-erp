@@ -1236,6 +1236,75 @@ async function refreshReceivableTotals(tx, receivableId) {
   return updated;
 }
 
+// AR invoicing: recompute an invoice's totals from its lines + the payment
+// state of the underlying receivables. subtotal = Σ line amounts; collected /
+// outstanding roll up the line receivables; status is derived from payment.
+// A receivable belongs to at most one invoice, so its collectedAmount fully
+// belongs to this invoice.
+export async function refreshInvoiceTotals(tx, invoiceId) {
+  const invoice = await tx.customerInvoice.findUnique({
+    where: { id: invoiceId },
+    include: { lines: { include: { receivable: true } } },
+  });
+  if (!invoice) return null;
+
+  const lines = invoice.lines || [];
+  const subtotal = lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  const tax = Number(invoice.taxAmount || 0);
+  const total = subtotal + tax;
+  const collected = lines.reduce((sum, line) => sum + Number(line.receivable?.collectedAmount || 0), 0);
+  const outstanding = Math.max(total - collected, 0);
+
+  let status = invoice.status;
+  if (total > 0 && outstanding <= 0) status = 'paid';
+  else if (collected > 0) status = 'partially_paid';
+  else if (status === 'paid' || status === 'partially_paid') status = 'sent'; // payments reversed
+
+  return tx.customerInvoice.update({
+    where: { id: invoiceId },
+    data: {
+      subtotalAmount: subtotal,
+      totalAmount: total,
+      collectedAmount: collected,
+      outstandingAmount: outstanding,
+      status,
+    },
+  });
+}
+
+// One-time backfill: every legacy 1:1 invoice (receivableId set, no lines yet)
+// gets a single line mirroring its receivable, plus projectId + fresh totals.
+// Idempotent — skips invoices that already have lines.
+export async function backfillInvoiceLines(prisma) {
+  const invoices = await prisma.customerInvoice.findMany({
+    where: { receivableId: { not: null }, lines: { none: {} } },
+    include: { receivable: true },
+  });
+  let created = 0;
+  for (const invoice of invoices) {
+    if (!invoice.receivable) continue;
+    await prisma.$transaction(async (tx) => {
+      await tx.customerInvoiceLine.create({
+        data: {
+          invoiceId: invoice.id,
+          receivableId: invoice.receivableId,
+          description: invoice.receivable.referenceCode || null,
+          amount: invoice.subtotalAmount ?? invoice.receivable.totalAmount ?? 0,
+        },
+      });
+      if (!invoice.projectId && invoice.receivable.projectId) {
+        await tx.customerInvoice.update({
+          where: { id: invoice.id },
+          data: { projectId: invoice.receivable.projectId },
+        });
+      }
+      await refreshInvoiceTotals(tx, invoice.id);
+    });
+    created += 1;
+  }
+  return { invoicesProcessed: invoices.length, linesCreated: created };
+}
+
 async function refreshPayableTotals(tx, payableId) {
   const payable = await tx.payable.findUnique({ where: { id: payableId } });
   if (!payable) throw new Error('Payable not found.');
@@ -1337,6 +1406,175 @@ export async function createCustomerInvoice(prisma, payload) {
     });
 
     return invoice;
+  });
+}
+
+// AR-2: receivables of a project that are not yet on any invoice (and not
+// cancelled). The "billable" set for project-driven invoice generation.
+export async function listProjectBillableReceivables(prisma, projectId) {
+  return prisma.receivable.findMany({
+    where: {
+      projectId,
+      status: { not: 'cancelled' },
+      invoiceLines: { none: {} },
+    },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+// AR-2: generate ONE invoice grouping all (or a chosen subset of) un-invoiced
+// receivables of a project — one line per receivable. Idempotent: a receivable
+// already on an invoice (it has a line) is skipped, so re-running never
+// double-invoices. Returns { invoice, lineCount } or { invoice: null } when
+// there is nothing left to bill.
+export async function createInvoiceFromProject(prisma, payload) {
+  return prisma.$transaction(async (tx) => {
+    const where = {
+      projectId: payload.projectId,
+      status: { not: 'cancelled' },
+      invoiceLines: { none: {} },
+    };
+    if (Array.isArray(payload.includeReceivableIds) && payload.includeReceivableIds.length) {
+      where.id = { in: payload.includeReceivableIds };
+    }
+    const receivables = await tx.receivable.findMany({ where, orderBy: { createdAt: 'asc' } });
+    if (!receivables.length) {
+      return { invoice: null, lineCount: 0, message: 'No un-invoiced receivables for this project.' };
+    }
+
+    const tax = Number(payload.taxAmount ?? 0);
+    const subtotal = receivables.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
+    const now = new Date();
+    const clientAccountId = receivables.find((r) => r.clientAccountId)?.clientAccountId || null;
+
+    const invoice = await tx.customerInvoice.create({
+      data: {
+        projectId: payload.projectId,
+        invoiceNumber: payload.invoiceNumber || buildReference('INV'),
+        issueDate: now,
+        dueDate: payload.dueDate ? new Date(payload.dueDate) : new Date(now.getTime() + 30 * 86400000),
+        subtotalAmount: subtotal,
+        taxAmount: tax,
+        totalAmount: subtotal + tax,
+        currencyCode: payload.currencyCode || 'USD',
+        status: payload.status || 'draft',
+        clientAccountId,
+        notes: payload.notes || `Auto-generated from project ${payload.projectId}`,
+        createdByUserId: payload.actorUserId || null,
+        createdByName: payload.actorDisplayName || null,
+      },
+    });
+
+    for (const receivable of receivables) {
+      await tx.customerInvoiceLine.create({
+        data: {
+          invoiceId: invoice.id,
+          receivableId: receivable.id,
+          description: receivable.referenceCode || null,
+          amount: receivable.totalAmount,
+        },
+      });
+      await createFinanceActivity(tx, {
+        financeEntryId: receivable.financeEntryId,
+        actorUserId: payload.actorUserId,
+        actorDisplayName: payload.actorDisplayName || 'User',
+        actionType: 'invoice_created',
+        fieldName: 'invoiceNumber',
+        oldValueJson: null,
+        newValueJson: invoice.invoiceNumber,
+        message: `${payload.actorDisplayName || 'User'} grouped receivable ${receivable.referenceCode} into invoice ${invoice.invoiceNumber}`,
+        eventSource: 'user',
+      });
+    }
+
+    const refreshed = await refreshInvoiceTotals(tx, invoice.id);
+    return { invoice: refreshed, lineCount: receivables.length };
+  });
+}
+
+// AR-4: invoice with its lines (+ underlying receivables) and allocated receipts.
+export async function getCustomerInvoiceDetail(prisma, invoiceId) {
+  return prisma.customerInvoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      lines: { include: { receivable: true }, orderBy: { createdAt: 'asc' } },
+      receipts: { orderBy: { receiptDate: 'desc' } },
+    },
+  });
+}
+
+// AR-4: record a payment AT THE INVOICE LEVEL. The amount is allocated across
+// the invoice's line-receivables prorata of each one's outstanding balance,
+// creating one ReceiptCollection per receivable (tagged with invoiceId), then
+// refreshing each receivable and the invoice. Overpayment is capped to the
+// invoice's outstanding. Returns { invoice, receipts, applied }.
+export async function recordInvoicePayment(prisma, invoiceId, payload = {}) {
+  const amount = Number(payload.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Payment amount must be greater than zero.');
+  if (!payload.proofReference) throw new Error('Payment proof reference is required.');
+
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.customerInvoice.findUnique({
+      where: { id: invoiceId },
+      include: { lines: { include: { receivable: true } } },
+    });
+    if (!invoice) throw new Error('Invoice not found.');
+
+    const payableLines = (invoice.lines || [])
+      .filter((line) => line.receivable && Number(line.receivable.outstandingAmount || 0) > 0);
+    const totalOutstanding = payableLines.reduce((sum, line) => sum + Number(line.receivable.outstandingAmount || 0), 0);
+    if (totalOutstanding <= 0) throw new Error('Invoice has no outstanding amount to settle.');
+
+    const applied = Math.min(amount, totalOutstanding);
+
+    // Prorata allocation; last line absorbs the rounding remainder, capped to its outstanding.
+    let allocatedSoFar = 0;
+    const receipts = [];
+    for (let i = 0; i < payableLines.length; i += 1) {
+      const line = payableLines[i];
+      const lineOutstanding = Number(line.receivable.outstandingAmount || 0);
+      let share = i === payableLines.length - 1
+        ? Number((applied - allocatedSoFar).toFixed(2))
+        : Number(((applied * lineOutstanding) / totalOutstanding).toFixed(2));
+      share = Math.min(Math.max(share, 0), lineOutstanding);
+      if (share <= 0) continue;
+      allocatedSoFar += share;
+
+      let proofDocumentId = null;
+      try {
+        proofDocumentId = await attachSyntheticEvidence(tx, {
+          financeEntryId: line.receivable.financeEntryId,
+          documentType: 'receipt_payment_proof',
+          fileName: `${String(payload.proofReference).replace(/[^a-z0-9._-]/gi, '_')}.txt`,
+          text: `Invoice ${invoice.invoiceNumber} payment proof: ${payload.proofReference}`,
+          actorUserId: payload.actorUserId || null,
+          actorDisplayName: payload.actorDisplayName || null,
+        });
+      } catch {
+        proofDocumentId = null;
+      }
+
+      const receipt = await tx.receiptCollection.create({
+        data: {
+          receivableId: line.receivable.id,
+          invoiceId: invoice.id,
+          receiptReference: buildReference('RCPT'),
+          amount: share,
+          currencyCode: invoice.currencyCode || 'USD',
+          method: payload.method || 'bank_transfer',
+          status: 'completed',
+          proofDocumentId,
+          notes: payload.notes || `Allocation from invoice ${invoice.invoiceNumber}`,
+          receivedByUserId: payload.actorUserId || null,
+          receivedByName: payload.actorDisplayName || null,
+        },
+      });
+      receipts.push(receipt);
+      await refreshReceivableTotals(tx, line.receivable.id);
+    }
+
+    const updatedInvoice = await refreshInvoiceTotals(tx, invoiceId);
+    return { invoice: updatedInvoice, receipts, applied };
   });
 }
 

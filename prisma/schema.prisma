@@ -950,10 +950,11 @@ model Receivable {
   notes             String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
-  financeEntry      FinanceEntry        @relation(fields: [financeEntryId], references: [id])
+  financeEntry      FinanceEntry          @relation(fields: [financeEntryId], references: [id])
   invoices          CustomerInvoice[]
+  invoiceLines      CustomerInvoiceLine[]
   receipts          ReceiptCollection[]
-  clientAccount     ClientAccount?      @relation(fields: [clientAccountId], references: [id])
+  clientAccount     ClientAccount?        @relation(fields: [clientAccountId], references: [id])
 
   @@index([projectId, workItemId])
   @@index([clientAccountId])
@@ -990,28 +991,50 @@ model Payable {
 }
 
 model CustomerInvoice {
-  id              String         @id @default(cuid())
-  receivableId    String
-  invoiceNumber   String         @unique
-  issueDate       DateTime
-  dueDate         DateTime
-  subtotalAmount  Decimal        @db.Decimal(14, 2)
-  taxAmount       Decimal        @default(0) @db.Decimal(14, 2)
-  totalAmount     Decimal        @db.Decimal(14, 2)
-  currencyCode    String         @default("USD")
-  status          String         @default("sent")
-  clientAccountId String?
-  notes           String?
-  createdByUserId String?
-  createdByName   String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  receivable      Receivable     @relation(fields: [receivableId], references: [id])
-  clientAccount   ClientAccount? @relation(fields: [clientAccountId], references: [id])
+  id                String                @id @default(cuid())
+  receivableId      String? // deprecated: legacy 1:1 link, superseded by lines. Kept nullable for backfilled rows.
+  projectId         String? // project this invoice bills (grouping)
+  invoiceNumber     String                @unique
+  issueDate         DateTime
+  dueDate           DateTime
+  subtotalAmount    Decimal               @db.Decimal(14, 2)
+  taxAmount         Decimal               @default(0) @db.Decimal(14, 2)
+  totalAmount       Decimal               @db.Decimal(14, 2)
+  collectedAmount   Decimal               @default(0) @db.Decimal(14, 2)
+  outstandingAmount Decimal               @default(0) @db.Decimal(14, 2)
+  currencyCode      String                @default("USD")
+  status            String                @default("sent") // draft | sent | partially_paid | paid | cancelled
+  clientAccountId   String?
+  notes             String?
+  createdByUserId   String?
+  createdByName     String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  receivable        Receivable?           @relation(fields: [receivableId], references: [id])
+  clientAccount     ClientAccount?        @relation(fields: [clientAccountId], references: [id])
+  lines             CustomerInvoiceLine[]
+  receipts          ReceiptCollection[]
 
   @@index([receivableId, status])
+  @@index([projectId, status])
   @@index([clientAccountId])
   @@index([dueDate])
+}
+
+// One line per receivable grouped into an invoice. A receivable belongs to at
+// most one invoice (unique receivableId), which also enforces idempotency:
+// "un-invoiced receivables" = those with no line.
+model CustomerInvoiceLine {
+  id           String          @id @default(cuid())
+  invoiceId    String
+  receivableId String          @unique
+  description  String?
+  amount       Decimal         @db.Decimal(14, 2)
+  createdAt    DateTime        @default(now())
+  invoice      CustomerInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  receivable   Receivable      @relation(fields: [receivableId], references: [id])
+
+  @@index([invoiceId])
 }
 
 model VendorBill {
@@ -1058,23 +1081,26 @@ model PaymentDisbursement {
 }
 
 model ReceiptCollection {
-  id               String     @id @default(cuid())
+  id               String           @id @default(cuid())
   receivableId     String
-  receiptReference String     @unique
-  amount           Decimal    @db.Decimal(14, 2)
-  currencyCode     String     @default("USD")
-  receiptDate      DateTime   @default(now())
-  method           String     @default("bank_transfer")
-  status           String     @default("processing")
+  invoiceId        String? // invoice this receipt was recorded against (invoice-level payment), if any
+  receiptReference String           @unique
+  amount           Decimal          @db.Decimal(14, 2)
+  currencyCode     String           @default("USD")
+  receiptDate      DateTime         @default(now())
+  method           String           @default("bank_transfer")
+  status           String           @default("processing")
   proofDocumentId  String?
   notes            String?
   receivedByUserId String?
   receivedByName   String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  receivable       Receivable @relation(fields: [receivableId], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  receivable       Receivable       @relation(fields: [receivableId], references: [id])
+  invoice          CustomerInvoice? @relation(fields: [invoiceId], references: [id])
 
   @@index([receivableId, receiptDate])
+  @@index([invoiceId])
   @@index([status])
 }
 
